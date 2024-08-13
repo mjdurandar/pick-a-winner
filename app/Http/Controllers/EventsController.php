@@ -3,14 +3,15 @@
 namespace App\Http\Controllers;
 
 use App\Models\Events;
+use App\Models\Form;
 use Illuminate\Http\Request;
 
 class EventsController extends Controller
 {
     public function index()
     {   
-        $events = Events::all();
-        return view('events-page',compact('events'));
+        $events = Events::with('forms')->get();
+        return view('events.index', compact('events'));
     }
 
     public function store(Request $request)
@@ -34,30 +35,5 @@ class EventsController extends Controller
 
         return redirect()->back()->with('success', 'Event created successfully!');
     }
-
-    public function createForm(Events $event)
-    {
-        return view('form-builder.create', compact('event'));
-    }
-
-    public function storeForm(Request $request)
-    {   
-        dd($request->all());
-        
-        // Validate and store the form fields
-        $validatedData = $request->validate([
-            'event_id' => 'required|integer',
-            'field_name' => 'required|string|max:255',
-            'field_type' => 'required|string',
-            'field_options' => 'nullable|string',
-        ]);
-
-        // Save the form field to the database or process as needed
-        // This is where you would save the form field to a table, related to the event
-
-        return redirect()->route('events-page')->with('success', 'Sign Up Form created successfully!');
-    }
-
-
 
 }

@@ -16,4 +16,15 @@ class Events extends Model
         'description',
     ];
 
+    public function forms()
+    {
+        return $this->hasMany(Form::class, 'event_id');
+    }
+
+    public function formResponses()
+    {
+        return $this->hasMany(FormResponse::class, 'event_id');
+    }
+
+
 }

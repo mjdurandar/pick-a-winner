@@ -23,7 +23,12 @@
                                         <p class="card-text"><strong>Date:</strong> {{ $event->date }}</p>
                                         <p class="card-text">{{ $event->description }}</p>
                                         <div class="d-flex justify-content-end">
-                                            <a href="{{ route('form-builder.create', $event->id) }}" class="btn btn-primary mt-3">Create Sign Up Form</a>
+                                          
+                                            @if($event->forms()->exists())
+                                                <a href="{{ route('form-builder.view', $event->forms->first()->id) }}" class="btn btn-success mt-3">View Sign Up Form</a>
+                                            @else
+                                                <a href="{{ route('form-builder.create', $event->id) }}" class="btn btn-primary mt-3">Create Sign Up Form</a>
+                                            @endif
                                         </div>
                                     </div>
                                 </div>
