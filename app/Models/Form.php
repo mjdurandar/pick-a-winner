@@ -9,7 +9,7 @@ class Form extends Model
 {
     use HasFactory;
 
-    protected $fillable = ['event_id'];
+    protected $fillable = ['event_id', 'banner_image'];
 
     public function fields()
     {

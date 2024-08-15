@@ -7,6 +7,13 @@
 
     <div class="py-12">
         <div class="max-w-7xl mx-auto sm:px-6 lg:px-8 col-md-5">
+            @if($form->banner_image)
+                <div class="mb-4">
+                    <img src="{{ asset('storage/' . $form->banner_image) }}" alt="Banner Image" class="w-full h-auto">
+                </div>
+            @endif
+        </div>
+        <div class="max-w-7xl mx-auto sm:px-6 lg:px-8 col-md-5">
             <div class="bg-white overflow-hidden shadow-xl sm:rounded-lg p-6">
                 <form action="{{ route('form-builder.submit', $form->id) }}" method="POST">
                     @csrf

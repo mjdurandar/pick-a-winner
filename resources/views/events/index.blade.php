@@ -22,10 +22,17 @@
                                         <h5 class="card-title" style="font-size: 1.5rem;">{{ $event->name }}</h5>
                                         <p class="card-text"><strong>Date:</strong> {{ $event->date }}</p>
                                         <p class="card-text">{{ $event->description }}</p>
-                                        <div class="d-flex justify-content-end">
-                                          
+                                        <div>
                                             @if($event->forms()->exists())
-                                                <a href="{{ route('form-builder.view', $event->forms->first()->id) }}" class="btn btn-success mt-3">View Sign Up Form</a>
+                                            <div class="d-flex justify-content-between">
+                                                <div>
+                                                <a href="{{ route('events.edit', $event->id) }}" class="btn btn-secondary mt-3"><i class="fa-solid fa-pen-to-square"></i></a>
+                                                </div>
+                                                <div>
+                                                <a href="{{ route('form-builder.view', $event->forms->first()->id) }}" class="btn btn-success mt-3"><i class="fa-solid fa-magnifying-glass"></i></a>
+                                                <a href="{{ route('form-builder.edit', [$event->id, $event->forms->first()->id]) }}" class="btn btn-primary mt-3">Edit Form</a>
+                                                </div>
+                                            </div>
                                             @else
                                                 <a href="{{ route('form-builder.create', $event->id) }}" class="btn btn-primary mt-3">Create Sign Up Form</a>
                                             @endif

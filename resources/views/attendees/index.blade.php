@@ -34,6 +34,7 @@
                                     </td>
                                     <td class="py-2 px-4 border-b border-gray-300 dark:border-gray-700">
                                         <a href="{{ route('attendees.show', $event->id) }}" class="btn btn-success">View</a>
+                                        <a href="{{ route('attendees.show', $event->id) }}" class="ms-2 btn btn-secondary">Pick a Winner</a>
                                     </td>
                                 </tr>
                             @endforeach

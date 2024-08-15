@@ -8,9 +8,13 @@
     <div class="py-12">
         <div class="max-w-7xl mx-auto sm:px-6 lg:px-8 col-md-5">
             <div class="bg-white overflow-hidden shadow-xl sm:rounded-lg p-6">
-                <form action="{{ route('form-builder.store', $event->id) }}" method="POST">
+                <form action="{{ route('form-builder.store', $event->id) }}" method="POST" enctype="multipart/form-data">
                     @csrf
                     <div id="fields-container">
+                        <div class="field-group mb-4">
+                            <label for="field_name_0" class="block text-gray-700 text-sm font-bold mb-2">Banner Image</label>
+                            <input type="file" id="banner_image" name="banner_image" class="border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none">
+                        </div>
                         <div class="field-group mb-4">
                             <label for="field_name_0" class="block text-gray-700 text-sm font-bold mb-2">Field Name</label>
                             <input type="text" id="field_name_0" name="fields[0][name]" class="border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none" required>
