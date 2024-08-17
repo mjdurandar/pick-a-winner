@@ -16,6 +16,45 @@
                             <input type="file" id="banner_image" name="banner_image" class="border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none">
                         </div>
                         <div class="field-group mb-4">
+                            <label for="email" class="block text-gray-700 text-sm font-bold mb-2">Email</label>
+                            <input type="email" id="email" name="email" class="border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none" disabled>
+                        </div>
+                        <div class="field-group mb-4">
+                            <label for="first_name" class="block text-gray-700 text-sm font-bold mb-2">First Name</label>
+                            <input type="text" id="first_name" name="first_name" class="border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none" disabled>
+                        </div>
+                        <div class="field-group mb-4">
+                            <label for="last_name" class="block text-gray-700 text-sm font-bold mb-2">Last Name</label>
+                            <input type="text" id="last_name" name="last_name" class="border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none" disabled>
+                        </div>
+                        <div class="field-group mb-4">
+                            <label for="gender" class="block text-gray-700 text-sm font-bold mb-2">Gender</label>
+                            <div class="flex">
+                                <select id="gender" name="gender" class="block appearance-none w-full bg-white border border-gray-400 hover:border-gray-500 px-4 py-2 pr-8 rounded shadow leading-tight focus:outline-none focus:shadow-outline">
+                                    <option value="">Select Gender</option>
+                                </select>
+                                <button id="add-gender-btn" class="btn btn-success ml-2"><i class="fa-solid fa-plus"></i></button>
+                            </div>
+                        </div>
+
+                        <!-- Hidden input field to capture new gender input -->
+                        <div id="new-gender-container" class="mt-2 hidden">
+                            <input type="text" id="new-gender" class="border border-gray-400 px-4 py-2 rounded shadow" placeholder="Enter new gender" />
+                            <button id="submit-gender-btn" class="btn btn-primary ml-2">Add</button>
+                        </div>
+                        
+                        <!-- Hidden input to track all genders -->
+                        <input type="hidden" id="all-genders" name="all_genders" value="">
+
+                        <div class="field-group mb-4">
+                            <label for="age" class="block text-gray-700 text-sm font-bold mb-2">Age</label>
+                            <input type="number" id="age" name="age" class="border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none" disabled>
+                        </div>
+                        <div class="field-group mb-4">
+                            <label for="event_location" class="block text-gray-700 text-sm font-bold mb-2">Event Location</label>
+                            <input type="text" id="event_location" name="event_location" class="border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none" disabled>
+                        </div>
+                        <div class="field-group mb-4">
                             <label for="field_name_0" class="block text-gray-700 text-sm font-bold mb-2">Field Name</label>
                             <input type="text" id="field_name_0" name="fields[0][name]" class="border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none" required>
 
@@ -48,6 +87,7 @@
 
     <script>
         let fieldCount = 1;
+        let gendersArray = [];
 
         document.getElementById('add-field').addEventListener('click', function () {
             const fieldsContainer = document.getElementById('fields-container');
@@ -87,16 +127,45 @@
             fieldCount++;
         });
 
-        document.querySelectorAll('.field-type-select').forEach(function (select) {
-            select.addEventListener('change', function () {
-                const index = this.getAttribute('data-index');
-                const optionsContainer = document.getElementById(`field_options_container_${index}`);
-                if (this.value === 'dropdown') {
-                    optionsContainer.style.display = 'block';
-                } else {
-                    optionsContainer.style.display = 'none';
-                }
-            });
+        // Event listener for adding a gender
+        document.getElementById('add-gender-btn').addEventListener('click', function(event) {
+            event.preventDefault();
+            document.getElementById('new-gender-container').classList.remove('hidden');
+        });
+
+        document.getElementById('submit-gender-btn').addEventListener('click', function(event) {
+            event.preventDefault();
+            const newGender = document.getElementById('new-gender').value.trim();
+
+            if (newGender) {
+                // Add the new gender to the genders array
+                gendersArray.push(newGender);
+
+                // Also add the new gender to the dropdown (optional)
+                const genderSelect = document.getElementById('gender');
+                const newOption = document.createElement('option');
+                newOption.value = newGender;
+                newOption.textContent = newGender;
+                genderSelect.appendChild(newOption);
+
+                // Clear the input and hide the add gender container
+                document.getElementById('new-gender-container').classList.add('hidden');
+                document.getElementById('new-gender').value = '';
+            }
+
+            // Update the hidden input with the current array of genders
+            document.getElementById('all-genders').value = gendersArray.join(',');
+        });
+
+        // Event listener for selecting an existing gender
+        document.getElementById('gender').addEventListener('change', function() {
+            const selectedGender = this.value;
+            if (selectedGender && !gendersArray.includes(selectedGender)) {
+                gendersArray.push(selectedGender);
+            }
+
+            // Update the hidden input with the current array of genders
+            document.getElementById('all-genders').value = gendersArray.join(',');
         });
     </script>
 </x-app-layout>

@@ -28,6 +28,36 @@
                         <p class="text-xs text-gray-500 mt-1">Leave empty if you don't want to change the banner image.</p>
                     </div>
 
+                    <div class="field-group mb-4">
+                        <label for="email" class="block text-gray-700 text-sm font-bold mb-2">Email</label>
+                        <input type="email" id="email" name="email" class="border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none" disabled>
+                    </div>
+                    <div class="field-group mb-4">
+                        <label for="first_name" class="block text-gray-700 text-sm font-bold mb-2">First Name</label>
+                        <input type="text" id="first_name" name="first_name" class="border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none" disabled>
+                    </div>
+                    <div class="field-group mb-4">
+                        <label for="last_name" class="block text-gray-700 text-sm font-bold mb-2">Last Name</label>
+                        <input type="text" id="last_name" name="last_name" class="border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none" disabled>
+                    </div>
+                    <div class="field-group mb-4">
+                        <label for="gender" class="block text-gray-700 text-sm font-bold mb-2">Gender</label>
+                        <select id="gender" name="gender" class="block appearance-none w-full bg-white border border-gray-400 hover:border-gray-500 px-4 py-2 pr-8 rounded shadow leading-tight focus:outline-none focus:shadow-outline">
+                            <option value="">Select Gender</option>
+                            @foreach($genders as $gender)
+                                <option value="{{ $gender->name }}">{{ $gender->name }}</option>
+                            @endforeach
+                        </select>
+                    </div>
+                    <div class="field-group mb-4">
+                        <label for="age" class="block text-gray-700 text-sm font-bold mb-2">Age</label>
+                        <input type="number" id="age" name="age" class="border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none" disabled>
+                    </div>
+                    <div class="field-group mb-4">
+                        <label for="event_location" class="block text-gray-700 text-sm font-bold mb-2">Event Location</label>
+                        <input type="text" id="event_location" name="event_location" class="border rounded w-full py-2 px-3 text-gray-700 leading-tight focus:outline-none" disabled>
+                    </div>
+
                     <!-- Existing form fields for editing -->
                     <div id="fields-container">
                         @foreach($form->fields as $index => $field)

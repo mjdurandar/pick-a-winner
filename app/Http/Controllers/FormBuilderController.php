@@ -7,21 +7,36 @@ use App\Models\Events;
 use App\Models\FormResponse;
 use App\Models\Form;
 use App\Models\FormField;
+use App\Models\Gender;
 use Illuminate\Support\Facades\Storage;
 
 class FormBuilderController extends Controller
 {
     public function createForm(Events $event)
-    {
-        return view('form-builder.create', compact('event'));
+    {   
+        $genders = Gender::all();
+        
+        return view('form-builder.create', compact('event','genders'));
     }
 
     public function storeForm(Request $request, Events $event)
     {   
         $bannerImagePath = null;
-       
+
         if ($request->hasFile('banner_image')) {
             $bannerImagePath = $request->file('banner_image')->store('banners', 'public');
+        }
+
+        if($request->all_genders)
+        {   
+            $gendersArray = explode(',', $request->all_genders);
+            foreach($gendersArray as $genders)
+            {
+                Gender::create([
+                    'name' => $genders,
+                    'event_id' => $event->id,
+                ]);
+            }
         }
 
         // Create the form and associate it with the event
@@ -73,7 +88,7 @@ class FormBuilderController extends Controller
 
         // Validate the email uniqueness within the form
         $existingResponses = FormResponse::where('form_id', $formId)->get();
-
+        
         foreach ($existingResponses as $response) {
             $responseData = json_decode($response->responses, true);
             foreach ($responseData as $existingValue) {
@@ -97,9 +112,10 @@ class FormBuilderController extends Controller
     public function editForm($eventId)
     {
         $event = Events::findOrFail($eventId);
-        $form = Form::where('event_id', $eventId)->first();        
+        $form = Form::where('event_id', $eventId)->first();     
+        $genders = Gender::where('event_id', $eventId)->get();
     
-        return view('form-builder.edit', compact('event', 'form'));
+        return view('form-builder.edit', compact('event', 'form', 'genders'));
     }
 
     public function updateForm(Request $request, $eventId, $formId)
