@@ -5,6 +5,10 @@ namespace App\Http\Controllers;
 use App\Models\Events;
 use Illuminate\Http\Request;
 use App\Models\SignUpForm;
+use Illuminate\Support\Str;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
+use Illuminate\Database\Schema\Blueprint;
 
 class SignUpFormController extends Controller
 {
@@ -24,6 +28,15 @@ class SignUpFormController extends Controller
     // Generate a new sign up form with default questions
     public function generate(Request $request)
     {   
+        // Fetch event details
+        $event = DB::table('events')->where('id', $request->event_id)->first();
+        if (!$event) {
+            return redirect()->back()->withErrors('Event not found.');
+        }
+
+        // Format the table name: `event_name_date_created`
+        $eventName = Str::slug($event->event_name, '_');
+        $tableName = "signup_" . $eventName . "_" . now()->format('Y_m_d_His');
         // Default Questions as per your specifications
         $defaultQuestions = [
             ['text' => 'Events Location', 'type' => 'dropdown', 'options' => ['Option 1', 'Option 2']], // User will input locations
@@ -72,8 +85,26 @@ class SignUpFormController extends Controller
             'privacy_link' => '#',
             'terms_link' => '#',
             'heading' => 'GET A CHANCE TO WIN AMAZING PRIZES!',
+            'table_name' => $tableName,
             'questions' => json_encode($defaultQuestions),
         ]);
+
+        // ✅ CREATE TABLE BASED ON QUESTIONS
+        Schema::create($tableName, function (Blueprint $table) use ($defaultQuestions) {
+            $table->id();
+            $table->foreignId('event_id')->constrained('events')->onDelete('cascade');
+            $table->timestamps(); // Add timestamps
+            
+            foreach ($defaultQuestions as $question) {
+                $columnName = Str::slug($question['text'], '_'); // Convert question text to column name
+                if ($question['type'] === 'text' || $question['type'] === 'number') {
+                    $table->string($columnName)->nullable();
+                } elseif ($question['type'] === 'dropdown') {
+                    $table->string($columnName)->nullable();
+                }
+            }
+        });
+
     
         return redirect()->route('signup.index', ['eventId' => $request->event_id]);
     }
@@ -89,22 +120,98 @@ class SignUpFormController extends Controller
     // Update form
     public function update(Request $request, $eventId)
     {
-        // Validate that questions are provided
-        $request->validate([
-            'questions' => 'required|json'
-        ]);
-    
-        // Find the form based on the event ID
         $form = SignUpForm::where('event_id', $eventId)->firstOrFail();
-        // Update questions
-        $form->questions = $request->questions;
-        $form->heading = $request->heading;
-        $form->event_description = $request->event_description;
-        $form->privacy_link = $request->privacy_link;
-        $form->terms_link = $request->terms_link;
-        $form->save();
+        $oldQuestions = json_decode($form->questions, true);
+        $newQuestions = json_decode($request->questions, true);
+        $oldTableName = $form->table_name;
+    
+        // ✅ Ensure old table name exists
+        if (empty($oldTableName) || !Schema::hasTable($oldTableName)) {
+            return redirect()->back()->withErrors("Error: The existing table does not exist.");
+        }
+    
+        // ✅ Modify Table Columns
+        Schema::table($oldTableName, function (Blueprint $table) use ($oldQuestions, $newQuestions) {
+            foreach ($oldQuestions as $question) {
+                $oldColumn = Str::slug($question['text'], '_');
+                if (!Schema::hasColumn($table->getTable(), $oldColumn)) continue;
+                
+                // Remove old columns that no longer exist
+                if (!in_array($oldColumn, array_map(fn($q) => Str::slug($q['text'], '_'), $newQuestions))) {
+                    $table->dropColumn($oldColumn);
+                }
+            }
+    
+            foreach ($newQuestions as $question) {
+                $newColumn = Str::slug($question['text'], '_');
+                if (!Schema::hasColumn($table->getTable(), $newColumn)) {
+                    $table->string($newColumn)->nullable();
+                }
+            }
+        });
+    
+        // ✅ Update Form in Database
+        $form->update([
+            'heading' => $request->heading,
+            'event_description' => $request->event_description,
+            'privacy_link' => $request->privacy_link,
+            'terms_link' => $request->terms_link,
+            'questions' => json_encode($newQuestions),
+        ]);
     
         return redirect()->route('signup.index', ['eventId' => $eventId])->with('success', 'Form updated successfully!');
     }
+
+    //EMBED FUNCTIONS
+    public function embed($eventId)
+    {
+        // Fetch the form details
+        $form = SignUpForm::where('event_id', $eventId)->firstOrFail();
+        $event = Events::where('id', $eventId)->first();
+
+        return inertia('SignUpFormEmbed', [
+            'form' => $form,
+            'event' => $event,
+        ]);
+    }
+
+    public function storeEmbeddedData(Request $request, $eventId)
+    {   
+        $form = SignUpForm::where('event_id', $eventId)->firstOrFail();
+        $tableName = $form->table_name; // Ensure correct table
+    
+        // Ensure table exists before inserting
+        if (!Schema::hasTable($tableName)) {
+            return response()->json(['error' => 'Table does not exist'], 400);
+        }
+    
+        // Get the list of valid columns from the database table
+        $validColumns = Schema::getColumnListing($tableName);
+    
+        // Transform request data: Normalize question text into column names
+        $insertData = [
+            'event_id' => $eventId,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ];
+    
+        foreach ($request->except('_token') as $key => $value) {
+            $columnName = Str::slug($key, '_'); // Convert spaces to underscores
+            if (in_array($columnName, $validColumns)) { // ✅ Ensure column exists before inserting
+                $insertData[$columnName] = $value;
+            }
+        }
+    
+        // Insert the validated data into the correct table
+        DB::table($tableName)->insert($insertData);
+        // dd($insertData);
+        return redirect()->route('signup.embed', ['eventId' => $eventId])->with('success');
+    }
+    
+    
+
+
+    
+    
     
 }

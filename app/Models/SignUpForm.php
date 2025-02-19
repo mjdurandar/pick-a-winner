@@ -12,6 +12,7 @@ class SignUpForm extends Model
     protected $fillable = [
         'event_id',
         'questions',
+        'table_name',
         'event_banner',
         'heading',
         'event_description',

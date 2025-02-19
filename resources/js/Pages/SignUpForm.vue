@@ -1,5 +1,5 @@
 <script setup>
-import { ref, watchEffect } from 'vue';
+import { ref, watchEffect, computed } from 'vue';
 import { router } from '@inertiajs/vue3';
 import Swal from 'sweetalert2';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout.vue';
@@ -14,6 +14,30 @@ const props = defineProps({
 
 // ✅ Store form data reactively
 const signupForm = ref(props.form || null);
+// ✅ Generate Signup Form Link
+const signupFormUrl = computed(() => {
+    return `${window.location.origin}/adventureentertainment/form/${props.eventId}`;
+});
+
+
+// ✅ Copy Signup Form URL to Clipboard
+const copySignupFormUrl = () => {
+    navigator.clipboard.writeText(signupFormUrl.value).then(() => {
+        Swal.fire({
+            icon: 'success',
+            title: 'Signup Link Copied!',
+            text: 'Paste this link anywhere to share the signup form.',
+            timer: 2500,
+            showConfirmButton: false
+        });
+    }).catch(() => {
+        Swal.fire({
+            icon: 'error',
+            title: 'Failed to Copy',
+            text: 'Please copy the link manually.',
+        });
+    });
+};
 
 const generateSignUpForm = () => {
     Swal.fire({
@@ -58,13 +82,18 @@ watchEffect(() => {
                 <h2 class="text-xl font-semibold leading-tight text-gray-800">
                     Sign Up Form for Event: {{ eventValues.event_name }}
                 </h2>
-                <!-- ✅ If form exists, show "Edit Form" button, else show "Generate" -->
+                <div>
+                <button v-if="signupForm" @click="copySignupFormUrl()" class="btn btn-success me-2">
+                    Copy Signup Link
+                </button>
+
                 <button v-if="signupForm" @click="editSignUpForm()" class="btn btn-warning">
                     Edit Form
                 </button>
                 <button v-else @click="generateSignUpForm()" class="btn btn-primary">
                     Generate Sign Up Form
                 </button>
+                </div>
             </div>
         </template>
 
@@ -78,10 +107,10 @@ watchEffect(() => {
                     <div class="pt-4 pb-5 pe-5 ps-5 m-auto" style="background-color: white; width: 60%;">
                         <!-- ✅ Form description -->
                         <div class="mb-3 text-center">
-                            <h1 class="mb-3" style="font-size: 20px; font-weight: 900; margin-bottom: 10px;">
+                            <h1 class="mb-3" style="font-size: 22px; font-weight: 900; margin-bottom: 10px;">
                                 {{ form.heading }}
                             </h1>
-                            <p class="mb-3" style="font-size: 15px;">
+                            <p class="mb-3" style="font-size: 16px;">
                                 {{ form.event_description }}
                             </p>
                             <p> 

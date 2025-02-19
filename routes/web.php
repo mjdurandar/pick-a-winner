@@ -19,6 +19,8 @@ Route::get('/users', function () {
     return Inertia::render('Users');
 })->middleware(['auth', 'verified'])->name('users');
 
+Route::get('/adventureentertainment/form/{eventId}', [SignUpFormController::class, 'embed'])->name('signup.embed');
+Route::post('/adventureentertainment/form/{eventId}', [SignUpFormController::class, 'storeEmbeddedData'])->name('signup.storeEmbedded');
 
 Route::middleware('auth')->group(function () {
 
@@ -32,12 +34,11 @@ Route::middleware('auth')->group(function () {
     Route::get('/signup-form/{eventId}', [SignUpFormController::class, 'index'])->name('signup.index');
     Route::post('/signup-form/{eventId}', [SignUpFormController::class, 'store'])->name('signup.store');
     Route::post('/signup-form', [SignUpFormController::class, 'generate'])->name('signup.generate');
-    // Route::patch('/signup-form/{eventId}', [SignUpFormController::class, 'update'])->name('signup.update');
     Route::delete('/signup-form/{eventId}', [SignUpFormController::class, 'destroy'])->name('signup.destroy');
 
     //EDIT SIGN UP FORM ROUTES
     Route::get('/signup-form/edit/{formId}', [SignUpFormController::class, 'edit'])->name('signup.edit');
-    // UPDATE SIGN UP FORM ROUTES
+    //UPDATE SIGN UP FORM ROUTES
     Route::post('/signup-form/update/{eventId}', [SignUpFormController::class, 'update'])->name('signup.update');
 
     Route::get('/profile', [ProfileController::class, 'edit'])->name('profile.edit');
