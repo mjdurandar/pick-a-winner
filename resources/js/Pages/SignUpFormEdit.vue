@@ -119,7 +119,7 @@ watchEffect(() => {
                     <input v-model="form.terms_link" type="text" class="form-control mb-2" />
                 </div>
                 
-                <h2 class="text-lg font-bold mb-3">Edit Questions</h2>
+                <h2 class="text-lg font-bold mb-3">Edit Questionss</h2>
 
                 <!-- ✅ Loop through questions -->
                 <div v-for="(question, index) in signupForm.questions" :key="index" class="mb-4 p-3 border rounded">
