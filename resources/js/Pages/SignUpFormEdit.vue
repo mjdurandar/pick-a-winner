@@ -65,6 +65,42 @@ const removeOption = (qIndex, optIndex) => {
 
 // ✅ Save the updated form
 const saveForm = () => {
+    // ✅ Check if required fields are filled
+    if (!signupForm.value.heading.trim() || 
+        !signupForm.value.event_description.trim() || 
+        !signupForm.value.privacy_link.trim() || 
+        !signupForm.value.terms_link.trim()) {
+        Swal.fire('Error!', 'Please fill in all required fields.', 'error');
+        return;
+    }
+
+    // ✅ Check if at least one question exists
+    if (signupForm.value.questions.length === 0) {
+        Swal.fire('Error!', 'At least one question is required.', 'error');
+        return;
+    }
+
+    // ✅ Check if all questions have text and type
+    for (let i = 0; i < signupForm.value.questions.length; i++) {
+        let question = signupForm.value.questions[i];
+
+        if (!question.text.trim()) {
+            Swal.fire('Error!', `Question ${i + 1} is missing text.`, 'error');
+            return;
+        }
+
+        if (!question.type) {
+            Swal.fire('Error!', `Please select a type for Question ${i + 1}.`, 'error');
+            return;
+        }
+
+        // ✅ Check if dropdown questions have at least one option
+        if (question.type === 'dropdown' && question.options.length === 0) {
+            Swal.fire('Error!', `Dropdown question ${i + 1} must have at least one option.`, 'error');
+            return;
+        }
+    }
+
     Swal.fire({
         title: 'Save changes?',
         text: 'This will update the sign-up form.',
@@ -111,30 +147,35 @@ watchEffect(() => {
             </h2>
         </template>
 
-        <div class="py-6 m-auto" style="width: 50%;">
-            <div class="mx-auto max-w-5xl bg-white p-6 shadow rounded-lg">
-                <!-- ✅ Static Section: Description Fields (Not Draggable) -->
+        <!-- Responsive Form Container -->
+        <div class="py-6 mx-auto w-full px-4 md:w-1/2">
+            <div class="bg-white p-6 shadow rounded-lg">
+
+                <!-- ✅ Heading Input -->
                 <h2 class="text-lg font-bold mb-3">Edit Heading</h2>
-                <div class="mb-4 p-3 border rounded">
-                    <input v-model="signupForm.heading" type="text" class="form-control mb-2" />
+                <div class="mb-4">
+                    <input v-model="signupForm.heading" type="text" class="w-full border p-2 rounded" />
                 </div>
 
+                <!-- ✅ Description Input -->
                 <h2 class="text-lg font-bold mb-3">Edit Description</h2>
-                <div class="mb-4 p-3 border rounded">
-                    <textarea v-model="signupForm.event_description" class="form-control mb-2" rows="3"></textarea>
+                <div class="mb-4">
+                    <textarea v-model="signupForm.event_description" class="w-full border p-2 rounded" rows="3"></textarea>
                 </div>
 
+                <!-- ✅ Privacy Policy Link -->
                 <h2 class="text-lg font-bold mb-3">Edit Privacy Policy Link</h2>
-                <div class="mb-4 p-3 border rounded">
-                    <input v-model="signupForm.privacy_link" type="text" class="form-control mb-2" />
+                <div class="mb-4">
+                    <input v-model="signupForm.privacy_link" type="text" class="w-full border p-2 rounded" />
                 </div>
 
+                <!-- ✅ Terms and Conditions Link -->
                 <h2 class="text-lg font-bold mb-3">Edit Terms and Conditions Link</h2>
-                <div class="mb-4 p-3 border rounded">
-                    <input v-model="signupForm.terms_link" type="text" class="form-control mb-2" />
+                <div class="mb-4">
+                    <input v-model="signupForm.terms_link" type="text" class="w-full border p-2 rounded" />
                 </div>
 
-                <!-- ✅ Draggable Section: Only Questions Can Be Sorted -->
+                <!-- ✅ Draggable Questions Section -->
                 <h2 class="text-lg font-bold mb-3">Edit Questions (Drag to Reorder)</h2>
                 <div>
                     <div
@@ -144,38 +185,38 @@ watchEffect(() => {
                         @dragstart="dragStart(index)"
                         @dragover.prevent
                         @drop="drop(index)"
-                        class="mb-4 p-3 border rounded shadow-sm bg-light"
-                        style="cursor: grab;"
+                        class="mb-4 p-3 border rounded shadow-sm bg-gray-100 cursor-grab"
                     >
-                        <label class="form-label font-medium">Question:</label>
-                        <input v-model="question.text" type="text" class="form-control mb-2" />
+                        <label class="font-medium">Question:</label>
+                        <input v-model="question.text" type="text" class="w-full border p-2 rounded mb-2" />
 
                         <!-- ✅ Question Type Dropdown -->
-                        <select v-model="question.type" @change="updateQuestionType(index, question.type)" class="form-select mb-2">
+                        <select v-model="question.type" @change="updateQuestionType(index, question.type)" class="w-full border p-2 rounded mb-2">
                             <option value="text">Text Input</option>
                             <option value="dropdown">Dropdown</option>
                         </select>
 
                         <!-- ✅ Dropdown Options -->
                         <div v-if="question.type === 'dropdown'">
-                            <label class="form-label">Dropdown Options:</label>
-                            <div v-for="(option, optIndex) in question.options" :key="optIndex" class="d-flex mb-2">
-                                <input v-model="question.options[optIndex]" type="text" class="form-control me-2" />
-                                <button @click="removeOption(index, optIndex)" class="btn btn-danger btn-sm">Remove</button>
+                            <label class="font-medium">Dropdown Options:</label>
+                            <div v-for="(option, optIndex) in question.options" :key="optIndex" class="flex gap-2 mb-2">
+                                <input v-model="question.options[optIndex]" type="text" class="flex-1 border p-2 rounded" />
+                                <button @click="removeOption(index, optIndex)" class="bg-red-500 text-white px-2 py-1 rounded">Remove</button>
                             </div>
-                            <button @click="addOption(index)" class="btn btn-success btn-sm m-1">Add Option</button>
+                            <button @click="addOption(index)" class="bg-green-500 text-white px-3 py-1 rounded">Add Option</button>
                         </div>
 
                         <!-- ✅ Remove Question Button -->
-                        <button @click="removeQuestion(index)" class="btn btn-danger btn-sm mt-2">Remove Question</button>
+                        <button @click="removeQuestion(index)" class="bg-red-500 text-white px-3 py-1 rounded mt-2">Remove Question</button>
                     </div>
                 </div>
 
                 <!-- ✅ Add Question Button -->
-                <button @click="addQuestion" class="btn btn-primary btn-sm mt-3">Add Question</button>
+                <button @click="addQuestion" class="bg-blue-500 text-white px-3 py-2 rounded w-full mt-3">Add Question</button>
 
                 <!-- ✅ Save Form Button -->
-                <button @click="saveForm" class="btn btn-success w-full mt-4">Save Form</button>
+                <button @click="saveForm" class="bg-green-500 text-white px-4 py-2 rounded w-full mt-4">Save Form</button>
+
             </div>
         </div>
     </AuthenticatedLayout>

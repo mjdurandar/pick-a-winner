@@ -39,6 +39,10 @@ const copySignupFormUrl = () => {
     });
 };
 
+const submitTest = () => {
+    Swal.fire('Submitted!', 'This is a test submission. No data has been received. Please copy the URL link and submit the data.', 'success');
+};
+
 const generateSignUpForm = () => {
     Swal.fire({
         title: 'Are you sure you want to Generate Sign Up Form?',
@@ -78,72 +82,78 @@ watchEffect(() => {
     <Head title="Sign Up Form" />
     <AuthenticatedLayout>
         <template #header>
-            <div class="d-flex justify-content-between align-items-center">
-                <h2 class="text-xl font-semibold leading-tight text-gray-800">
+            <div class="flex flex-col md:flex-row justify-between items-center">
+                <h2 class="text-xl font-semibold text-gray-800 text-center md:text-left">
                     Sign Up Form for Event: {{ eventValues.event_name }}
                 </h2>
                 <div>
-                <button v-if="signupForm" @click="copySignupFormUrl()" class="btn btn-success me-2">
-                    Copy Signup Link
-                </button>
+                    <button v-if="signupForm" @click="copySignupFormUrl()" class="btn btn-success me-3">
+                        Copy Signup Link
+                    </button>
 
-                <button v-if="signupForm" @click="editSignUpForm()" class="btn btn-warning">
-                    Edit Form
-                </button>
-                <button v-else @click="generateSignUpForm()" class="btn btn-primary">
-                    Generate Sign Up Form
-                </button>
+                    <button v-if="signupForm" @click="editSignUpForm()" class="btn btn-warning">
+                        Edit Form
+                    </button>
+                    
+                    <button v-else @click="generateSignUpForm()" class="btn btn-primary">
+                        Generate Sign Up Form
+                    </button>
                 </div>
             </div>
         </template>
 
-        <div class="p-5">
+        <div class="container mt-4 mb-4 d-flex justify-content-center align-items-center flex-column" style="min-height: 100vh;">
             <div class="mx-auto max-w-7xl sm:px-6 lg:px-8">
                 <!-- ✅ If a signup form exists, display it -->
                 <div v-if="signupForm">
-                    <div class="m-auto mb-3 text-center" style="background-color: black; width: 60%; color: azure;">
-                        <img style="height: 400px;" :src="'/storage/' + eventValues.event_banner" class="card-img-top" alt="Event Banner" />
-                    </div>
-                    <div class="pt-4 pb-5 pe-5 ps-5 m-auto" style="background-color: white; width: 60%;">
-                        <!-- ✅ Form description -->
-                        <div class="mb-3 text-center">
-                            <h1 class="mb-3" style="font-size: 22px; font-weight: 900; margin-bottom: 10px;">
-                                {{ form.heading }}
-                            </h1>
-                            <p class="mb-3" style="font-size: 16px;">
-                                {{ form.event_description }}
-                            </p>
-                            <p> 
-                                <a :href="form.terms_link" target="_blank" class="text-blue-600 underline">Terms and Conditions</a> | 
-                                <a :href="form.privacy_link" target="_blank" class="text-blue-600 underline">Privacy Policy</a>
-                            </p>
+                    <!-- Form Container -->
+                    <div class="text-center border rounded shadow-sm bg-light col-12 col-md-8 col-lg-5 bg-white w-full md:w-3/5 mx-auto rounded shadow-lg">
+                        <div class="w-100">
+                            <img :src="'/storage/' + eventValues.event_banner" alt="Event Banner" 
+                                class="img-fluid w-100" 
+                                style="object-fit: cover; height: 350px;">
                         </div>
 
+                        <div class="p-4">
+                            <h2 class="mt-2 mb-3 fw-bold" style="font-size: 20px;">{{ form.heading }}</h2>
+                            <p class="mb-3">{{ form.event_description }}</p>
+                            <p class="mb-2">
+                                <a :href="form.terms_link" target="_blank" class="text-decoration-none">Terms and Conditions</a> |
+                                <a :href="form.privacy_link" target="_blank" class="text-decoration-none">Privacy Policy</a>
+                            </p>
+                        </div>
+                    </div>
+
+                    <!-- ✅ Sign-up Form -->
+                    <div class="bg-white w-full md:w-3/5 mx-auto p-5 mt-4 rounded shadow-lg">
                         <!-- ✅ Loop through questions -->
-                        <div v-for="(question, index) in JSON.parse(signupForm.questions || '[]')" :key="index" class="mb-3">
-                            <label class="form-label">{{ question.text }}</label>
-                            
+                        <div v-for="(question, index) in JSON.parse(signupForm.questions || '[]')" :key="index" class="mb-4">
+                            <label class="block font-medium text-gray-800 mb-1">{{ question.text }}</label>
+
                             <template v-if="question.type === 'text' || question.type === 'number'">
-                                <input type="text" class="form-control" disabled />
+                                <input type="text" class="w-full border rounded px-3 py-2" disabled />
                             </template>
 
                             <template v-if="question.type === 'dropdown'">
-                                <select class="form-select">
+                                <select class="w-full border rounded px-3 py-2">
                                     <option v-for="option in question.options" :key="option">{{ option }}</option>
                                 </select>
                             </template>
                         </div>
-                        <div class="d-flex justify-content-center mt-5">
-                            <button class="btn btn-primary">Submit</button>
+
+                        <!-- ✅ Submit Button -->
+                        <div class="flex justify-center mt-5">
+                            <button class="bg-blue-500 text-white px-6 py-2 rounded w-full md:w-auto" @click="submitTest()">Submit</button>
                         </div>
                     </div>
                 </div>
 
                 <!-- ✅ If no signup form exists, show a message -->
-                <div v-else>
+                <div v-else class="text-center text-gray-600 mt-5">
                     <p>No signup form generated yet. Click "Generate Sign Up Form" to create one.</p>
                 </div>
             </div>
         </div>
     </AuthenticatedLayout>
 </template>
+

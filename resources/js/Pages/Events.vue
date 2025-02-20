@@ -101,11 +101,18 @@ const saveEvent = () => {
 const deleteEvent = (id) => {
     Swal.fire({
         title: 'Are you sure?',
-        text: 'This action cannot be undone!',
+        text: 'This action cannot be undone! All Data related to this Event will be deleted. Please download the backup first! To confirm, type DELETE below.',
         icon: 'warning',
+        input: 'text', // ✅ Require user input
+        inputPlaceholder: 'Type DELETE to confirm',
         showCancelButton: true,
-        confirmButtonText: 'Yes, delete it!',
-        cancelButtonText: 'No, cancel'
+        confirmButtonText: 'Delete Event',
+        cancelButtonText: 'Cancel',
+        inputValidator: (value) => {
+            if (value !== 'DELETE') {
+                return 'You must type DELETE to confirm!';
+            }
+        }
     }).then((result) => {
         if (result.isConfirmed) {
             router.delete(route('events.destroy', id), {
@@ -116,6 +123,7 @@ const deleteEvent = (id) => {
         }
     });
 };
+
 
 const goToSignUpForm = (eventId) => {
     router.get(route('signup.index', { eventId }));
@@ -151,7 +159,7 @@ const goToSignUpForm = (eventId) => {
                                     </button>
                                     <div>
                                         <button @click="openEditModal(event)" class="btn btn-primary btn-sm me-2">
-                                        Edit
+                                            Edit
                                         </button>
                                         <button @click="deleteEvent(event.id)" class="btn btn-danger btn-sm">
                                             Delete
@@ -184,11 +192,11 @@ const goToSignUpForm = (eventId) => {
                                 <textarea v-model="form.event_description" class="form-control"></textarea>
                             </div>
                             <div class="mb-3">
-                                <label class="form-label">Date</label>
+                                <label class="form-label">Start Date</label>
                                 <input v-model="form.event_date" type="date" class="form-control" required />
                             </div>
                             <div class="mb-3">
-                                <label class="form-label">Coordinator</label>
+                                <label class="form-label">Coordinator Name</label>
                                 <input v-model="form.event_coordinator" type="text" class="form-control" required />
                             </div>
                             <div class="mb-3">

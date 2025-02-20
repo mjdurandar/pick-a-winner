@@ -5,6 +5,8 @@ namespace App\Http\Controllers;
 use Illuminate\Http\Request;
 use App\Models\Events;
 use Inertia\Inertia;
+use Illuminate\Support\Facades\Schema;
+use App\Models\SignUpForm;
 
 class EventsController extends Controller
 {
@@ -102,9 +104,25 @@ class EventsController extends Controller
             return response()->json(['error' => 'Event not found.'], 404);
         }
     
+        // ✅ Find the associated signup form
+        $signupForm = SignUpForm::where('event_id', $event->id)->first();
+    
+        if ($signupForm) {
+            $tableName = $signupForm->table_name; // Assuming `table_name` holds the dynamic table name
+    
+            // ✅ Drop the table if it exists
+            if ($tableName && Schema::hasTable($tableName)) {
+                Schema::dropIfExists($tableName);
+            }
+    
+            // ✅ Delete the form entry from the database
+            $signupForm->delete();
+        }
+    
+        // ✅ Now delete the event
         $event->delete();
     
-        return redirect()->route('events.index')->with('success', 'Event deleted.');
+        return redirect()->route('events.index')->with('success', 'Event and associated sign-up form deleted along with its table.');
     }
     
 }
