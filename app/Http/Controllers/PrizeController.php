@@ -25,8 +25,18 @@ class PrizeController extends Controller
     
         return redirect()->back()->with('success', 'Prize created successfully.');
     }
-    
 
+    public function addWinner(Request $request, Prize $prize) {
+        // ✅ Update the prize
+        $prize->update([
+            'winner' => $request->winner_name,
+            'winner_email' => $request->winner_email,
+            'winner_mobile_number' => $request->winner_mobile_number,
+        ]);
+    
+        return redirect()->back()->with('success', 'Winner assigned successfully.');
+    } 
+    
     public function update(Request $request, Prize $prize) {
         $request->validate([
             'prize_name' => 'required|string|max:255',

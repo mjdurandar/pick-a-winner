@@ -11,5 +11,7 @@ class Prize extends Model
         'location_id',
         'prize_name',
         'winner',
+        'winner_email',
+        'winner_mobile_number',
     ];
 }

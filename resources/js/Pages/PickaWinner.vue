@@ -37,9 +37,7 @@ const goToPickaWinnerPage = (eventId) => {
                             <img style="height: 200px;" :src="'/storage/' + event.event_banner" class="card-img-top" alt="Event Banner" />
                             <div class="card-body">
                                 <h5 class="card-title">{{ event.event_name }}</h5>
-                                <p class="card-text">{{ event.event_description }}</p>
                                 <p class="text-muted">📅 {{ event.event_date }}</p>
-                                <p class="text-muted">👤 {{ event.event_coordinator }}</p>
                                 <div class="d-flex justify-content-between mt-3">
                                     <button class="btn btn-primary btn-sm me-2">
                                         Attendees

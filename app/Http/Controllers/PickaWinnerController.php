@@ -35,11 +35,7 @@ class PickaWinnerController extends Controller
 
     // Selected Location for Pick a Winner
     public function pickawinnerlocationpage($locationId, $eventId) {
-        $location = Location::where('id', $locationId)->firstOrFail();
-        $event = Events::findOrFail($eventId);
         $signUpForm = SignUpForm::where('event_id', $eventId)->firstOrFail();
-        $prize = Prize::where('event_id', $eventId)->where('location_id', $locationId)->get();
-        // ✅ Get the dynamic table name from the event
         $tableName = $signUpForm->table_name;
     
         // ✅ Check if prizes already exist for this event & location
@@ -54,11 +50,16 @@ class PickaWinnerController extends Controller
                     'event_id' => $eventId,
                     'location_id' => $locationId,
                     'prize_name' => "Prize $i",
-                    'winner' => "Winner $i",
+                    'winner' => "No Winner Yet",
                 ]);
             }
         }
     
+        $location = Location::where('id', $locationId)->firstOrFail();
+        $event = Events::findOrFail($eventId);
+        $prize = Prize::where('event_id', $eventId)->where('location_id', $locationId)->get();
+        // ✅ Get the dynamic table name from the event
+
         // ✅ Query the event’s signup form table for attendees from this location
         $attendees = DB::table($tableName)
             ->where('events_location', $location->name) // ✅ Filter by selected location

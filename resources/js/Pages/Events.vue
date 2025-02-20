@@ -19,6 +19,7 @@ const form = useForm({
     event_name: '',
     event_description: '',
     event_date: '',
+    event_year: '',
     event_banner: null, // File input
     event_coordinator: '',
     event_coordinator_email: '',
@@ -44,6 +45,7 @@ const openEditModal = (event) => {
     form.id = event.id;
     form.event_name = event.event_name;
     form.event_description = event.event_description;
+    form.event_year = event.event_year;
     form.event_date = event.event_date;
     form.event_coordinator = event.event_coordinator;
     form.event_coordinator_email = event.event_coordinator_email;
@@ -59,6 +61,7 @@ const saveEvent = () => {
     const data = new FormData();
     data.append('event_name', form.event_name);
     data.append('event_description', form.event_description);
+    data.append('event_year', form.event_year);
     data.append('event_date', form.event_date);
     if (form.event_banner) {
         data.append('event_banner', form.event_banner);
@@ -186,11 +189,15 @@ const goToSignUpForm = (eventId) => {
                         <form @submit.prevent="saveEvent">
                             <div class="mb-3">
                                 <label class="form-label">Event Name</label>
-                                <input v-model="form.event_name" type="text" class="form-control" required />
+                                <input v-model="form.event_name" type="text" class="form-control" required  maxlength="25" />
                             </div>
                             <div class="mb-3">
                                 <label class="form-label">Description</label>
                                 <textarea v-model="form.event_description" class="form-control"></textarea>
+                            </div>
+                            <div class="mb-3">
+                                <label class="form-label">Event Year</label>
+                                <input v-model="form.event_year" type="number" class="form-control" required />
                             </div>
                             <div class="mb-3">
                                 <label class="form-label">Start Date</label>

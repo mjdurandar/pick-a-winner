@@ -52,6 +52,7 @@ Route::middleware('auth')->group(function () {
     Route::patch('/prize/{prize}', [PrizeController::class, 'update'])->name('prize.update');
     Route::post('/prize', [PrizeController::class, 'addPrize'])->name('prize.store');
     Route::delete('/prize/{prize}', [PrizeController::class, 'destroy'])->name('prize.destroy');
+    Route::post('/prize/winner/{prize}', [PrizeController::class, 'addWinner'])->name('prize.assignWinner');
 
     Route::get('/profile', [ProfileController::class, 'edit'])->name('profile.edit');
     Route::patch('/profile', [ProfileController::class, 'update'])->name('profile.update');

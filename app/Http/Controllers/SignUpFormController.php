@@ -37,7 +37,7 @@ class SignUpFormController extends Controller
 
         // Format the table name: `event_name_date_created`
         $eventName = Str::slug($event->event_name, '_');
-        $tableName = "signup_" . $eventName . "_" . now()->format('Y_m_d_His');
+        $tableName = $eventName . "_" . now()->format('Y_m_d');
         // Default Questions as per your specifications
         $defaultQuestions = [
             ['text' => 'Events Location', 'type' => 'dropdown', 'options' => ['Option 1', 'Option 2']], // User will input locations

@@ -107,6 +107,68 @@ const destroy = (id) => {
     });
 };
 
+// ✅ Track selected prize and winner
+const selectedPrize = ref(null);
+const selectedWinner = ref(null);
+const isPicking = ref(false); // ✅ Controls animation state
+const winnerDisplay = ref(''); // ✅ Displays random names
+let animationInterval = null;
+
+// ✅ Open Modal and Start Animation
+const openPickWinnerModal = (prize) => {
+    if (!props.attendees.length) {
+        Swal.fire('No Attendees', 'There are no attendees for this location.', 'warning');
+        return;
+    }
+
+    selectedPrize.value = prize;
+    selectedWinner.value = null;
+    winnerDisplay.value = 'Searching for a winner...'; // Default text
+    isPicking.value = true;
+
+    // ✅ Show Modal
+    let modalElement = new bootstrap.Modal(document.getElementById('pickWinnerModal'));
+    modalElement.show();
+
+    // ✅ Start Random Name Animation
+    animationInterval = setInterval(() => {
+        const randomIndex = Math.floor(Math.random() * props.attendees.length);
+        const randomAttendee = props.attendees[randomIndex];
+        winnerDisplay.value = `${randomAttendee.first_name} ${randomAttendee.last_name}`;
+    }, 100); // Changes name every 100ms
+
+    // ✅ Stop Animation After 3 Seconds and Pick Winner
+    setTimeout(() => {
+        clearInterval(animationInterval);
+        isPicking.value = false;
+
+        const finalIndex = Math.floor(Math.random() * props.attendees.length);
+        selectedWinner.value = props.attendees[finalIndex];
+        winnerDisplay.value = `${selectedWinner.value.first_name} ${selectedWinner.value.last_name}`;
+    }, 3000);
+};
+
+// ✅ Save the Winner to the Prize
+const confirmWinner = () => {
+    if (!selectedPrize.value || !selectedWinner.value) {
+        Swal.fire('Error', 'No prize or winner selected.', 'error');
+        return;
+    }
+
+    // ✅ Send update request to backend
+    router.post(route('prize.assignWinner', selectedPrize.value.id), {
+        winner_name: selectedWinner.value.first_name + " " + selectedWinner.value.last_name,
+        winner_email: selectedWinner.value.email_address,
+        winner_mobile_number: selectedWinner.value.mobile_number
+    }, {
+        onSuccess: () => {
+            let modalElement = bootstrap.Modal.getInstance(document.getElementById('pickWinnerModal'));
+            modalElement.hide();
+            Swal.fire('Winner Selected!', `${selectedWinner.value.first_name} has been chosen.`, 'success');
+        }
+    });
+};
+
 
 </script>
 
@@ -140,16 +202,18 @@ const destroy = (id) => {
                                         <th class="border border-gray-300 p-2">Prizes</th>
                                         <th class="border border-gray-300 p-2">Name</th>
                                         <th class="border border-gray-300 p-2">Email</th>
+                                        <th class="border border-gray-300 p-2">Mobile Number</th>
                                         <th class="border border-gray-300 p-2">Actions</th>
                                     </tr>
                                 </thead>
                                 <tbody>
                                     <tr v-for="(prize, index) in prizes" :key="index" class="text-left">
                                         <td class="border border-gray-300 p-2">{{ prize.prize_name }}</td>
-                                        <td class="border border-gray-300 p-2">{{ prize.winner_name || 'Not Selected' }}</td>
-                                        <td class="border border-gray-300 p-2">{{ prize.winner_email || 'Not Selected' }}</td>
+                                        <td class="border border-gray-300 p-2">{{ prize.winner }}</td>
+                                        <td class="border border-gray-300 p-2">{{ prize.winner_email || 'No Winner Yet' }}</td>
+                                        <td class="border border-gray-300 p-2">{{ prize.winner_mobile_numbe || 'No Winner Yet' }}</td>
                                         <td class="border border-gray-300 p-2 flex flex-col md:flex-row gap-2 justify-center">
-                                            <a class="btn btn-success">Pick a Winner</a>
+                                            <a class="btn btn-success" @click="openPickWinnerModal(prize)">Pick a Winner</a>
                                             <a class="btn btn-primary" @click="openEditModal(prize)"><i class="fa-solid fa-pen-to-square"></i></a>
                                             <a class="btn btn-danger" @click="destroy(prize.id)"><i class="fa-solid fa-trash"></i></a>
                                         </td>
@@ -189,6 +253,45 @@ const destroy = (id) => {
                         <div v-if="attendees.length === 0" class="text-gray-600 text-center mt-4">
                             No attendees have registered for this location.
                         </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Pick Winner Modal -->
+        <div class="modal fade" id="pickWinnerModal" tabindex="-1" aria-labelledby="pickWinnerModalLabel">
+            <div class="modal-dialog">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h5 class="modal-title">🎉 Picking a Winner 🎉</h5>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                    </div>
+                    <div class="modal-body text-center">
+                        <h3 class="text-xl font-bold text-green-600">
+                            <template v-if="isPicking">
+                                🔄 Searching...
+                            </template>
+                            <template v-else>
+                                🎉 Winner Selected! 🎉
+                            </template>
+                        </h3>
+
+                        <div class="text-2xl font-bold text-blue-500 mt-3">
+                            <span v-if="isPicking" class="animate-pulse">{{ winnerDisplay }}</span>
+                            <span v-else class="text-green-500">{{ winnerDisplay }}</span>
+                        </div>
+
+                        <template v-if="selectedWinner && !isPicking">
+                            <p class="mt-3"><strong>Name:</strong> {{ selectedWinner.first_name }} {{ selectedWinner.last_name }}</p>
+                            <p><strong>Email:</strong> {{ selectedWinner.email_address }}</p>
+                            <p><strong>Phone:</strong> {{ selectedWinner.mobile_number }}</p>
+                        </template>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                        <button type="button" class="btn btn-success" v-if="!isPicking" @click="confirmWinner()">
+                            Confirm Winner
+                        </button>
                     </div>
                 </div>
             </div>
