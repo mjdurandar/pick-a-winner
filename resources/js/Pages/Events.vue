@@ -128,6 +128,7 @@ const deleteEvent = (id) => {
 const goToSignUpForm = (eventId) => {
     router.get(route('signup.index', { eventId }));
 };
+
 </script>
 
 <template>

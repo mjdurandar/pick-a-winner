@@ -3,7 +3,9 @@
 use App\Http\Controllers\ProfileController;
 use Illuminate\Foundation\Application;
 use App\Http\Controllers\EventsController;
+use App\Http\Controllers\PickaWinnerController;
 use App\Http\Controllers\SignUpFormController;
+use App\Http\Controllers\PrizeController;
 use Illuminate\Support\Facades\Route;
 use Inertia\Inertia;
 
@@ -40,6 +42,16 @@ Route::middleware('auth')->group(function () {
     Route::get('/signup-form/edit/{formId}', [SignUpFormController::class, 'edit'])->name('signup.edit');
     //UPDATE SIGN UP FORM ROUTES
     Route::post('/signup-form/update/{eventId}', [SignUpFormController::class, 'update'])->name('signup.update');
+
+    //PICK A WINNER ROUTES
+    Route::get('/pickawinner', [PickaWinnerController::class, 'index'])->name('pickawinner.index');
+    Route::get('/pickawinner/{eventId}', [PickaWinnerController::class, 'pickawinner'])->name('pickawinner.page');
+    Route::get('/pickawinner/show/{location}/{event}', [PickaWinnerController::class, 'pickawinnerlocationpage'])->name('pickawinner.locationpage');
+
+    //PRIZE ROUTES
+    Route::patch('/prize/{prize}', [PrizeController::class, 'update'])->name('prize.update');
+    Route::post('/prize', [PrizeController::class, 'addPrize'])->name('prize.store');
+    Route::delete('/prize/{prize}', [PrizeController::class, 'destroy'])->name('prize.destroy');
 
     Route::get('/profile', [ProfileController::class, 'edit'])->name('profile.edit');
     Route::patch('/profile', [ProfileController::class, 'update'])->name('profile.update');

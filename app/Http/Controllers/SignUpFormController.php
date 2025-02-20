@@ -9,6 +9,7 @@ use Illuminate\Support\Str;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Database\Schema\Blueprint;
+use App\Models\Location;
 
 class SignUpFormController extends Controller
 {
@@ -105,7 +106,6 @@ class SignUpFormController extends Controller
             }
         });
 
-    
         return redirect()->route('signup.index', ['eventId' => $request->event_id]);
     }
     
@@ -114,6 +114,7 @@ class SignUpFormController extends Controller
     {   
         $form = SignUpForm::findOrFail($formId);
         $events = Events::findOrFail($form->event_id);
+        
         return inertia('SignUpFormEdit', ['form' => $form, 'events' => $events]);
     }
 
@@ -150,6 +151,34 @@ class SignUpFormController extends Controller
             }
         });
     
+        // ✅ Extract and Save Unique Locations
+        $newLocationOptions = [];
+    
+        foreach ($newQuestions as $question) {
+            if (isset($question['text']) && stripos($question['text'], 'location') !== false && $question['type'] === 'dropdown') {
+                $newLocationOptions = array_merge($newLocationOptions, $question['options']);
+            }
+        }
+    
+        $uniqueNewLocations = array_unique($newLocationOptions);
+    
+        // ✅ Get all existing locations for this event
+        $existingLocations = Location::where('event_id', $eventId)->pluck('name')->toArray();
+    
+        // ✅ Find locations that were removed
+        $deletedLocations = array_diff($existingLocations, $uniqueNewLocations);
+    
+        // ✅ Delete removed locations from the database
+        Location::where('event_id', $eventId)->whereIn('name', $deletedLocations)->delete();
+    
+        // ✅ Add new locations if they don't already exist
+        foreach ($uniqueNewLocations as $locationName) {
+            Location::updateOrCreate(
+                ['event_id' => $eventId, 'name' => $locationName], 
+                ['event_id' => $eventId]
+            );
+        }
+    
         // ✅ Update Form in Database
         $form->update([
             'heading' => $request->heading,
@@ -159,9 +188,9 @@ class SignUpFormController extends Controller
             'questions' => json_encode($newQuestions),
         ]);
     
-        return redirect()->route('signup.index', ['eventId' => $eventId])->with('success', 'Form updated successfully!');
+        return redirect()->route('signup.index', ['eventId' => $eventId])->with('success', 'Form updated successfully. Locations updated.');
     }
-
+    
     //EMBED FUNCTIONS
     public function embed($eventId)
     {

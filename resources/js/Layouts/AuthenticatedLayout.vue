@@ -46,6 +46,12 @@ const showingNavigationDropdown = ref(false);
                                     Events
                                 </NavLink>
                                 <NavLink
+                                    :href="route('pickawinner.index')"
+                                    :active="route().current('pickawinner.index')"
+                                >
+                                    Pick a Winner
+                                </NavLink>
+                                <NavLink
                                     :href="route('users')"
                                     :active="route().current('users')"
                                 >
