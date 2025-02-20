@@ -41,7 +41,7 @@ const goToPickaWinnerPage = (eventId) => {
                                 <p class="text-muted">📅 {{ event.event_date }}</p>
                                 <p class="text-muted">👤 {{ event.event_coordinator }}</p>
                                 <div class="d-flex justify-content-between mt-3">
-                                    <button @click="goToSignUpForm(event.id)" class="btn btn-primary btn-sm me-2">
+                                    <button class="btn btn-primary btn-sm me-2">
                                         Attendees
                                     </button>
                                     <button @click="goToPickaWinnerPage(event.id)" class="btn btn-success btn-sm me-2">
