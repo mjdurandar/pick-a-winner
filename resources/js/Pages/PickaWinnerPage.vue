@@ -12,6 +12,7 @@ const props = defineProps({
 
 // ✅ Reactive Data
 const searchQuery = ref(''); // ✅ Search query input
+const copiedIndex = ref(null); // ✅ Index of copied location link
 
 // ✅ Computed Property to Filter Locations
 const filteredLocations = computed(() => {
@@ -33,11 +34,11 @@ const copyLocationLink = (locationId, eventId, index) => {
     const locationLink = `${window.location.origin}/pickawinner/show/${locationId}/${eventId}`;
     navigator.clipboard.writeText(locationLink);
 
-    // ✅ Show checkmark icon for 1 second
-    // copiedIndex.value = index;
-    // setTimeout(() => {
-    //     copiedIndex.value = null;
-    // }, 1000);
+    // ✅ Show checkmark icon for 3 seconds
+    copiedIndex.value = index;
+    setTimeout(() => {
+        copiedIndex.value = null;
+    }, 3000);
 };
 
 const allLocationsPage = () => {
@@ -92,8 +93,7 @@ const allLocationsPage = () => {
                                     class="bg-gray-300 text-gray-600 px-3 py-2 rounded hover:bg-gray-400 transition"
                                     title="Copy link"
                                 >   
-                                    <i class="fa-solid fa-copy"></i>
-                                    <!-- <i :class="copiedIndex === index ? 'fa-solid fa-check text-green-600' : 'fa-solid fa-copy'"></i> -->
+                                <i :class="copiedIndex === index ? 'fa-solid fa-check text-green-600' : 'fa-solid fa-copy'"></i>
                                 </button>
                             </div>
                         </div>

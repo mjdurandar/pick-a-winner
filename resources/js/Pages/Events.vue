@@ -163,10 +163,10 @@ const goToSignUpForm = (eventId) => {
                                     </button>
                                     <div>
                                         <button @click="openEditModal(event)" class="btn btn-primary btn-sm me-2">
-                                            Edit
+                                            <i class="fa-solid fa-pen-to-square"></i>
                                         </button>
                                         <button @click="deleteEvent(event.id)" class="btn btn-danger btn-sm">
-                                            Delete
+                                            <i class="fa-solid fa-trash"></i>
                                         </button>
                                     </div>
                                 </div>
