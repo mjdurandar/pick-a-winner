@@ -100,7 +100,7 @@ const openEditModal = (prize) => {
 const destroy = (id) => {
     Swal.fire({
         title: 'Are you sure?',
-        text: 'This action cannot be undone! If you delete this prize the winner for this Prize will be gone! Please Download the backup! To confirm, type DELETE below.',
+        text: 'This action cannot be undone! If you delete this prize the winner for this Prize will be gone! To confirm, type DELETE below.',
         icon: 'warning',
         input: 'text', // ✅ Require user input
         inputPlaceholder: 'Type DELETE to confirm',
@@ -284,22 +284,24 @@ const eligibleAttendees = computed(() => {
                             </div>
                         </div>
                         <!-- ✅ Attendees Table -->
-                        <table class="w-full border-collapse border border-gray-300">
-                            <thead>
-                                <tr class="bg-gray-200">
-                                    <th class="border border-gray-300 p-2">Name</th>
-                                    <th class="border border-gray-300 p-2">Email</th>
-                                    <th class="border border-gray-300 p-2">Mobile Number</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                <tr v-for="(attendee, index) in filteredAttendees" :key="index" class="text-left">
-                                    <td class="border border-gray-300 p-2">{{ attendee.first_name }} {{ attendee.last_name }}</td>
-                                    <td class="border border-gray-300 p-2">{{ attendee.email_address }}</td>
-                                    <td class="border border-gray-300 p-2">{{ attendee.mobile_number }}</td>
-                                </tr>
-                            </tbody>
-                        </table>
+                        <div class="overflow-x-auto">
+                            <table class="w-full border-collapse border border-gray-300">
+                                <thead>
+                                    <tr class="bg-gray-200">
+                                        <th class="border border-gray-300 p-2">Name</th>
+                                        <th class="border border-gray-300 p-2">Email</th>
+                                        <th class="border border-gray-300 p-2">Mobile Number</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <tr v-for="(attendee, index) in filteredAttendees" :key="index" class="text-left">
+                                        <td class="border border-gray-300 p-2">{{ attendee.first_name }} {{ attendee.last_name }}</td>
+                                        <td class="border border-gray-300 p-2">{{ attendee.email_address }}</td>
+                                        <td class="border border-gray-300 p-2">{{ attendee.mobile_number }}</td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
                         <!-- ✅ If No Attendees Found -->
                         <!-- <div v-if="filteredAttendees.length === 0" class="text-gray-600 text-center mt-4">
                             No matching attendees found.

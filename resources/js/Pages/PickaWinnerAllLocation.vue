@@ -97,7 +97,7 @@ const openEditModal = (prize) => {
 const destroy = (id) => {
     Swal.fire({
         title: 'Are you sure?',
-        text: 'This action cannot be undone! If you delete this prize the winner for this Prize will be gone! Please Download the backup! To confirm, type DELETE below.',
+        text: 'This action cannot be undone! If you delete this prize the winner for this Prize will be gone! To confirm, type DELETE below.',
         icon: 'warning',
         input: 'text', // ✅ Require user input
         inputPlaceholder: 'Type DELETE to confirm',

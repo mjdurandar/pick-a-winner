@@ -11,14 +11,16 @@ use Inertia\Inertia;
 class AttendeesController extends Controller
 {
     public function index($eventId)
-    {
+    {   
         // ✅ Fetch the event object
         $event = Events::findOrFail($eventId);
-    
         // ✅ Get the signup form for the event
-        $signupForm = SignUpForm::where('event_id', $eventId)->firstOrFail();
+        $signupForm = SignUpForm::where('event_id', $eventId)->first();
+        if (!$signupForm) {
+            return redirect()->route('signup.index', $eventId);
+        }
         $tableName = $signupForm->table_name;
-    
+
         // ✅ Fetch attendees from the dynamic table
         $attendees = DB::table($tableName)
             ->where('event_id', $eventId)
@@ -29,5 +31,35 @@ class AttendeesController extends Controller
             'attendees' => $attendees
         ]);
     }
+
+    public function destroy($attendee, $event)
+    {
+        // ✅ Get the signup form for the event
+        $signupForm = SignUpForm::where('event_id', $event)->first();
+    
+        if (!$signupForm) {
+            return redirect()->back()->with('error', 'Sign-up form not found for this event.');
+        }
+    
+        $tableName = $signupForm->table_name;
+    
+        // ✅ Check if attendee exists in the dynamic table before deleting
+        $exists = DB::table($tableName)->where('id', $attendee)->exists();
+    
+        if (!$exists) {
+            return redirect()->route('attendees.index', ['eventId' => $event])
+                             ->with('error', 'Attendee not found.');
+        }
+    
+        // ✅ Delete the attendee from the dynamic table
+        DB::table($tableName)
+            ->where('id', $attendee)
+            ->delete();
+    
+        // ✅ Redirect back to attendees list for the same event
+        return redirect()->route('attendees.index', ['eventId' => $event])
+                         ->with('success', 'Attendee deleted successfully.');
+    }
+    
     
 }

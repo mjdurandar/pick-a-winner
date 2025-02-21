@@ -60,6 +60,11 @@ Route::middleware('auth')->group(function () {
 
     //ATTENDEES ROUTES
     Route::get('/attendees/{eventId}', [AttendeesController::class, 'index'])->name('attendees.index');
+    Route::put('/attendees/{id}', [AttendeesController::class, 'update'])->name('attendees.update');
+    Route::delete('/attendee/{attendee}/event/{event}', [AttendeesController::class, 'destroy'])
+    ->name('attendees.destroy');
+
+
 
     Route::get('/profile', [ProfileController::class, 'edit'])->name('profile.edit');
     Route::patch('/profile', [ProfileController::class, 'update'])->name('profile.update');

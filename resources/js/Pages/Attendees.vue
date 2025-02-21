@@ -1,7 +1,8 @@
 <script setup>
 import { ref, computed } from 'vue';
+import Swal from 'sweetalert2';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout.vue';
-import { Head } from '@inertiajs/vue3';
+import { Head, router } from '@inertiajs/vue3';
 
 const props = defineProps({
     event: Object,     // ✅ Event details (includes table_name)
@@ -36,6 +37,26 @@ const filteredAttendees = computed(() => {
             )
     );
 });
+
+// ✅ Delete Attendee with Confirmation
+const deleteAttendee = (attendeeId, eventId) => {
+    Swal.fire({
+        title: 'Are you sure?',
+        text: 'This action cannot be undone!',
+        icon: 'warning',
+        showCancelButton: true,
+        confirmButtonText: 'Yes, delete it!',
+        cancelButtonText: 'Cancel',
+    }).then((result) => {
+        if (result.isConfirmed) {
+            router.delete(route('attendees.destroy',  { attendee: attendeeId, event: eventId }), {
+                onSuccess: () => {
+                    Swal.fire('Deleted!', 'The attendee has been removed.', 'success');
+                }
+            });
+        }
+    });
+};
 </script>
 
 <template>
@@ -70,12 +91,18 @@ const filteredAttendees = computed(() => {
                                         <th v-for="(col, index) in columnHeaders" :key="index" class="border border-gray-300 p-2 whitespace-nowrap">
                                             {{ formatHeader(col) }}
                                         </th>
+                                        <th class="border border-gray-300 p-2">Actions</th>
                                     </tr>
                                 </thead>
                                 <tbody>
                                     <tr v-for="(attendee, index) in filteredAttendees" :key="index" class="text-left even:bg-gray-100">
                                         <td v-for="(col, index) in columnHeaders" :key="index" class="border border-gray-300 p-2 break-words">
                                             {{ attendee[col] }}
+                                        </td>
+                                        <td class="text-center content-center">
+                                            <button class="btn btn-danger m-1" @click="deleteAttendee(attendee.id, event.id)">
+                                                <i class="fa-solid fa-trash"></i>
+                                            </button>
                                         </td>
                                     </tr>
                                 </tbody>
@@ -91,3 +118,4 @@ const filteredAttendees = computed(() => {
         </div>
     </AuthenticatedLayout>
 </template>
+
