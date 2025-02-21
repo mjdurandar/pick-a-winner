@@ -197,7 +197,7 @@ const goToSignUpForm = (eventId) => {
                             </div>
                             <div class="mb-3">
                                 <label class="form-label">Event Year</label>
-                                <input v-model="form.event_year" type="number" class="form-control" required />
+                                <input v-model="form.event_year" type="text" class="form-control" maxlength="4" pattern="\d{4}" required />
                             </div>
                             <div class="mb-3">
                                 <label class="form-label">Start Date</label>

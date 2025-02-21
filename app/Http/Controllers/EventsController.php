@@ -35,6 +35,7 @@ class EventsController extends Controller
             'event_name' => 'required|string|max:255',
             'event_description' => 'nullable|string',
             'event_date' => 'required|date',
+            'event_year' => 'required|integer',
             'event_banner' => 'nullable|image|mimes:jpeg,png,jpg,gif|max:2048', 
             'event_coordinator' => 'required|string',
             'event_coordinator_email' => 'required|email',
@@ -76,6 +77,7 @@ class EventsController extends Controller
             'event_name' => 'required|string|max:255',
             'event_description' => 'nullable|string',
             'event_date' => 'required|date',
+            'event_year' => 'required|integer',
             'event_banner' => 'nullable|image|mimes:jpeg,png,jpg,gif|max:2048', // Ensure file is an image
             'event_coordinator' => 'required|string',
             'event_coordinator_email' => 'required|email',
