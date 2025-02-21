@@ -4,11 +4,14 @@ use App\Http\Controllers\AttendeesController;
 use App\Http\Controllers\ProfileController;
 use Illuminate\Foundation\Application;
 use App\Http\Controllers\EventsController;
+use App\Http\Controllers\UsersController;
 use App\Http\Controllers\PickaWinnerController;
 use App\Http\Controllers\SignUpFormController;
 use App\Http\Controllers\PrizeController;
 use Illuminate\Support\Facades\Route;
 use Inertia\Inertia;
+use App\Http\Middleware\RoleMiddleware;
+use Illuminate\Support\Facades\Auth;
 
 Route::get('/', function () {
     return Inertia::render('Auth/Login');
@@ -18,15 +21,11 @@ Route::get('/dashboard', function () {
     return Inertia::render('Dashboard');
 })->middleware(['auth', 'verified'])->name('dashboard');
 
-Route::get('/users', function () {
-    return Inertia::render('Users');
-})->middleware(['auth', 'verified'])->name('users');
-
 Route::get('/adventureentertainment/form/{eventId}', [SignUpFormController::class, 'embed'])->name('signup.embed');
 Route::post('/adventureentertainment/form/{eventId}', [SignUpFormController::class, 'storeEmbeddedData'])->name('signup.storeEmbedded');
 
 Route::middleware('auth')->group(function () {
-
+    
     //EVENTS ROUTES
     Route::get('/events', [EventsController::class, 'index'])->name('events.index');
     Route::post('/events', [EventsController::class, 'store'])->name('events.store');
@@ -62,6 +61,11 @@ Route::middleware('auth')->group(function () {
     Route::get('/attendees/{eventId}', [AttendeesController::class, 'index'])->name('attendees.index');
     Route::put('/attendees/{id}', [AttendeesController::class, 'update'])->name('attendees.update');
     Route::delete('/attendee/{attendee}/event/{event}', [AttendeesController::class, 'destroy'])->name('attendees.destroy');
+
+    //USERS ROUTES
+    Route::get('/users', [UsersController::class, 'index'])->name('users.index');
+    Route::patch('/users/{userId}', [UsersController::class, 'update'])->name('users.update');
+    Route::delete('/users/{userId}', [UsersController::class, 'destroy'])->name('users.destroy');
 
     Route::get('/profile', [ProfileController::class, 'edit'])->name('profile.edit');
     Route::patch('/profile', [ProfileController::class, 'update'])->name('profile.update');

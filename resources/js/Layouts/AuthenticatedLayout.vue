@@ -1,5 +1,6 @@
 <script setup>
-import { ref } from 'vue';
+import { ref, computed } from 'vue';
+import { usePage } from '@inertiajs/vue3';
 import ApplicationLogo from '@/Components/ApplicationLogo.vue';
 import Dropdown from '@/Components/Dropdown.vue';
 import DropdownLink from '@/Components/DropdownLink.vue';
@@ -8,7 +9,14 @@ import ResponsiveNavLink from '@/Components/ResponsiveNavLink.vue';
 import { Link } from '@inertiajs/vue3';
 
 const showingNavigationDropdown = ref(false);
+
+// ✅ Get user role from Inertia
+const page = usePage();
+const user = computed(() => page.props.auth.user || null);
+const userRole = computed(() => user.value?.role || 'guest'); // Default to 'guest' if no user
+
 </script>
+
 
 <template>
     <div>
@@ -34,26 +42,30 @@ const showingNavigationDropdown = ref(false);
                                 class="hidden space-x-8 sm:-my-px sm:ms-10 sm:flex"
                             >
                                 <NavLink
+                                    v-if="userRole === 'admin'"
                                     :href="route('dashboard')"
                                     :active="route().current('dashboard')"
                                 >
                                     Dashboard
                                 </NavLink>
                                 <NavLink
+                                    v-if="userRole === 'admin'"
                                     :href="route('events.index')"
                                     :active="route().current('events.index')"
                                 >
                                     Events
                                 </NavLink>
                                 <NavLink
+                                    v-if="userRole === 'admin' || userRole === 'host'"
                                     :href="route('pickawinner.index')"
                                     :active="route().current('pickawinner.index')"
                                 >
                                     Pick a Winner
                                 </NavLink>
                                 <NavLink
-                                    :href="route('users')"
-                                    :active="route().current('users')"
+                                    v-if="userRole === 'admin'"
+                                    :href="route('users.index')"
+                                    :active="route().current('users.index')"
                                 >
                                     Users
                                 </NavLink>
