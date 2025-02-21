@@ -11,6 +11,15 @@ const isEditing = ref(false);
 // ✅ Search Query
 const searchQuery = ref('');
 
+// ✅ Checkbox to filter today's attendees (default: checked)
+const onlyTodayEntries = ref(true);
+
+// ✅ Get today's date in 'YYYY-MM-DD' format
+const getTodayDate = () => {
+    const today = new Date();
+    return today.toISOString().split('T')[0]; // ✅ Ensures 'YYYY-MM-DD' in UTC
+};
+
 // ✅ Computed Property to Filter Attendees
 const filteredAttendees = computed(() => {
     if (!searchQuery.value) {
@@ -137,9 +146,10 @@ const openPickWinnerModal = (prize) => {
         return;
     }
     if (!eligibleAttendees.value.length) {
-        Swal.fire('No Eligible Attendees', 'All attendees have already been chosen as winners.', 'warning');
+        Swal.fire('No Eligible Attendees', 'No attendees entered today or all have already won.', 'warning');
         return;
     }
+
     selectedPrize.value = prize;
     selectedWinner.value = null;
     winnerDisplay.value = 'Searching for a winner...';
@@ -148,14 +158,12 @@ const openPickWinnerModal = (prize) => {
     let modalElement = new bootstrap.Modal(document.getElementById('pickWinnerModal'));
     modalElement.show();
 
-    // ✅ Start Random Name Animation
     animationInterval = setInterval(() => {
         const randomIndex = Math.floor(Math.random() * eligibleAttendees.value.length);
         const randomAttendee = eligibleAttendees.value[randomIndex];
         winnerDisplay.value = `${randomAttendee.first_name} ${randomAttendee.last_name}`;
     }, 100);
 
-    // ✅ Stop Animation After 3 Seconds and Pick Winner
     setTimeout(() => {
         clearInterval(animationInterval);
         isPicking.value = false;
@@ -204,12 +212,25 @@ const confirmCancel = () => {
     });
 };
 
-// ✅ Compute attendees who have NOT been picked as winners yet
+// ✅ Compute attendees who have NOT been picked as winners yet AND match today's date if the checkbox is checked
 const eligibleAttendees = computed(() => {
-    return props.attendees.filter(attendee => 
-        !props.prizes.some(prize => prize.winner_email === attendee.email_address)
-    );
+    return props.attendees.filter(attendee => {
+        const isWinner = props.prizes.some(prize => prize.winner_email === attendee.email_address);
+
+        let entryDate = null;
+        if (attendee.created_at) {
+            try {
+                entryDate = new Date(attendee.created_at).toISOString().split('T')[0]; // ✅ Convert to UTC
+            } catch (error) {
+                console.error("Error parsing created_at:", attendee.created_at);
+            }
+        }
+
+        return !isWinner && (!onlyTodayEntries.value || entryDate === getTodayDate());
+    });
 });
+
+
 
 </script>
 
@@ -227,7 +248,12 @@ const eligibleAttendees = computed(() => {
             <div class="mx-auto max-w-7xl sm:px-6 lg:px-8">
                 <div class="overflow-hidden bg-white shadow-sm sm:rounded-lg">
                     <div class="p-6 text-gray-900">
-                        <div class="d-flex justify-content-end">
+                        <div class="d-flex justify-content-between">
+                            <!-- ✅ Checkbox: Filter by Today's Entries -->
+                            <label class="flex items-center space-x-2">
+                                <input type="checkbox" v-model="onlyTodayEntries" class="form-checkbox text-green-500">
+                                <span>Only pick winners from today's entries.</span>
+                            </label>
                             <button 
                                 class="bg-green-500 text-white px-4 py-2 rounded hover:bg-green-700"
                                 @click="openAddPrizeModal()"

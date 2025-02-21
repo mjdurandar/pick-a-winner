@@ -5,13 +5,13 @@ import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout.vue';
 import { Head, router } from '@inertiajs/vue3';
 
 const props = defineProps({
-    event: Object,     // ✅ Event details (includes table_name)
-    attendees: Array   // ✅ List of attendees from the dynamic table
+    event: Object,
+    attendees: Array
 });
 
 const searchQuery = ref("");
 
-// ✅ Extract column names from the first attendee, excluding "created_at" and "updated_at"
+// ✅ Extract column names (exclude unwanted columns)
 const columnHeaders = computed(() => {
     if (props.attendees.length > 0) {
         return Object.keys(props.attendees[0]).filter(col => !["created_at", "updated_at", "id", "event_id"].includes(col));
@@ -19,24 +19,51 @@ const columnHeaders = computed(() => {
     return [];
 });
 
-// ✅ Format column headers (replace underscores with spaces and capitalize)
+// ✅ Format column headers
 const formatHeader = (header) => {
     return header.replace(/_/g, " ").replace(/\b\w/g, (char) => char.toUpperCase());
 };
 
-// ✅ Computed property to filter attendees
+// ✅ Filtered attendees based on search query
 const filteredAttendees = computed(() => {
     if (!searchQuery.value) {
         return props.attendees;
     }
     return props.attendees.filter(attendee =>
         Object.entries(attendee)
-            .filter(([key]) => !["created_at", "updated_at", "id", "event_id"].includes(key)) // ✅ Exclude from filtering as well
+            .filter(([key]) => !["created_at", "updated_at", "id", "event_id"].includes(key))
             .some(([_, value]) =>
                 value && value.toString().toLowerCase().includes(searchQuery.value.toLowerCase())
             )
     );
 });
+
+// ✅ Export filtered data to CSV
+const exportToCSV = () => {
+    if (filteredAttendees.value.length === 0) {
+        Swal.fire('No Data', 'No attendees found to export.', 'warning');
+        return;
+    }
+
+    let csvContent = "data:text/csv;charset=utf-8,";
+
+    // Add headers
+    csvContent += columnHeaders.value.map(formatHeader).join(",") + "\n";
+
+    // Add data rows
+    filteredAttendees.value.forEach(attendee => {
+        csvContent += columnHeaders.value.map(col => `"${attendee[col] || ''}"`).join(",") + "\n";
+    });
+
+    // Create a downloadable link
+    const encodedUri = encodeURI(csvContent);
+    const link = document.createElement("a");
+    link.setAttribute("href", encodedUri);
+    link.setAttribute("download", `attendees_${props.event.event_name}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+};
 
 // ✅ Delete Attendee with Confirmation
 const deleteAttendee = (attendeeId, eventId) => {
@@ -49,7 +76,7 @@ const deleteAttendee = (attendeeId, eventId) => {
         cancelButtonText: 'Cancel',
     }).then((result) => {
         if (result.isConfirmed) {
-            router.delete(route('attendees.destroy',  { attendee: attendeeId, event: eventId }), {
+            router.delete(route('attendees.destroy', { attendee: attendeeId, event: eventId }), {
                 onSuccess: () => {
                     Swal.fire('Deleted!', 'The attendee has been removed.', 'success');
                 }
@@ -73,7 +100,7 @@ const deleteAttendee = (attendeeId, eventId) => {
             <div class="mx-auto max-w-7xl sm:px-6 lg:px-8">
                 <div class="overflow-hidden bg-white shadow-sm sm:rounded-lg">
                     <div class="p-6 text-gray-900">
-                        <div class="flex justify-end mb-3">
+                        <div class="flex justify-between mb-3">
                             <!-- ✅ Search Bar -->
                             <input
                                 v-model="searchQuery"
@@ -81,11 +108,17 @@ const deleteAttendee = (attendeeId, eventId) => {
                                 placeholder="Search attendees..."
                                 class="w-full md:w-1/3 p-2 border rounded"
                             />
+                            <!-- ✅ Export Button -->
+                            <button 
+                                @click="exportToCSV" 
+                                class="bg-green-500 text-white px-4 py-2 rounded hover:bg-green-700"
+                            >
+                            <i class="fa-solid fa-file-csv"></i>
+                            </button>
                         </div>
 
                         <div class="overflow-x-auto">
                             <table class="w-full border-collapse border border-gray-300">
-                                <!-- ✅ Sticky Header -->
                                 <thead class="bg-gray-200 sticky top-0">
                                     <tr>
                                         <th v-for="(col, index) in columnHeaders" :key="index" class="border border-gray-300 p-2 whitespace-nowrap">
@@ -118,4 +151,5 @@ const deleteAttendee = (attendeeId, eventId) => {
         </div>
     </AuthenticatedLayout>
 </template>
+
 
