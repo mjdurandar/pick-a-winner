@@ -189,7 +189,7 @@ const goToSignUpForm = (eventId) => {
                         <form @submit.prevent="saveEvent">
                             <div class="mb-3">
                                 <label class="form-label">Event Name</label>
-                                <input v-model="form.event_name" type="text" class="form-control" required  maxlength="25" />
+                                <input v-model="form.event_name" type="text" class="form-control" required  maxlength="26" />
                             </div>
                             <div class="mb-3">
                                 <label class="form-label">Description</label>

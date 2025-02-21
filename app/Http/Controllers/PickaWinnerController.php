@@ -75,12 +75,13 @@ class PickaWinnerController extends Controller
     }
 
     public function allLocation($eventId) {
-
         $event = Events::findOrFail($eventId);
-        $signUpForm = SignUpForm::where('event_id', $eventId)->firstOrFail();
+        $signUpForm = SignUpForm::where('event_id', $eventId)->first();
+        if (!$signUpForm) {
+            return redirect()->route('signup.index', ['eventId' => $event]);
+        }
         $tableName = $signUpForm->table_name;
         $attendees = DB::table($tableName)->get();
-
         // ✅ Check if prizes already exist for this event & location
         $existingPrizesCount = Prize::where('event_id', $eventId)
             ->whereNull('location_id') 
