@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\AttendeesController;
 use App\Http\Controllers\ProfileController;
 use Illuminate\Foundation\Application;
 use App\Http\Controllers\EventsController;
@@ -48,11 +49,17 @@ Route::middleware('auth')->group(function () {
     Route::get('/pickawinner/{eventId}', [PickaWinnerController::class, 'pickawinner'])->name('pickawinner.page');
     Route::get('/pickawinner/show/{location}/{event}', [PickaWinnerController::class, 'pickawinnerlocationpage'])->name('pickawinner.locationpage');
 
+    // PICK A WINNER ALL LOCATION ROUTES
+    Route::get('/pickawinner/alllocation/{event}', [PickaWinnerController::class, 'alllocation'])->name('pickawinner.alllocation');
+
     //PRIZE ROUTES
     Route::patch('/prize/{prize}', [PrizeController::class, 'update'])->name('prize.update');
     Route::post('/prize', [PrizeController::class, 'addPrize'])->name('prize.store');
     Route::delete('/prize/{prize}', [PrizeController::class, 'destroy'])->name('prize.destroy');
     Route::post('/prize/winner/{prize}', [PrizeController::class, 'addWinner'])->name('prize.assignWinner');
+
+    //ATTENDEES ROUTES
+    Route::get('/attendees/{eventId}', [AttendeesController::class, 'index'])->name('attendees.index');
 
     Route::get('/profile', [ProfileController::class, 'edit'])->name('profile.edit');
     Route::patch('/profile', [ProfileController::class, 'update'])->name('profile.update');

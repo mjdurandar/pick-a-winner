@@ -15,6 +15,10 @@ const goToPickaWinnerPage = (eventId) => {
     router.get(route('pickawinner.page', { eventId }));
 };
 
+const goToAttendeesPage = (eventId) => {
+    router.get(route('attendees.index', { eventId }));
+};
+
 </script>
 
 <template>
@@ -39,7 +43,7 @@ const goToPickaWinnerPage = (eventId) => {
                                 <h5 class="card-title">{{ event.event_name }}</h5>
                                 <p class="text-muted">📅 {{ event.event_date }}</p>
                                 <div class="d-flex justify-content-between mt-3">
-                                    <button class="btn btn-primary btn-sm me-2">
+                                    <button class="btn btn-primary btn-sm me-2" @click="goToAttendeesPage(event.id)">
                                         Attendees
                                     </button>
                                     <button @click="goToPickaWinnerPage(event.id)" class="btn btn-success btn-sm me-2">

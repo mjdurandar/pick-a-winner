@@ -14,7 +14,7 @@ return new class extends Migration
         Schema::create('prizes', function (Blueprint $table) {
             $table->id();
             $table->foreignId('event_id')->constrained()->cascadeOnDelete();
-            $table->foreignId('location_id')->constrained()->cascadeOnDelete();
+            $table->foreignId('location_id')->nullable()->constrained()->cascadeOnDelete();
             $table->string('prize_name');
             $table->string('winner');
             $table->timestamps();

@@ -73,5 +73,40 @@ class PickaWinnerController extends Controller
             'prizes' => $prize,
         ]);
     }
+
+    public function allLocation($eventId) {
+
+        $event = Events::findOrFail($eventId);
+        $signUpForm = SignUpForm::where('event_id', $eventId)->firstOrFail();
+        $tableName = $signUpForm->table_name;
+        $attendees = DB::table($tableName)->get();
+
+        // ✅ Check if prizes already exist for this event & location
+        $existingPrizesCount = Prize::where('event_id', $eventId)
+            ->whereNull('location_id') 
+            ->count();
+    
+        // ✅ Only create prizes if none exist (Executes ONCE)
+        if ($existingPrizesCount === 0) {
+            for ($i = 1; $i <= 5; $i++) {
+                Prize::create([
+                    'event_id' => $eventId,
+                    'location_id' => null,
+                    'prize_name' => "Prize $i",
+                    'winner' => "No Winner Yet",
+                ]);
+            }
+        }
+
+        $prizes = Prize::where('event_id', $eventId)
+               ->whereNull('location_id') // ✅ Ensure location_id is NULL
+               ->get();
+               
+        return Inertia::render('PickaWinnerAllLocation', [
+            'event' => $event,
+            'attendees' => $attendees,
+            'prizes' => $prizes,
+        ]);
+    }
     
 }

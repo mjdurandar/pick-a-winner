@@ -19,20 +19,18 @@ const filteredAttendees = computed(() => {
     return props.attendees.filter(attendee =>
         `${attendee.first_name} ${attendee.last_name}`.toLowerCase().includes(searchQuery.value.toLowerCase()) ||
         attendee.email_address.toLowerCase().includes(searchQuery.value.toLowerCase()) ||
-        attendee.mobile_number.toLowerCase().includes(searchQuery.value.toLowerCase()) 
+        attendee.mobile_number.toLowerCase().includes(searchQuery.value.toLowerCase()) ||
+        attendee.events_location.toLowerCase().includes(searchQuery.value.toLowerCase())
     );
 });
 
 const form = useForm({
     id: null,
     event_id: '',
-    location_id: '',
     prize_name: '',
 });
-
 // ✅ Define Props (Expecting location, event & attendees list)
 const props = defineProps({
-    location: Object,  // ✅ Selected location
     event: Object,     // ✅ Event details (includes table_name)
     attendees: Array,   // ✅ List of attendees from the dynamic table
     prizes: Array,      // ✅ List of prizes
@@ -56,7 +54,6 @@ const savePrize = () => {
     const data = new FormData();
     data.append('prize_name', form.prize_name); // ✅ Corrected
     data.append('event_id', props.event.id); // ✅ Ensure event_id is sent
-    data.append('location_id', props.location.id); // ✅ Ensure location_id is sent
 
     if (isEditing.value) {
         data.append('_method', 'PATCH'); // ✅ Use PATCH for updating
@@ -204,7 +201,6 @@ const confirmCancel = () => {
     });
 };
 
-// ✅ Compute attendees who have NOT been picked as winners yet
 const eligibleAttendees = computed(() => {
     return props.attendees.filter(attendee => 
         !props.prizes.some(prize => prize.winner_email === attendee.email_address)
@@ -214,12 +210,12 @@ const eligibleAttendees = computed(() => {
 </script>
 
 <template>
-    <Head title="Pick a Winner Location Page" />
+    <Head title="Pick a Winner All Location Page" />
 
     <AuthenticatedLayout>
         <template #header>
             <h2 class="text-xl font-semibold leading-tight text-gray-800">
-                Pick a Winner for {{ location.name }} - {{ event.event_name }} <!-- ✅ Display Location & Event Name -->
+                Pick a Winner for {{ event.event_name }} <!-- ✅ Display Location & Event Name -->
             </h2>
         </template>
         <!-- ✅ Prizes Button -->
@@ -272,7 +268,7 @@ const eligibleAttendees = computed(() => {
                 <div class="overflow-hidden bg-white shadow-sm sm:rounded-lg">
                     <div class="p-6 text-gray-900">
                         <div class="d-flex justify-content-between">
-                            <h3 class="text-lg font-semibold mb-4">Attendees at {{ location.name }}</h3>
+                            <h3 class="text-lg font-semibold mb-4">Attendees at {{ event.event_name }}</h3>
                             <!-- ✅ Search Bar -->
                             <div class="mb-3">
                                 <input
@@ -284,12 +280,14 @@ const eligibleAttendees = computed(() => {
                             </div>
                         </div>
                         <!-- ✅ Attendees Table -->
-                        <table class="w-full border-collapse border border-gray-300">
+                         <div class="overflow-x-auto">
+                            <table class="w-full border-collapse border border-gray-300 ">
                             <thead>
                                 <tr class="bg-gray-200">
                                     <th class="border border-gray-300 p-2">Name</th>
                                     <th class="border border-gray-300 p-2">Email</th>
                                     <th class="border border-gray-300 p-2">Mobile Number</th>
+                                    <th class="border border-gray-300 p-2">Location</th>
                                 </tr>
                             </thead>
                             <tbody>
@@ -297,16 +295,18 @@ const eligibleAttendees = computed(() => {
                                     <td class="border border-gray-300 p-2">{{ attendee.first_name }} {{ attendee.last_name }}</td>
                                     <td class="border border-gray-300 p-2">{{ attendee.email_address }}</td>
                                     <td class="border border-gray-300 p-2">{{ attendee.mobile_number }}</td>
+                                    <td class="border border-gray-300 p-2">{{ attendee.events_location }}</td>
                                 </tr>
                             </tbody>
                         </table>
+                         </div>
                         <!-- ✅ If No Attendees Found -->
                         <!-- <div v-if="filteredAttendees.length === 0" class="text-gray-600 text-center mt-4">
                             No matching attendees found.
                         </div> -->
                         <!-- ✅ If No Attendees Found -->
                         <div v-if="attendees.length === 0" class="text-gray-600 text-center mt-4">
-                            No attendees have registered for this location.
+                            No attendees have registered for this Events.
                         </div>
                     </div>
                 </div>
