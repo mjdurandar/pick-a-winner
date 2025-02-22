@@ -1,7 +1,7 @@
 <script setup>
 import Swal from 'sweetalert2';
-import { ref } from 'vue';
-import { useForm, router } from '@inertiajs/vue3';
+import { ref, computed } from 'vue';
+import { useForm, router, usePage } from '@inertiajs/vue3';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout.vue';
 import { Head } from '@inertiajs/vue3';
 
@@ -12,6 +12,9 @@ defineProps({
 
 // Track if we are editing an event
 const isEditing = ref(false);
+const page = usePage();
+const user = computed(() => page.props.auth.user || null);
+const userRole = computed(() => user.value?.role); 
 
 // Form state
 const form = useForm({
@@ -140,7 +143,7 @@ const goToSignUpForm = (eventId) => {
         <template #header>
             <div class="d-flex justify-content-between align-items-center">
                 <h2 class="text-xl font-semibold leading-tight text-gray-800">Events</h2>
-                <button @click="openCreateModal" class="btn btn-primary">
+                <button @click="openCreateModal" class="btn btn-primary" v-if="userRole === 'admin'">
                     Create Event
                 </button>
             </div>
@@ -158,14 +161,14 @@ const goToSignUpForm = (eventId) => {
                                 <p class="text-muted">📅 {{ event.event_date }}</p>
                                 <p class="text-muted">👤 {{ event.event_coordinator }}</p>
                                 <div class="d-flex justify-content-between mt-3">
-                                    <button @click="goToSignUpForm(event.id)" class="btn btn-primary btn-sm me-2">
+                                    <button @click="goToSignUpForm(event.id)" class="btn btn-primary btn-sm me-2" v-if="userRole === 'admin' || userRole === 'host'">
                                         Sign Up Form
                                     </button>
                                     <div>
-                                        <button @click="openEditModal(event)" class="btn btn-primary btn-sm me-2">
+                                        <button @click="openEditModal(event)" class="btn btn-primary btn-sm me-2" v-if="userRole === 'admin'">
                                             <i class="fa-solid fa-pen-to-square"></i>
                                         </button>
-                                        <button @click="deleteEvent(event.id)" class="btn btn-danger btn-sm">
+                                        <button @click="deleteEvent(event.id)" class="btn btn-danger btn-sm" v-if="userRole === 'admin'">
                                             <i class="fa-solid fa-trash"></i>
                                         </button>
                                     </div>

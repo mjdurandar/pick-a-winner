@@ -1,9 +1,9 @@
 <script setup>
 import { ref, watchEffect, computed } from 'vue';
-import { router } from '@inertiajs/vue3';
+import { router, Head, usePage } from '@inertiajs/vue3';
 import Swal from 'sweetalert2';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout.vue';
-import { Head } from '@inertiajs/vue3';
+// import { Head } from '@inertiajs/vue3';
 
 // ✅ Receive `eventId` and `form` as props
 const props = defineProps({ 
@@ -11,6 +11,11 @@ const props = defineProps({
     eventValues: Object,
     form: Object
 });
+
+// ✅ Get user role from Inertia
+const page = usePage();
+const user = computed(() => page.props.auth.user || null);
+const userRole = computed(() => user.value?.role); 
 
 // ✅ Store form data reactively
 const signupForm = ref(props.form || null);
@@ -86,23 +91,28 @@ watchEffect(() => {
                 <h2 class="text-xl font-semibold text-gray-800 text-center md:text-left">
                     Sign Up Form for Event: {{ eventValues.event_name }}
                 </h2>
-                <div>
+                <div class="flex mt-4 md:mt-0">
+                    <!-- ✅ Show this only if signupForm exists -->
                     <button v-if="signupForm" @click="copySignupFormUrl()" class="btn btn-success me-3">
                         Copy Signup Link
                     </button>
 
-                    <button v-if="signupForm" @click="editSignUpForm()" class="btn btn-warning">
+                    <!-- ✅ Show "Edit Form" only if signupForm exists and user is admin -->
+                    <button v-if="signupForm && userRole === 'admin'" @click="editSignUpForm()" class="btn btn-warning">
                         Edit Form
-                    </button>
-                    
-                    <button v-else @click="generateSignUpForm()" class="btn btn-primary">
+                    </button>  
+
+                    <!-- ✅ Show "Generate Sign Up Form" only if signupForm does NOT exist -->
+                    <button v-if="!signupForm && userRole === 'admin'" @click="generateSignUpForm()" class="btn btn-primary">
                         Generate Sign Up Form
                     </button>
                 </div>
             </div>
         </template>
 
-        <div class="container mt-4 mb-4 d-flex justify-content-center align-items-center flex-column" style="min-height: 100vh;">
+
+
+        <div class="container mt-4 mb-4 pb-4 d-flex justify-content-center align-items-center flex-column" style="min-height: 100vh;">
             <div class="mx-auto max-w-7xl sm:px-6 lg:px-8">
                 <!-- ✅ If a signup form exists, display it -->
                 <div v-if="signupForm">
@@ -149,8 +159,12 @@ watchEffect(() => {
                 </div>
 
                 <!-- ✅ If no signup form exists, show a message -->
-                <div v-else class="text-center text-gray-600 mt-5">
+                <div v-else class="text-center text-gray-600 mt-5" v-if="userRole === 'admin'">
                     <p>No signup form generated yet. Click "Generate Sign Up Form" to create one.</p>
+                </div>
+
+                <div v-else class="text-center text-gray-600 mt-5" v-if="userRole === 'host'">
+                    <p>No signup form generated yet. Please contact the Admin to generate the form for you.</p>
                 </div>
             </div>
         </div>

@@ -24,33 +24,16 @@ Route::get('/dashboard', function () {
 Route::get('/adventureentertainment/form/{eventId}', [SignUpFormController::class, 'embed'])->name('signup.embed');
 Route::post('/adventureentertainment/form/{eventId}', [SignUpFormController::class, 'storeEmbeddedData'])->name('signup.storeEmbedded');
 
-Route::middleware('auth')->group(function () {
-    
-    //EVENTS ROUTES
+//SHARED ROUTES
+Route::middleware(['auth', RoleMiddleware::class . ':admin,host'])->group(function () {
+    //events page
     Route::get('/events', [EventsController::class, 'index'])->name('events.index');
-    Route::post('/events', [EventsController::class, 'store'])->name('events.store');
-    Route::patch('/events/{event}', [EventsController::class, 'update'])->name('events.update');
-    Route::delete('/events/{event}', [EventsController::class, 'destroy'])->name('events.destroy');
-
-    //SIGN UP FORM ROUTES
-    Route::get('/signup-form/{eventId}', [SignUpFormController::class, 'index'])->name('signup.index');
-    Route::post('/signup-form/{eventId}', [SignUpFormController::class, 'store'])->name('signup.store');
-    Route::post('/signup-form', [SignUpFormController::class, 'generate'])->name('signup.generate');
-    Route::delete('/signup-form/{eventId}', [SignUpFormController::class, 'destroy'])->name('signup.destroy');
-
-    //EDIT SIGN UP FORM ROUTES
-    Route::get('/signup-form/edit/{formId}', [SignUpFormController::class, 'edit'])->name('signup.edit');
-    //UPDATE SIGN UP FORM ROUTES
-    Route::post('/signup-form/update/{eventId}', [SignUpFormController::class, 'update'])->name('signup.update');
-
+    // PICK A WINNER ALL LOCATION ROUTES
+    Route::get('/pickawinner/alllocation/{event}', [PickaWinnerController::class, 'alllocation'])->name('pickawinner.alllocation');
     //PICK A WINNER ROUTES
     Route::get('/pickawinner', [PickaWinnerController::class, 'index'])->name('pickawinner.index');
     Route::get('/pickawinner/{eventId}', [PickaWinnerController::class, 'pickawinner'])->name('pickawinner.page');
     Route::get('/pickawinner/show/{location}/{event}', [PickaWinnerController::class, 'pickawinnerlocationpage'])->name('pickawinner.locationpage');
-
-    // PICK A WINNER ALL LOCATION ROUTES
-    Route::get('/pickawinner/alllocation/{event}', [PickaWinnerController::class, 'alllocation'])->name('pickawinner.alllocation');
-
     //PRIZE ROUTES
     Route::patch('/prize/{prize}', [PrizeController::class, 'update'])->name('prize.update');
     Route::post('/prize', [PrizeController::class, 'addPrize'])->name('prize.store');
@@ -61,6 +44,27 @@ Route::middleware('auth')->group(function () {
     Route::get('/attendees/{eventId}', [AttendeesController::class, 'index'])->name('attendees.index');
     Route::put('/attendees/{id}', [AttendeesController::class, 'update'])->name('attendees.update');
     Route::delete('/attendee/{attendee}/event/{event}', [AttendeesController::class, 'destroy'])->name('attendees.destroy');
+
+    //SIGN UP FORM ROUTES
+    Route::get('/signup-form/{eventId}', [SignUpFormController::class, 'index'])->name('signup.index');
+});
+
+Route::middleware(['auth', RoleMiddleware::class . ':admin'])->group(function () {
+
+    //EVENTS ROUTES
+    Route::post('/events', [EventsController::class, 'store'])->name('events.store');
+    Route::patch('/events/{event}', [EventsController::class, 'update'])->name('events.update');
+    Route::delete('/events/{event}', [EventsController::class, 'destroy'])->name('events.destroy');
+
+    //SIGN UP FORM ROUTES
+    Route::post('/signup-form/{eventId}', [SignUpFormController::class, 'store'])->name('signup.store');
+    Route::post('/signup-form', [SignUpFormController::class, 'generate'])->name('signup.generate');
+    Route::delete('/signup-form/{eventId}', [SignUpFormController::class, 'destroy'])->name('signup.destroy');
+
+    //EDIT SIGN UP FORM ROUTES
+    Route::get('/signup-form/edit/{formId}', [SignUpFormController::class, 'edit'])->name('signup.edit');
+    //UPDATE SIGN UP FORM ROUTES
+    Route::post('/signup-form/update/{eventId}', [SignUpFormController::class, 'update'])->name('signup.update');
 
     //USERS ROUTES
     Route::get('/users', [UsersController::class, 'index'])->name('users.index');

@@ -13,10 +13,9 @@ const showingNavigationDropdown = ref(false);
 // ✅ Get user role from Inertia
 const page = usePage();
 const user = computed(() => page.props.auth.user || null);
-const userRole = computed(() => user.value?.role || 'guest'); // Default to 'guest' if no user
+const userRole = computed(() => user.value?.role); 
 
 </script>
-
 
 <template>
     <div>
@@ -49,7 +48,7 @@ const userRole = computed(() => user.value?.role || 'guest'); // Default to 'gue
                                     Dashboard
                                 </NavLink>
                                 <NavLink
-                                    v-if="userRole === 'admin'"
+                                    v-if="userRole === 'admin' || userRole === 'host'"
                                     :href="route('events.index')"
                                     :active="route().current('events.index')"
                                 >

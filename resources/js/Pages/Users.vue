@@ -155,7 +155,6 @@ const deleteUser = (id) => {
                                 <label class="form-label">Role</label>
                                 <select v-model="form.role" class="form-control" required>
                                     <option value="host">Host</option>
-                                    <option value="user">User</option>
                                     <option value="admin">Admin</option>
                                 </select>
                             </div>

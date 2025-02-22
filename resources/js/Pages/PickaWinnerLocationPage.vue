@@ -22,15 +22,21 @@ const getTodayDate = () => {
 
 // ✅ Computed Property to Filter Attendees
 const filteredAttendees = computed(() => {
-    if (!searchQuery.value) {
-        return props.attendees;
-    }
-    return props.attendees.filter(attendee =>
-        `${attendee.first_name} ${attendee.last_name}`.toLowerCase().includes(searchQuery.value.toLowerCase()) ||
-        attendee.email_address.toLowerCase().includes(searchQuery.value.toLowerCase()) ||
-        attendee.mobile_number.toLowerCase().includes(searchQuery.value.toLowerCase()) 
-    );
+    return props.attendees.filter(attendee => {
+        // ✅ Ensure attendee's location matches the selected location
+        const matchesLocation = attendee.events_location === props.location.name;
+
+        // ✅ Apply search filtering
+        const matchesSearch = searchQuery.value
+            ? `${attendee.first_name} ${attendee.last_name}`.toLowerCase().includes(searchQuery.value.toLowerCase()) ||
+              attendee.email_address.toLowerCase().includes(searchQuery.value.toLowerCase()) ||
+              attendee.mobile_number.toLowerCase().includes(searchQuery.value.toLowerCase())
+            : true;
+
+        return matchesLocation && matchesSearch;
+    });
 });
+
 
 const form = useForm({
     id: null,
@@ -226,7 +232,10 @@ const eligibleAttendees = computed(() => {
             }
         }
 
-        return !isWinner && (!onlyTodayEntries.value || entryDate === getTodayDate());
+        // ✅ Ensure the attendee is from the selected location
+        const matchesLocation = attendee.events_location === props.location.name;
+
+        return !isWinner && matchesLocation && (!onlyTodayEntries.value || entryDate === getTodayDate());
     });
 });
 
@@ -317,6 +326,7 @@ const eligibleAttendees = computed(() => {
                                         <th class="border border-gray-300 p-2">Name</th>
                                         <th class="border border-gray-300 p-2">Email</th>
                                         <th class="border border-gray-300 p-2">Mobile Number</th>
+                                        <th class="border border-gray-300 p-2">Event Location</th>
                                     </tr>
                                 </thead>
                                 <tbody>
@@ -324,6 +334,7 @@ const eligibleAttendees = computed(() => {
                                         <td class="border border-gray-300 p-2">{{ attendee.first_name }} {{ attendee.last_name }}</td>
                                         <td class="border border-gray-300 p-2">{{ attendee.email_address }}</td>
                                         <td class="border border-gray-300 p-2">{{ attendee.mobile_number }}</td>
+                                        <td class="border border-gray-300 p-2">{{ attendee.events_location }}</td>
                                     </tr>
                                 </tbody>
                             </table>
