@@ -249,10 +249,10 @@ class SignUpFormController extends Controller
                 $insertData[$columnName] = $value;
             }
 
-            // ✅ Identify Location Field (if the question contains "location")
-            if (stripos($key, 'location') !== false) {
-                $selectedLocationName = $value;
-            }
+                // ✅ Identify Location Field (if the question contains "location")
+                if (stripos($key, 'location') !== false) {
+                    $selectedLocationName = $value;
+                }
         }
 
         // ✅ Find Location ID from the Locations Table
@@ -265,18 +265,11 @@ class SignUpFormController extends Controller
                 $insertData['location_id'] = $location->id;
             }
         }
-
     
         // Insert the validated data into the correct table
         DB::table($tableName)->insert($insertData);
 
         return redirect()->route('signup.embed', ['eventId' => $eventId])->with('success');
     }
-    
-    
-
-
-    
-    
     
 }

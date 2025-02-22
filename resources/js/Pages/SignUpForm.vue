@@ -165,14 +165,19 @@ watchEffect(() => {
                     </div>
                 </div>
 
-                <!-- ✅ If no signup form exists, show a message -->
-                <div v-else class="text-center text-gray-600 mt-5" v-if="userRole === 'admin'">
-                    <p>No signup form generated yet. Click "Generate Sign Up Form" to create one.</p>
+               <!-- ✅ If no signup form exists, show a message -->
+                <div v-if="!signupForm" class="text-center text-gray-600 mt-5">
+                    <!-- ✅ Admin sees this message and can generate a form -->
+                    <p v-if="userRole === 'admin'">
+                        No signup form generated yet. Click <strong>"Generate Sign Up Form"</strong> to create one.
+                    </p>
+
+                    <!-- ✅ Host sees this message but cannot generate -->
+                    <p v-else-if="userRole === 'host'">
+                        No signup form generated yet. Please contact the Admin to generate the form for you.
+                    </p>
                 </div>
 
-                <div v-else class="text-center text-gray-600 mt-5" v-if="userRole === 'host'">
-                    <p>No signup form generated yet. Please contact the Admin to generate the form for you.</p>
-                </div>
             </div>
         </div>
     </AuthenticatedLayout>

@@ -149,7 +149,7 @@ const goToSignUpForm = (eventId) => {
             </div>
         </template>
 
-        <div class="p-5">
+        <div class="p-4">
             <div class="mx-auto max-w-7xl sm:px-6 lg:px-8">
                 <div class="row">
                     <div v-for="event in events" :key="event.id" class="col-md-4 mb-4">

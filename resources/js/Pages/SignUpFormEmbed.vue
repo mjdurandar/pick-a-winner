@@ -53,7 +53,7 @@ const submitForm = () => {
             <div class="w-100">
                 <img :src="'/storage/' + event.event_banner" alt="Event Banner" 
                      class="img-fluid w-100" 
-                     style="object-fit: cover; height: 250px;">
+                     style="object-fit: cover; height: 100%;">
             </div>
 
             <!-- ✅ Thank You Card (Shown after submission) -->

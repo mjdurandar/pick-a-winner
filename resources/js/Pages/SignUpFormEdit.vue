@@ -17,19 +17,35 @@ const signupForm = ref(props.form ? {
     questions: JSON.parse(props.form.questions) 
 } : null);
 
-// ✅ Dragging logic for questions (description fields remain static)
-const draggedIndex = ref(null);
-
-const dragStart = (index) => {
-    draggedIndex.value = index;
+// ✅ Dragging logic for questions
+const draggedQuestionIndex = ref(null);
+const dragStartQuestion = (index) => {
+    draggedQuestionIndex.value = index;
 };
 
-const drop = (index) => {
-    if (draggedIndex.value !== null) {
-        // Move the dragged question to the new position
-        const movedQuestion = signupForm.value.questions.splice(draggedIndex.value, 1)[0];
+const dropQuestion = (index) => {
+    if (draggedQuestionIndex.value !== null) {
+        const movedQuestion = signupForm.value.questions.splice(draggedQuestionIndex.value, 1)[0];
         signupForm.value.questions.splice(index, 0, movedQuestion);
-        draggedIndex.value = null;
+        draggedQuestionIndex.value = null;
+    }
+};
+
+// ✅ Dragging logic for dropdown options
+const draggedOptionIndex = ref(null);
+const draggedQuestionForOption = ref(null);
+
+const dragStartOption = (qIndex, optIndex) => {
+    draggedOptionIndex.value = optIndex;
+    draggedQuestionForOption.value = qIndex;
+};
+
+const dropOption = (qIndex, optIndex) => {
+    if (draggedOptionIndex.value !== null && draggedQuestionForOption.value === qIndex) {
+        const movedOption = signupForm.value.questions[qIndex].options.splice(draggedOptionIndex.value, 1)[0];
+        signupForm.value.questions[qIndex].options.splice(optIndex, 0, movedOption);
+        draggedOptionIndex.value = null;
+        draggedQuestionForOption.value = null;
     }
 };
 
@@ -60,12 +76,29 @@ const addOption = (index) => {
 
 // ✅ Remove a dropdown option
 const removeOption = (qIndex, optIndex) => {
-    signupForm.value.questions[qIndex].options.splice(optIndex, 1);
+    let question = signupForm.value.questions[qIndex];
+    // ✅ Check if the question is related to location
+    if (question.text.toLowerCase().includes("location")) {
+        Swal.fire({
+            title: "Are you sure?",
+            text: "Removing this location will also remove the Win Sheet Data. Please download the backup. Proceed?",
+            icon: "warning",
+            showCancelButton: true,
+            confirmButtonText: "Yes, remove it!",
+            cancelButtonText: "No, cancel",
+        }).then((result) => {
+            if (result.isConfirmed) {
+                signupForm.value.questions[qIndex].options.splice(optIndex, 1);
+                Swal.fire("Removed!", "The location has been removed.", "success");
+            }
+        });
+    } else {
+        signupForm.value.questions[qIndex].options.splice(optIndex, 1);
+    }
 };
 
 // ✅ Save the updated form
 const saveForm = () => {
-    // ✅ Check if required fields are filled
     if (!signupForm.value.heading.trim() || 
         !signupForm.value.event_description.trim() || 
         !signupForm.value.privacy_link.trim() || 
@@ -74,13 +107,11 @@ const saveForm = () => {
         return;
     }
 
-    // ✅ Check if at least one question exists
     if (signupForm.value.questions.length === 0) {
         Swal.fire('Error!', 'At least one question is required.', 'error');
         return;
     }
 
-    // ✅ Check if all questions have text and type
     for (let i = 0; i < signupForm.value.questions.length; i++) {
         let question = signupForm.value.questions[i];
 
@@ -94,10 +125,19 @@ const saveForm = () => {
             return;
         }
 
-        // ✅ Check if dropdown questions have at least one option
-        if (question.type === 'dropdown' && question.options.length === 0) {
-            Swal.fire('Error!', `Dropdown question ${i + 1} must have at least one option.`, 'error');
-            return;
+        if (question.type === 'dropdown') {
+            if (question.options.length === 0) {
+                Swal.fire('Error!', `Dropdown question ${i + 1} must have at least one option.`, 'error');
+                return;
+            }
+
+            // ✅ Check if any dropdown option is empty
+            for (let j = 0; j < question.options.length; j++) {
+                if (!question.options[j].trim()) {
+                    Swal.fire('Error!', `Dropdown question ${i + 1} has an empty option. Please remove it or fill it in.`, 'error');
+                    return;
+                }
+            }
         }
     }
 
@@ -115,18 +155,18 @@ const saveForm = () => {
                 event_description: signupForm.value.event_description,
                 privacy_link: signupForm.value.privacy_link,
                 terms_link: signupForm.value.terms_link,
-                questions: JSON.stringify(signupForm.value.questions) // ✅ Ensure questions are saved properly
+                questions: JSON.stringify(signupForm.value.questions)
             }, {
                 onSuccess: () => {
                     Swal.fire('Saved!', 'Sign Up Form has been updated.', 'success');
-                    router.get(route('signup.index', { eventId: signupForm.value.event_id })); // ✅ Redirect back to form view
+                    router.get(route('signup.index', { eventId: signupForm.value.event_id }));
                 }
             });
         }
     });
 };
 
-// ✅ Watch for changes in `props.form` and update all fields in `signupForm`
+// ✅ Watch for changes in `props.form` and update fields
 watchEffect(() => {
     if (props.form) {
         signupForm.value = { 
@@ -136,6 +176,7 @@ watchEffect(() => {
     }
 });
 </script>
+
 
 <template>
     <Head title="Edit Sign Up Form" />
@@ -147,33 +188,8 @@ watchEffect(() => {
             </h2>
         </template>
 
-        <!-- Responsive Form Container -->
         <div class="py-6 mx-auto w-full px-4 md:w-1/2">
             <div class="bg-white p-6 shadow rounded-lg">
-
-                <!-- ✅ Heading Input -->
-                <h2 class="text-lg font-bold mb-3">Edit Heading</h2>
-                <div class="mb-4">
-                    <input v-model="signupForm.heading" type="text" class="w-full border p-2 rounded" />
-                </div>
-
-                <!-- ✅ Description Input -->
-                <h2 class="text-lg font-bold mb-3">Edit Description</h2>
-                <div class="mb-4">
-                    <textarea v-model="signupForm.event_description" class="w-full border p-2 rounded" rows="3"></textarea>
-                </div>
-
-                <!-- ✅ Privacy Policy Link -->
-                <h2 class="text-lg font-bold mb-3">Edit Privacy Policy Link</h2>
-                <div class="mb-4">
-                    <input v-model="signupForm.privacy_link" type="text" class="w-full border p-2 rounded" />
-                </div>
-
-                <!-- ✅ Terms and Conditions Link -->
-                <h2 class="text-lg font-bold mb-3">Edit Terms and Conditions Link</h2>
-                <div class="mb-4">
-                    <input v-model="signupForm.terms_link" type="text" class="w-full border p-2 rounded" />
-                </div>
 
                 <!-- ✅ Draggable Questions Section -->
                 <h2 class="text-lg font-bold mb-3">Edit Questions (Drag to Reorder)</h2>
@@ -182,40 +198,49 @@ watchEffect(() => {
                         v-for="(question, index) in signupForm.questions"
                         :key="index"
                         draggable="true"
-                        @dragstart="dragStart(index)"
+                        @dragstart="dragStartQuestion(index)"
                         @dragover.prevent
-                        @drop="drop(index)"
+                        @drop="dropQuestion(index)"
                         class="mb-4 p-3 border rounded shadow-sm bg-gray-100 cursor-grab"
                     >
                         <label class="font-medium">Question:</label>
                         <input v-model="question.text" type="text" class="w-full border p-2 rounded mb-2" />
 
-                        <!-- ✅ Question Type Dropdown -->
                         <select v-model="question.type" @change="updateQuestionType(index, question.type)" class="w-full border p-2 rounded mb-2">
                             <option value="text">Text Input</option>
                             <option value="dropdown">Dropdown</option>
                         </select>
 
-                        <!-- ✅ Dropdown Options -->
+                        <!-- ✅ Draggable Dropdown Options -->
                         <div v-if="question.type === 'dropdown'">
-                            <label class="font-medium">Dropdown Options:</label>
-                            <div v-for="(option, optIndex) in question.options" :key="optIndex" class="flex gap-2 mb-2">
+                            <label class="font-medium">Dropdown Options (Drag to Reorder):</label>
+                            <div
+                                v-for="(option, optIndex) in question.options"
+                                :key="optIndex"
+                                draggable="true"
+                                @dragstart="dragStartOption(index, optIndex)"
+                                @dragover.prevent
+                                @drop="dropOption(index, optIndex)"
+                                class="flex gap-2 mb-2 p-2 border rounded cursor-grab bg-gray-200"
+                            >
                                 <input v-model="question.options[optIndex]" type="text" class="flex-1 border p-2 rounded" />
-                                <button @click="removeOption(index, optIndex)" class="bg-red-500 text-white px-2 py-1 rounded">Remove</button>
+                                <button @click="addOption(index)" class="bg-green-500 text-white px-3 py-2 rounded">
+                                    <i class="fa-solid fa-plus"></i>
+                                </button>
+                                <button @click="removeOption(index, optIndex)" class="bg-red-500 text-white px-3 py-1 rounded">
+                                    <i class="fa-solid fa-trash"></i>
+                                </button>
                             </div>
-                            <button @click="addOption(index)" class="bg-green-500 text-white px-3 py-1 rounded">Add Option</button>
                         </div>
 
-                        <!-- ✅ Remove Question Button -->
                         <button @click="removeQuestion(index)" class="bg-red-500 text-white px-3 py-1 rounded mt-2">Remove Question</button>
                     </div>
                 </div>
 
-                <!-- ✅ Add Question Button -->
-                <button @click="addQuestion" class="bg-blue-500 text-white px-3 py-2 rounded w-full mt-3">Add Question</button>
-
-                <!-- ✅ Save Form Button -->
-                <button @click="saveForm" class="bg-green-500 text-white px-4 py-2 rounded w-full mt-4">Save Form</button>
+                <div class="d-flex justify-content-between mt-4">
+                    <button @click="addQuestion" class="bg-blue-500 text-white px-3 py-2 rounded">Add Question</button>
+                    <button @click="saveForm" class="bg-green-500 text-white px-4 py-2 rounded">Save Form</button>
+                </div>
 
             </div>
         </div>
