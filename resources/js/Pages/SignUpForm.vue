@@ -110,8 +110,6 @@ watchEffect(() => {
             </div>
         </template>
 
-
-
         <div class="container mt-4 mb-4 pb-4 d-flex justify-content-center align-items-center flex-column" style="min-height: 100vh;">
             <div class="mx-auto max-w-7xl sm:px-6 lg:px-8">
                 <!-- ✅ If a signup form exists, display it -->
@@ -149,6 +147,15 @@ watchEffect(() => {
                                     <option v-for="option in question.options" :key="option">{{ option }}</option>
                                 </select>
                             </template>
+                        </div>
+
+                        <!-- ✅ Marketing Permission Checkbox (Required) -->
+                        <div class="form-check mt-3">
+                            <input type="checkbox" class="form-check-input" id="marketingPermission" required>
+                            <label class="form-check-label" for="marketingPermission">
+                                <strong>Marketing Permission</strong> <br>
+                                By checking the box, you accept the competition terms and conditions and consent to receive marketing materials related to the offerings of Adventure Entertainment and our partners.
+                            </label>
                         </div>
 
                         <!-- ✅ Submit Button -->

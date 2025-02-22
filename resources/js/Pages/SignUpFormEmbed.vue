@@ -12,6 +12,8 @@ const props = defineProps({
 const formValues = ref({});
 const isSubmitted = ref(false);
 
+const marketingPermission = ref(false); // ✅ Track checkbox state
+
 // ✅ Get CSRF token from Laravel
 const csrfToken = computed(() => {
     return document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '';
@@ -19,13 +21,20 @@ const csrfToken = computed(() => {
 
 // Handle form submission
 const submitForm = () => {
+    // ✅ Validate if the checkbox is checked
+    if (!marketingPermission.value) {
+        Swal.fire('Error!', 'You must accept the Marketing Permission terms.', 'error');
+        return;
+    }
     router.post(route('signup.storeEmbedded', { eventId: props.event.id }), { 
         ...formValues.value,
+        marketing_permission: marketingPermission.value, // ✅ Include checkbox value in the request
         _token: csrfToken.value  // ✅ Include CSRF token in the request
     }, {
         onSuccess: () => {
             Swal.fire('Success!', 'Your sign-up has been submitted.', 'success');
             formValues.value = {}; // Clear form after submission
+            marketingPermission.value = false; // Reset checkbox
             isSubmitted.value = true; // ✅ Show thank-you card
         },
         onError: (errors) => {
@@ -87,6 +96,15 @@ const submitForm = () => {
                         </option>
                     </select>
                 </template>
+            </div>
+
+            <!-- ✅ Marketing Permission Checkbox (Required) -->
+            <div class="form-check mt-4">
+                <input v-model="marketingPermission" type="checkbox" class="form-check-input" id="marketingPermission" required>
+                <label class="form-check-label" for="marketingPermission">
+                    <strong>Marketing Permission</strong> <br>
+                    By checking the box, you accept the competition terms and conditions and consent to receive marketing materials related to the offerings of Adventure Entertainment and our partners.
+                </label>
             </div>
 
             <div class="d-flex justify-content-center mt-4 mb-3">

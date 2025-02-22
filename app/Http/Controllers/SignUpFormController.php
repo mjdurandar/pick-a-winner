@@ -162,23 +162,39 @@ class SignUpFormController extends Controller
     
         $uniqueNewLocations = array_unique($newLocationOptions);
     
-        // ✅ Get all existing locations for this event
-        $existingLocations = Location::where('event_id', $eventId)->pluck('name')->toArray();
-    
-        // ✅ Find locations that were removed
-        $deletedLocations = array_diff($existingLocations, $uniqueNewLocations);
-    
-        // ✅ Delete removed locations from the database
-        Location::where('event_id', $eventId)->whereIn('name', $deletedLocations)->delete();
-    
-        // ✅ Add new locations if they don't already exist
-        foreach ($uniqueNewLocations as $locationName) {
-            Location::updateOrCreate(
-                ['event_id' => $eventId, 'name' => $locationName], 
-                ['event_id' => $eventId]
-            );
+        // ✅ Fetch all existing locations with their IDs
+        $existingLocations = Location::where('event_id', $eventId)->get()->keyBy('name');
+
+        // ✅ Track updated locations
+        $updatedLocations = [];
+
+        foreach ($uniqueNewLocations as $newLocationName) {
+            if ($existingLocations->has($newLocationName)) {
+                // ✅ Location already exists, no need to update
+                $updatedLocations[] = $existingLocations[$newLocationName]->id;
+            } else {
+                // ✅ Check if location exists but with a different name
+                $existingLocation = Location::where('event_id', $eventId)->whereNotIn('id', $updatedLocations)->first();
+                if ($existingLocation) {
+                    // ✅ Update existing location's name (Keep ID)
+                    $existingLocation->update(['name' => $newLocationName]);
+                    $updatedLocations[] = $existingLocation->id;
+                } else {
+                    // ✅ Create new location if it's completely new
+                    $newLocation = Location::create([
+                        'event_id' => $eventId,
+                        'name' => $newLocationName
+                    ]);
+                    $updatedLocations[] = $newLocation->id;
+                }
+            }
         }
-    
+
+        // ✅ Find locations that were removed and delete them
+        Location::where('event_id', $eventId)
+            ->whereNotIn('id', $updatedLocations)
+            ->delete();
+
         // ✅ Update Form in Database
         $form->update([
             'heading' => $request->heading,
@@ -213,7 +229,17 @@ class SignUpFormController extends Controller
         if (!Schema::hasTable($tableName)) {
             return response()->json(['error' => 'Table does not exist'], 400);
         }
-    
+
+        // $existingEntry = DB::table($tableName)
+        // ->where('email_address', $request->email_address)
+        // ->where('location_id', $request->location_id)
+        // ->exists();
+
+        // if ($existingEntry) {
+        //     return redirect()->route('signup.embed', ['eventId' => $eventId])
+        //         ->withErrors(['email_address' => 'This email has already been used for this location.']);
+        // }
+
         // Get the list of valid columns from the database table
         $validColumns = Schema::getColumnListing($tableName);
     
@@ -233,7 +259,7 @@ class SignUpFormController extends Controller
     
         // Insert the validated data into the correct table
         DB::table($tableName)->insert($insertData);
-        // dd($insertData);
+
         return redirect()->route('signup.embed', ['eventId' => $eventId])->with('success');
     }
     
