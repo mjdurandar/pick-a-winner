@@ -2,7 +2,6 @@
 
 use App\Http\Controllers\AttendeesController;
 use App\Http\Controllers\ProfileController;
-use Illuminate\Foundation\Application;
 use App\Http\Controllers\EventsController;
 use App\Http\Controllers\UsersController;
 use App\Http\Controllers\PickaWinnerController;
@@ -11,7 +10,6 @@ use App\Http\Controllers\PrizeController;
 use Illuminate\Support\Facades\Route;
 use Inertia\Inertia;
 use App\Http\Middleware\RoleMiddleware;
-use Illuminate\Support\Facades\Auth;
 
 Route::get('/', function () {
     return Inertia::render('Auth/Login');

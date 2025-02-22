@@ -61,11 +61,22 @@ class PickaWinnerController extends Controller
         // ✅ Get the dynamic table name from the event
         // ✅ Query the event’s signup form table for attendees from this location
         $attendees = DB::table($tableName)
-                    ->select('id', 'first_name', 'last_name', 'email_address', 'mobile_number', 'events_location',
-                        DB::raw("DATE(CONVERT_TZ(created_at, '+00:00', '+00:00')) as created_at")) // ✅ Force UTC
-                    ->where('event_id', $eventId)
-                    ->get();
-                
+        ->leftJoin('locations', "$tableName.location_id", '=', 'locations.id') // ✅ Join locations table
+        ->select(
+            "$tableName.id",
+            "$tableName.first_name",
+            "$tableName.last_name",
+            "$tableName.email_address",
+            "$tableName.mobile_number",
+            "$tableName.location_id",
+            "locations.name as location_name", // ✅ Fetch the actual location name
+            DB::raw("DATE(CONVERT_TZ($tableName.created_at, '+00:00', '+00:00')) as created_at") // ✅ Force UTC
+        )
+        ->where("$tableName.event_id", $eventId)
+        ->where("$tableName.location_id", $location->id)
+        ->get();
+    
+          
         return Inertia::render('PickaWinnerLocationPage', [
             'location' => $location,
             'event' => $event,

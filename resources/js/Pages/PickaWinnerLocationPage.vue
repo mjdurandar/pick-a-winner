@@ -24,7 +24,7 @@ const getTodayDate = () => {
 const filteredAttendees = computed(() => {
     return props.attendees.filter(attendee => {
         // ✅ Ensure attendee's location matches the selected location
-        const matchesLocation = attendee.events_location === props.location.name;
+        const matchesLocation = attendee.location_id === props.location.id;
 
         // ✅ Apply search filtering
         const matchesSearch = searchQuery.value
@@ -233,7 +233,7 @@ const eligibleAttendees = computed(() => {
         }
 
         // ✅ Ensure the attendee is from the selected location
-        const matchesLocation = attendee.events_location === props.location.name;
+        const matchesLocation = attendee.location_id === props.location.id;
 
         return !isWinner && matchesLocation && (!onlyTodayEntries.value || entryDate === getTodayDate());
     });
@@ -334,7 +334,7 @@ const eligibleAttendees = computed(() => {
                                         <td class="border border-gray-300 p-2">{{ attendee.first_name }} {{ attendee.last_name }}</td>
                                         <td class="border border-gray-300 p-2">{{ attendee.email_address }}</td>
                                         <td class="border border-gray-300 p-2">{{ attendee.mobile_number }}</td>
-                                        <td class="border border-gray-300 p-2">{{ attendee.events_location }}</td>
+                                        <td class="border border-gray-300 p-2">{{ attendee.location_name }}</td>
                                     </tr>
                                 </tbody>
                             </table>

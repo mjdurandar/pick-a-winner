@@ -94,6 +94,7 @@ class SignUpFormController extends Controller
         Schema::create($tableName, function (Blueprint $table) use ($defaultQuestions) {
             $table->id();
             $table->foreignId('event_id')->constrained('events')->onDelete('cascade');
+            $table->foreignId('location_id')->nullable()->constrained('locations')->onDelete('set null');
             $table->timestamps(); // Add timestamps
             
             foreach ($defaultQuestions as $question) {
@@ -224,21 +225,11 @@ class SignUpFormController extends Controller
     {   
         $form = SignUpForm::where('event_id', $eventId)->firstOrFail();
         $tableName = $form->table_name; // Ensure correct table
-    
+
         // Ensure table exists before inserting
         if (!Schema::hasTable($tableName)) {
             return response()->json(['error' => 'Table does not exist'], 400);
         }
-
-        // $existingEntry = DB::table($tableName)
-        // ->where('email_address', $request->email_address)
-        // ->where('location_id', $request->location_id)
-        // ->exists();
-
-        // if ($existingEntry) {
-        //     return redirect()->route('signup.embed', ['eventId' => $eventId])
-        //         ->withErrors(['email_address' => 'This email has already been used for this location.']);
-        // }
 
         // Get the list of valid columns from the database table
         $validColumns = Schema::getColumnListing($tableName);
@@ -249,13 +240,32 @@ class SignUpFormController extends Controller
             'created_at' => now(),
             'updated_at' => now(),
         ];
+
+        $selectedLocationName = null; // Placeholder for selected location name
     
         foreach ($request->except('_token') as $key => $value) {
             $columnName = Str::slug($key, '_'); // Convert spaces to underscores
             if (in_array($columnName, $validColumns)) { // ✅ Ensure column exists before inserting
                 $insertData[$columnName] = $value;
             }
+
+            // ✅ Identify Location Field (if the question contains "location")
+            if (stripos($key, 'location') !== false) {
+                $selectedLocationName = $value;
+            }
         }
+
+        // ✅ Find Location ID from the Locations Table
+        if ($selectedLocationName) {
+            $location = Location::where('event_id', $eventId)
+                                ->where('name', $selectedLocationName)
+                                ->first();
+
+            if ($location) {
+                $insertData['location_id'] = $location->id;
+            }
+        }
+
     
         // Insert the validated data into the correct table
         DB::table($tableName)->insert($insertData);
