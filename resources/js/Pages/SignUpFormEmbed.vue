@@ -43,6 +43,33 @@ const submitForm = () => {
         }
     });
 };
+
+const formatPhoneNumber = (index, fieldName, format) => {
+    let rawValue = formValues.value[fieldName];
+
+    if (!rawValue || !format) return;
+
+    // Remove all non-numeric characters
+    rawValue = rawValue.replace(/\D/g, '');
+
+    // Apply format dynamically
+    let formattedNumber = '';
+    let rawIndex = 0;
+
+    for (let char of format) {
+        if (char === '#') {
+            if (rawValue[rawIndex]) {
+                formattedNumber += rawValue[rawIndex];
+                rawIndex++;
+            }
+        } else {
+            formattedNumber += char;
+        }
+    }
+
+    formValues.value[fieldName] = formattedNumber;
+};
+
 </script>
 
 <template>
@@ -79,27 +106,47 @@ const submitForm = () => {
               v-if="!isSubmitted">
             <input type="hidden" :value="csrfToken" name="_token">
 
-            <div v-for="(question, index) in JSON.parse(form.questions)" :key="index" class="mb-3">
+            <template v-for="(question, index) in JSON.parse(form.questions)" :key="index">
                 <label class="form-label">{{ question.text }}</label>
 
-                <template v-if="question.type === 'text' || question.type === 'number'">
-                    <input v-model="formValues[question.text]" 
-                           :type="question.type" 
-                           class="form-control" required>
+                <!-- ✅ Text & Number Inputs -->
+                <template v-if="question.type === 'text'">
+                    <div class="pb-3">
+                        <input v-model="formValues[question.text]" type="text" class="form-control" required>
+                    </div>
                 </template>
 
-                <template v-else-if="question.type === 'dropdown'">
-                    <select v-model="formValues[question.text]" class="form-select" required>
-                        <option value="">Select an option</option>
-                        <option v-for="option in question.options" :key="option" :value="option">
-                            {{ option }}
-                        </option>
-                    </select>
+                <template v-if="question.type === 'email'">
+                    <div class="pb-3">
+                        <input v-model="formValues[question.text]" type="email" class="form-control" required>
+                    </div>
                 </template>
-            </div>
+
+                <template v-if="question.type === 'number'">
+                    <div class="pb-3">
+                        <input 
+                        v-model="formValues[question.text]" 
+                        :type="question.format === 'FREE-NUMERIC' ? 'number' : 'text'" 
+                        class="form-control"
+                        :placeholder="question.format === 'FREE-NUMERIC' ? 'Enter number' : question.format"
+                        required
+                        @input="formatPhoneNumber(index, question.text, question.format)">
+                    </div>
+                </template>
+
+                <!-- ✅ Dropdowns -->
+                <template v-else-if="question.type === 'dropdown'">
+                    <div class="pb-3">
+                        <select v-model="formValues[question.text]" class="form-select" required>
+                        <option value="">Select an option</option>
+                        <option v-for="option in question.options" :key="option" :value="option">{{ option }}</option>
+                    </select>
+                    </div>
+                </template>
+            </template>
 
             <!-- ✅ Marketing Permission Checkbox (Required) -->
-            <div class="form-check mt-4">
+            <div class="form-check mt-2">
                 <input v-model="marketingPermission" type="checkbox" class="form-check-input" id="marketingPermission" required>
                 <label class="form-check-label" for="marketingPermission">
                     <strong>Marketing Permission</strong> <br>

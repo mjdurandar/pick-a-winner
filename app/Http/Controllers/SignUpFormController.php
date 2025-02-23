@@ -41,10 +41,10 @@ class SignUpFormController extends Controller
         // Default Questions as per your specifications
         $defaultQuestions = [
             ['text' => 'Events Location', 'type' => 'dropdown', 'options' => ['Option 1', 'Option 2']], // User will input locations
-            ['text' => 'Email Address', 'type' => 'text', 'options' => []],
+            ['text' => 'Email Address', 'type' => 'email', 'options' => []],
             ['text' => 'First Name', 'type' => 'text', 'options' => []],
             ['text' => 'Last Name', 'type' => 'text', 'options' => []],
-            ['text' => 'Mobile Number', 'type' => 'number', 'options' => []],
+            ['text' => 'Mobile Number', 'type' => 'number', 'options' => [], 'format' => '###-###-####'], // ✅ Added format here
             ['text' => 'Age', 'type' => 'dropdown', 'options' => ['Under 21', '22-44', '45+']],
             ['text' => 'Gender', 'type' => 'dropdown', 'options' => ['Female', 'Male', 'Nonbinary/Other']],
             ['text' => 'Combined Household Income?', 'type' => 'dropdown', 'options' => [
@@ -90,6 +90,15 @@ class SignUpFormController extends Controller
             'questions' => json_encode($defaultQuestions),
         ]);
 
+        $locationNames = ['Option 1', 'Option 2']; // Example location names
+
+        foreach ($locationNames as $name) {
+            Location::create([
+                'event_id' => $request->event_id,
+                'name' => $name
+            ]);
+        }
+
         // ✅ CREATE TABLE BASED ON QUESTIONS
         Schema::create($tableName, function (Blueprint $table) use ($defaultQuestions) {
             $table->id();
@@ -104,6 +113,11 @@ class SignUpFormController extends Controller
                 } elseif ($question['type'] === 'dropdown') {
                     $table->string($columnName)->nullable();
                 }
+            }
+
+            // ✅ Store format in a separate column (if needed)
+            if ($question['type'] === 'number' && isset($question['format'])) {
+                $table->string($columnName . '_format')->nullable(); // Stores the format
             }
         });
 
@@ -244,15 +258,23 @@ class SignUpFormController extends Controller
         $selectedLocationName = null; // Placeholder for selected location name
     
         foreach ($request->except('_token') as $key => $value) {
-            $columnName = Str::slug($key, '_'); // Convert spaces to underscores
-            if (in_array($columnName, $validColumns)) { // ✅ Ensure column exists before inserting
+            $columnName = Str::slug($key, '_');
+            if (in_array($columnName, $validColumns)) {
+                if (stripos($key, 'Mobile Number') !== false) {
+                    // Fetch the stored format for mobile number
+                    $questions = json_decode($form->questions, true);
+                    $mobileQuestion = collect($questions)->firstWhere('text', 'Mobile Number');
+    
+                    if ($mobileQuestion && isset($mobileQuestion['format'])) {
+                        $value = $this->validateMobileNumber($value, $mobileQuestion['format']);
+                    }
+                }
                 $insertData[$columnName] = $value;
             }
-
-                // ✅ Identify Location Field (if the question contains "location")
-                if (stripos($key, 'location') !== false) {
-                    $selectedLocationName = $value;
-                }
+    
+            if (stripos($key, 'location') !== false || stripos($key, 'where are you attending') !== false) {
+                $selectedLocationName = $value;
+            }
         }
 
         // ✅ Find Location ID from the Locations Table
@@ -271,5 +293,23 @@ class SignUpFormController extends Controller
 
         return redirect()->route('signup.embed', ['eventId' => $eventId])->with('success');
     }
+
+    private function validateMobileNumber($number, $format)
+    {
+        if ($format === 'ANY') {
+            dd($number);
+            return preg_match('/^\d+$/', $number);
+        }
+
+        $patterns = [
+            '+1 (###) ###-####' => '/^\+1 \(\d{3}\) \d{3}-\d{4}$/',
+            '+61 # #### ####'   => '/^\+61 \d \d{4} \d{4}$/',
+            '###-###-####'      => '/^\d{3}-\d{3}-\d{4}$/',
+            'FREE-NUMERIC'      => '/^\d+$/',
+        ];
+
+        return isset($patterns[$format]) ? preg_match($patterns[$format], $number) : false;
+    }
+
     
 }

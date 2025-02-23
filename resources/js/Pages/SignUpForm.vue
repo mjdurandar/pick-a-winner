@@ -138,8 +138,16 @@ watchEffect(() => {
                         <div v-for="(question, index) in JSON.parse(signupForm.questions || '[]')" :key="index" class="mb-4">
                             <label class="block font-medium text-gray-800 mb-1">{{ question.text }}</label>
 
-                            <template v-if="question.type === 'text' || question.type === 'number'">
+                            <template v-if="question.type === 'text'">
                                 <input type="text" class="w-full border rounded px-3 py-2" disabled />
+                            </template>
+                            
+                            <template v-if="question.type === 'number'">
+                                <input type="number" class="w-full border rounded px-3 py-2" disabled />
+                            </template>
+
+                            <template v-if="question.type === 'email'">
+                                <input type="email" class="w-full border rounded px-3 py-2" disabled />
                             </template>
 
                             <template v-if="question.type === 'dropdown'">

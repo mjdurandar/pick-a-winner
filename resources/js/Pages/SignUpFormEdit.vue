@@ -64,8 +64,14 @@ const updateQuestionType = (index, type) => {
     signupForm.value.questions[index].type = type;
     if (type === 'dropdown') {
         signupForm.value.questions[index].options = ['Option 1', 'Option 2']; // Default dropdown options
+        delete signupForm.value.questions[index].format; // Remove number format if switching
+    } else if (type === 'number') {
+        // ✅ Add format selection for number fields (default format: ANY)
+        signupForm.value.questions[index].format = 'ANY';
+        delete signupForm.value.questions[index].options; // Remove dropdown options if switching
     } else {
         signupForm.value.questions[index].options = [];
+        delete signupForm.value.questions[index].format;
     }
 };
 
@@ -112,6 +118,12 @@ const saveForm = () => {
         return;
     }
 
+    signupForm.value.questions.forEach(question => {
+        if (question.type === 'number' && question.format === 'ANY') {
+            question.format = question.customFormat || ''; // Use custom format
+        }
+    });
+
     for (let i = 0; i < signupForm.value.questions.length; i++) {
         let question = signupForm.value.questions[i];
 
@@ -138,6 +150,11 @@ const saveForm = () => {
                     return;
                 }
             }
+        }
+        // ✅ Ensure number format is provided
+        if (question.type === 'number' && (!question.format || !question.format.trim())) {
+            Swal.fire('Error!', `Please provide a format for Question ${i + 1}.`, 'error');
+            return;
         }
     }
 
@@ -190,7 +207,7 @@ watchEffect(() => {
 
         <div class="py-6 mx-auto w-full px-4 md:w-1/2">
             <div class="bg-white p-6 shadow rounded-lg">
-
+                
                 <!-- ✅ Draggable Questions Section -->
                 <h2 class="text-lg font-bold mb-3">Edit Questions (Drag to Reorder)</h2>
                 <div>
@@ -207,8 +224,10 @@ watchEffect(() => {
                         <input v-model="question.text" type="text" class="w-full border p-2 rounded mb-2" />
 
                         <select v-model="question.type" @change="updateQuestionType(index, question.type)" class="w-full border p-2 rounded mb-2">
+                            <option value="email">Email</option>
                             <option value="text">Text Input</option>
                             <option value="dropdown">Dropdown</option>
+                            <option value="number">Number</option>
                         </select>
 
                         <!-- ✅ Draggable Dropdown Options -->
@@ -232,6 +251,16 @@ watchEffect(() => {
                                 </button>
                             </div>
                         </div>
+                        <!-- ✅ Format Input for Number Type -->
+                        <template v-if="question.type === 'number'">
+                            <label class="font-medium">Number Format:</label>
+                            <select v-model="question.format" class="w-full border p-2 rounded mb-2">
+                                <option value="+1 (###) ###-####">USA: +1 (###) ###-####</option>
+                                <option value="+61 # #### ####">AU: +61 # #### ####</option>
+                                <option value="###-###-####">Custom: ###-###-####</option>
+                                <option value="FREE-NUMERIC">Any</option>
+                            </select>
+                        </template>
 
                         <button @click="removeQuestion(index)" class="bg-red-500 text-white px-3 py-1 rounded mt-2">Remove Question</button>
                     </div>
