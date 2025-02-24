@@ -108,7 +108,7 @@ class SignUpFormController extends Controller
             
             foreach ($defaultQuestions as $question) {
                 $columnName = Str::slug($question['text'], '_'); // Convert question text to column name
-                if ($question['type'] === 'text' || $question['type'] === 'number') {
+                if ($question['type'] === 'text' || $question['type'] === 'number' || $question['type'] === 'email') {
                     $table->string($columnName)->nullable();
                 } elseif ($question['type'] === 'dropdown') {
                     $table->string($columnName)->nullable();
@@ -296,20 +296,19 @@ class SignUpFormController extends Controller
 
     private function validateMobileNumber($number, $format)
     {
-        if ($format === 'ANY') {
-            dd($number);
-            return preg_match('/^\d+$/', $number);
+        if ($format === 'ANY' || $format === 'FREE-NUMERIC') {
+            return $number; // ✅ Return the original number
         }
-
+    
         $patterns = [
             '+1 (###) ###-####' => '/^\+1 \(\d{3}\) \d{3}-\d{4}$/',
             '+61 # #### ####'   => '/^\+61 \d \d{4} \d{4}$/',
             '###-###-####'      => '/^\d{3}-\d{3}-\d{4}$/',
-            'FREE-NUMERIC'      => '/^\d+$/',
         ];
-
-        return isset($patterns[$format]) ? preg_match($patterns[$format], $number) : false;
+    
+        return isset($patterns[$format]) && preg_match($patterns[$format], $number) ? $number : null;
     }
+    
 
     
 }

@@ -21,9 +21,11 @@ class AttendeesController extends Controller
         }
         $tableName = $signupForm->table_name;
 
-        // ✅ Fetch attendees from the dynamic table
+        // ✅ Fetch attendees and join with locations
         $attendees = DB::table($tableName)
-            ->where('event_id', $eventId)
+            ->leftJoin('locations', "$tableName.location_id", '=', 'locations.id') // ✅ LEFT JOIN to get location name
+            ->where("$tableName.event_id", $eventId)
+            ->select("$tableName.*", 'locations.name as location_name') // ✅ Fetch location name
             ->get();
         
         return Inertia::render('Attendees', [

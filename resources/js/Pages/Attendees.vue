@@ -14,7 +14,7 @@ const searchQuery = ref("");
 // ✅ Extract column names (exclude unwanted columns)
 const columnHeaders = computed(() => {
     if (props.attendees.length > 0) {
-        return Object.keys(props.attendees[0]).filter(col => !["created_at", "updated_at", "id", "event_id", "location_id"].includes(col));
+        return Object.keys(props.attendees[0]).filter(col => !["created_at", "updated_at", "id", "event_id", "location_id", "events_location"].includes(col));
     }
     return [];
 });
@@ -31,7 +31,7 @@ const filteredAttendees = computed(() => {
     }
     return props.attendees.filter(attendee =>
         Object.entries(attendee)
-            .filter(([key]) => !["created_at", "updated_at", "id", "event_id", "location_id"].includes(key))
+            .filter(([key]) => !["created_at", "updated_at", "id", "event_id", "events_location"].includes(key))
             .some(([_, value]) =>
                 value && value.toString().toLowerCase().includes(searchQuery.value.toLowerCase())
             )
