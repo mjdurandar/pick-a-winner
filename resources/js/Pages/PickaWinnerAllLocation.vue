@@ -298,7 +298,7 @@ const eligibleAttendees = computed(() => {
                                     <td class="border border-gray-300 p-2">{{ attendee.email_address }}</td>
                                     <td class="border border-gray-300 p-2">{{ attendee.gender }}</td>
                                     <td class="border border-gray-300 p-2">{{ attendee.mobile_number }}</td>
-                                    <td class="border border-gray-300 p-2">{{ attendee.events_location }}</td>
+                                    <td class="border border-gray-300 p-2">{{ attendee.location_name }}</td>
                                 </tr>
                             </tbody>
                         </table>

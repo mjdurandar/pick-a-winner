@@ -93,7 +93,11 @@ class PickaWinnerController extends Controller
             return redirect()->route('signup.index', ['eventId' => $event]);
         }
         $tableName = $signUpForm->table_name;
-        $attendees = DB::table($tableName)->get();
+        $attendees = DB::table($tableName)
+        ->leftJoin('locations', "$tableName.location_id", '=', 'locations.id') // Left Join locations
+        ->select("$tableName.*", 'locations.name as location_name') // Select all event columns + location name
+        ->get();
+    
         // ✅ Check if prizes already exist for this event & location
         $existingPrizesCount = Prize::where('event_id', $eventId)
             ->whereNull('location_id') 
@@ -114,7 +118,7 @@ class PickaWinnerController extends Controller
         $prizes = Prize::where('event_id', $eventId)
                ->whereNull('location_id') // ✅ Ensure location_id is NULL
                ->get();
-               
+   
         return Inertia::render('PickaWinnerAllLocation', [
             'event' => $event,
             'attendees' => $attendees,

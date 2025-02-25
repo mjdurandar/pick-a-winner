@@ -10,6 +10,8 @@ const props = defineProps({
 });
 
 const searchQuery = ref("");
+const currentPage = ref(1);
+const itemsPerPage = 20;
 
 // ✅ Extract column names (exclude unwanted columns)
 const columnHeaders = computed(() => {
@@ -37,6 +39,24 @@ const filteredAttendees = computed(() => {
             )
     );
 });
+
+// ✅ Paginate filtered attendees
+const paginatedAttendees = computed(() => {
+    const start = (currentPage.value - 1) * itemsPerPage;
+    return filteredAttendees.value.slice(start, start + itemsPerPage);
+});
+
+// ✅ Total pages
+const totalPages = computed(() => {
+    return Math.ceil(filteredAttendees.value.length / itemsPerPage);
+});
+
+// ✅ Navigate pages
+const goToPage = (page) => {
+    if (page >= 1 && page <= totalPages.value) {
+        currentPage.value = page;
+    }
+};
 
 // ✅ Export filtered data to CSV
 const exportToCSV = () => {
@@ -113,7 +133,7 @@ const deleteAttendee = (attendeeId, eventId) => {
                                 @click="exportToCSV" 
                                 class="bg-green-500 text-white px-4 py-2 rounded hover:bg-green-700"
                             >
-                            <i class="fa-solid fa-file-csv"></i>
+                                <i class="fa-solid fa-file-csv"></i>
                             </button>
                         </div>
 
@@ -128,7 +148,7 @@ const deleteAttendee = (attendeeId, eventId) => {
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    <tr v-for="(attendee, index) in filteredAttendees" :key="index" class="text-left even:bg-gray-100">
+                                    <tr v-for="(attendee, index) in paginatedAttendees" :key="index" class="text-left even:bg-gray-100">
                                         <td v-for="(col, index) in columnHeaders" :key="index" class="border border-gray-300 p-2 break-words">
                                             {{ attendee[col] }}
                                         </td>
@@ -142,6 +162,27 @@ const deleteAttendee = (attendeeId, eventId) => {
                             </table>
                         </div>
 
+                        <!-- ✅ Pagination Controls -->
+                        <div class="flex justify-between items-center mt-4">
+                            <button 
+                                @click="goToPage(currentPage - 1)" 
+                                :disabled="currentPage === 1" 
+                                class="px-4 py-2 bg-gray-300 rounded hover:bg-gray-400 disabled:opacity-50"
+                            >
+                                Previous
+                            </button>
+                            
+                            <span class="text-gray-700">Page {{ currentPage }} of {{ totalPages }}</span>
+                            
+                            <button 
+                                @click="goToPage(currentPage + 1)" 
+                                :disabled="currentPage === totalPages" 
+                                class="px-4 py-2 bg-gray-300 rounded hover:bg-gray-400 disabled:opacity-50"
+                            >
+                                Next
+                            </button>
+                        </div>
+
                         <div v-if="attendees.length === 0" class="text-gray-600 text-center mt-4">
                             No attendees have registered for this event.
                         </div>
@@ -151,5 +192,3 @@ const deleteAttendee = (attendeeId, eventId) => {
         </div>
     </AuthenticatedLayout>
 </template>
-
-
