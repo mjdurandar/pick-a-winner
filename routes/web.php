@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\AttendeesController;
+use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\ProfileController;
 use App\Http\Controllers\EventsController;
 use App\Http\Controllers\UsersController;
@@ -14,10 +15,6 @@ use App\Http\Middleware\RoleMiddleware;
 Route::get('/', function () {
     return Inertia::render('Auth/Login');
 })->name('login');
-
-Route::get('/dashboard', function () {
-    return Inertia::render('Dashboard');
-})->middleware(['auth', 'verified'])->name('dashboard');
 
 Route::get('/adventureentertainment/form/{eventId}', [SignUpFormController::class, 'embed'])->name('signup.embed');
 Route::post('/adventureentertainment/form/{eventId}', [SignUpFormController::class, 'storeEmbeddedData'])->name('signup.storeEmbedded');
@@ -47,7 +44,10 @@ Route::middleware(['auth', RoleMiddleware::class . ':admin,host'])->group(functi
     Route::get('/signup-form/{eventId}', [SignUpFormController::class, 'index'])->name('signup.index');
 });
 
-Route::middleware(['auth', RoleMiddleware::class . ':admin'])->group(function () {
+Route::middleware(['auth', RoleMiddleware::class . ':admin'])->group(function () {  
+    //DASHBOARD
+    Route::get('/dashboard', [DashboardController::class, 'index'])->name('dashboard');
+    Route::get('/dashboard/{event}', [DashboardController::class, 'filter'])->name('dashboard.filter');
 
     //EVENTS ROUTES
     Route::post('/events', [EventsController::class, 'store'])->name('events.store');

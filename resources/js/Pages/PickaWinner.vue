@@ -33,7 +33,7 @@ const goToAttendeesPage = (eventId) => {
             </h2>
         </template>
 
-        <div class="p-3 mt-5">
+        <div class="p-3 mt-1">
             <div class="mx-auto max-w-7xl sm:px-6 lg:px-8">
                 <div class="row">
                     <div v-for="event in events" :key="event.id" class="col-md-4 mb-4">
