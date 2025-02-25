@@ -67,6 +67,7 @@ class PickaWinnerController extends Controller
             "$tableName.first_name",
             "$tableName.last_name",
             "$tableName.email_address",
+            "$tableName.gender",
             "$tableName.mobile_number",
             "$tableName.location_id",
             "locations.name as location_name", // ✅ Fetch the actual location name

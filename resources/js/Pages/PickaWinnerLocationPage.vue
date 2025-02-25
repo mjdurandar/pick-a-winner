@@ -30,6 +30,7 @@ const filteredAttendees = computed(() => {
         const matchesSearch = searchQuery.value
             ? `${attendee.first_name} ${attendee.last_name}`.toLowerCase().includes(searchQuery.value.toLowerCase()) ||
               attendee.email_address.toLowerCase().includes(searchQuery.value.toLowerCase()) ||
+              attendee.gender.toLowerCase().includes(searchQuery.value.toLowerCase()) ||
               attendee.mobile_number.toLowerCase().includes(searchQuery.value.toLowerCase())
             : true;
 
@@ -325,6 +326,7 @@ const eligibleAttendees = computed(() => {
                                     <tr class="bg-gray-200">
                                         <th class="border border-gray-300 p-2">Name</th>
                                         <th class="border border-gray-300 p-2">Email</th>
+                                        <th class="border border-gray-300 p-2">Gender</th>
                                         <th class="border border-gray-300 p-2">Mobile Number</th>
                                         <th class="border border-gray-300 p-2">Event Location</th>
                                     </tr>
@@ -333,6 +335,7 @@ const eligibleAttendees = computed(() => {
                                     <tr v-for="(attendee, index) in filteredAttendees" :key="index" class="text-left">
                                         <td class="border border-gray-300 p-2">{{ attendee.first_name }} {{ attendee.last_name }}</td>
                                         <td class="border border-gray-300 p-2">{{ attendee.email_address }}</td>
+                                        <td class="border border-gray-300 p-2">{{ attendee.gender }}</td>
                                         <td class="border border-gray-300 p-2">{{ attendee.mobile_number }}</td>
                                         <td class="border border-gray-300 p-2">{{ attendee.location_name }}</td>
                                     </tr>
