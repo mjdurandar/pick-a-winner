@@ -221,14 +221,26 @@ watchEffect(() => {
                         class="mb-4 p-3 border rounded shadow-sm bg-gray-100 cursor-grab"
                     >
                         <label class="font-medium">Question:</label>
-                        <input v-model="question.text" type="text" class="w-full border p-2 rounded mb-2" />
+                        <label class="font-medium ms-2 mb-2" v-if="question.text == 'Events Location' || question.text == 'Email Address'">REQUIRED</label>
+                        <input 
+                            v-model="question.text" 
+                            type="text" 
+                            class="w-full border p-2 rounded mb-2"
+                            :disabled="question.text === 'Events Location' || question.text === 'Email Address'" 
+                        />
 
-                        <select v-model="question.type" @change="updateQuestionType(index, question.type)" class="w-full border p-2 rounded mb-2">
+                        <select 
+                            v-model="question.type" 
+                            @change="updateQuestionType(index, question.type)" 
+                            class="w-full border p-2 rounded mb-2"
+                            :disabled="question.text === 'Events Location' || question.text === 'Email Address'"
+                        >
                             <option value="email">Email</option>
                             <option value="text">Text Input</option>
                             <option value="dropdown">Dropdown</option>
                             <option value="number">Number</option>
                         </select>
+
 
                         <!-- ✅ Draggable Dropdown Options -->
                         <div v-if="question.type === 'dropdown'">
@@ -262,7 +274,7 @@ watchEffect(() => {
                             </select>
                         </template>
 
-                        <button @click="removeQuestion(index)" class="bg-red-500 text-white px-3 py-1 rounded mt-2">Remove Question</button>
+                        <button @click="removeQuestion(index)" class="bg-red-500 text-white px-3 py-1 rounded mt-2" v-if="question.text !== 'Events Location' && question.text !== 'Email Address'">Remove Question</button>
                     </div>
                 </div>
 
