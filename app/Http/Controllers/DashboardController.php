@@ -26,7 +26,6 @@ class DashboardController extends Controller
 
         // ✅ Ensure table name exists before querying
         if ($signUpForm) {
-
             $tableName = $signUpForm->table_name;
 
             // ✅ Get total attendees count for selected location
@@ -35,7 +34,6 @@ class DashboardController extends Controller
                 ->count();
 
             $allDataAttendees = DB::table($tableName)->count();
-
             $eventCount = Events::count();
 
             // ✅ Get attendee count per location for the bar chart
@@ -44,12 +42,14 @@ class DashboardController extends Controller
                 ->groupBy('location_id')
                 ->get();
 
-            // ✅ Map location names instead of IDs
-            $attendeesChartData = $attendeesPerLocation->map(function ($item) use ($locations) {
-                $location = $locations->firstWhere('id', $item->location_id);
+            // ✅ Convert to an associative array for easier mapping
+            $attendeesPerLocationArray = $attendeesPerLocation->pluck('count', 'location_id')->toArray();
+
+            // ✅ Include all locations, even if they have no attendees
+            $attendeesChartData = $locations->map(function ($location) use ($attendeesPerLocationArray) {
                 return [
-                    'location' => $location ? $location->name : 'Unknown',
-                    'count' => $item->count
+                    'location' => $location->name,
+                    'count' => $attendeesPerLocationArray[$location->id] ?? 0 // Default to 0 if no attendees
                 ];
             });
         } else {
