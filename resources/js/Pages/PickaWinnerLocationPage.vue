@@ -157,6 +157,26 @@ const openPickWinnerModal = (prize) => {
         return;
     }
 
+    if (prize.winner_email) {
+        Swal.fire({
+            title: 'Already Has a Winner!',
+            text: `This prize already has a winner (${prize.winner}). Would you like to pick a new winner?`,
+            icon: 'warning',
+            showCancelButton: true,
+            confirmButtonText: 'Yes, Pick Again',
+            cancelButtonText: 'Cancel'
+        }).then((result) => {
+            if (result.isConfirmed) {
+                proceedToPickWinner(prize);
+            }
+        });
+    } else {
+        proceedToPickWinner(prize);
+    }
+};
+
+// ✅ Function to Start the Winner Picking Animation
+const proceedToPickWinner = (prize) => {
     selectedPrize.value = prize;
     selectedWinner.value = null;
     winnerDisplay.value = 'Searching for a winner...';
@@ -240,8 +260,9 @@ const eligibleAttendees = computed(() => {
     });
 });
 
-
-
+const reload = () => {
+    window.location.reload();
+};
 </script>
 
 <template>
@@ -309,14 +330,17 @@ const eligibleAttendees = computed(() => {
                     <div class="p-6 text-gray-900">
                         <div class="d-flex justify-content-between">
                             <h3 class="text-lg font-semibold mb-4">Attendees at {{ location.name }}</h3>
-                            <!-- ✅ Search Bar -->
-                            <div class="mb-3">
-                                <input
-                                    v-model="searchQuery"
-                                    type="text"
-                                    placeholder="Search attendees..."
-                                    class="w-full p-2 border rounded"
-                                />
+                            <div class="flex items-center space-x-2">
+                                <button class="btn btn-primary mb-3" @click="reload"><i class="fa-solid fa-arrows-rotate"></i></button>
+                                <!-- ✅ Search Bar -->
+                                <div class="mb-3">
+                                    <input
+                                        v-model="searchQuery"
+                                        type="text"
+                                        placeholder="Search attendees..."
+                                        class="w-full p-2 border rounded"
+                                    />
+                                </div>
                             </div>
                         </div>
                         <!-- ✅ Attendees Table -->
