@@ -170,10 +170,32 @@ const userRole = computed(() => user.value?.role);
                 >
                     <div class="space-y-1 pb-3 pt-2">
                         <ResponsiveNavLink
-                            :href="route('dashboard')"
-                            :active="route().current('dashboard')"
-                        >
-                            Dashboard
+                                v-if="userRole === 'admin'"
+                                    :href="route('dashboard')"
+                                    :active="route().current('dashboard')"
+                                >
+                                    Dashboard
+                        </ResponsiveNavLink>
+                        <ResponsiveNavLink
+                                v-if="userRole === 'admin' || userRole === 'host'"
+                                    :href="route('events.index')"
+                                    :active="route().current('events.index')"
+                                >
+                                    Events
+                        </ResponsiveNavLink>
+                        <ResponsiveNavLink
+                                v-if="userRole === 'admin' || userRole === 'host'"
+                                    :href="route('pickawinner.index')"
+                                    :active="route().current('pickawinner.index')"
+                                >
+                                    Pick a Winner
+                        </ResponsiveNavLink>
+                        <ResponsiveNavLink
+                                v-if="userRole === 'admin'"
+                                    :href="route('users.index')"
+                                    :active="route().current('users.index')"
+                                >
+                                    Users
                         </ResponsiveNavLink>
                     </div>
 
