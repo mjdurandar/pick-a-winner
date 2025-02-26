@@ -1,6 +1,6 @@
 <script setup>
 import Swal from 'sweetalert2';
-import { ref, computed } from 'vue';
+import { ref, computed, onMounted, onUnmounted } from 'vue';
 import { useForm, router } from '@inertiajs/vue3';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout.vue';
 import { Head } from '@inertiajs/vue3';
@@ -102,6 +102,24 @@ const savePrize = () => {
         });
     }
 };
+
+// ✅ Polling to Refresh Table Every 5 Seconds
+let pollingInterval;
+
+const fetchAttendees = () => {
+    router.reload({
+        only: ['attendees'], // ✅ Reloads only the attendees data, not the whole page
+        preserveState: true, // ✅ Keeps the existing page state
+    });
+};
+
+onMounted(() => {
+    pollingInterval = setInterval(fetchAttendees, 5000); // ✅ Fetch attendees every 5 seconds
+});
+
+onUnmounted(() => {
+    clearInterval(pollingInterval); // ✅ Stop polling when component is destroyed
+});
 
 const openEditModal = (prize) => {
     isEditing.value = true;
