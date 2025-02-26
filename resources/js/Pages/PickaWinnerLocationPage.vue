@@ -278,9 +278,9 @@ const eligibleAttendees = computed(() => {
     });
 });
 
-const reload = () => {
-    window.location.reload();
-};
+// const reload = () => {
+//     window.location.reload();
+// };
 </script>
 
 <template>
@@ -349,7 +349,7 @@ const reload = () => {
                         <div class="d-flex justify-content-between">
                             <h3 class="text-lg font-semibold mb-4">Attendees at {{ location.name }}</h3>
                             <div class="flex items-center space-x-2">
-                                <button class="btn btn-primary mb-3" @click="reload"><i class="fa-solid fa-arrows-rotate"></i></button>
+                                <!-- <button class="btn btn-primary mb-3" @click="reload"><i class="fa-solid fa-arrows-rotate"></i></button> -->
                                 <!-- ✅ Search Bar -->
                                 <div class="mb-3">
                                     <input
