@@ -76,6 +76,31 @@ const removeQuestion = (index) => {
     });
 };
 
+const removeDropdownOption = (question, optIndex) => {
+    const optionValue = question.options[optIndex]?.trim();
+
+    // ✅ If the option is empty, remove it immediately
+    if (!optionValue) {
+        question.options.splice(optIndex, 1);
+        return;
+    }
+
+    // ✅ If the option has a value, show a confirmation before removing
+    Swal.fire({
+        title: "Remove Location?",
+        text: "Are you sure you want to remove this option? The Win Sheet connected to this location will also be removed.",
+        icon: "warning",
+        showCancelButton: true,
+        confirmButtonText: "Yes, remove it!",
+        cancelButtonText: "No, cancel"
+    }).then((result) => {
+        if (result.isConfirmed) {
+            question.options.splice(optIndex, 1);
+        }
+    });
+};
+
+
 // ✅ Save the form (update)
 const saveForm = () => {
    //Validate if all dropdown got a value
@@ -205,7 +230,7 @@ const saveForm = () => {
                                 <button @click="question.options.push('')" class="bg-green-500 text-white px-3 py-2 rounded">
                                     <i class="fa-solid fa-add"></i>
                                 </button>
-                                <button @click="question.options.splice(optIndex, 1)" class="bg-red-500 text-white px-3 py-2 rounded"  v-if="question.options.length > 2">
+                                <button @click="removeDropdownOption(question, optIndex)" class="bg-red-500 text-white px-3 py-2 rounded"  v-if="question.options.length > 2">
                                     <i class="fa-solid fa-trash"></i>
                                 </button>
                             </div>
