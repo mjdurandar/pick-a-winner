@@ -16,7 +16,7 @@ const itemsPerPage = 20;
 // ✅ Extract column names (exclude unwanted columns)
 const columnHeaders = computed(() => {
     if (props.attendees.length > 0) {
-        return Object.keys(props.attendees[0]).filter(col => !["created_at", "updated_at", "id", "event_id", "location_id", "events_location"].includes(col));
+        return Object.keys(props.attendees[0]).filter(col => !["created_at", "updated_at", "id", "event_id", "location_id", "events_location", "mobile_number_format"].includes(col));
     }
     return [];
 });
@@ -28,15 +28,19 @@ const formatHeader = (header) => {
 
 // ✅ Filtered attendees based on search query
 const filteredAttendees = computed(() => {
+    console.log(props.attendees);
     if (!searchQuery.value) {
         return props.attendees;
     }
     return props.attendees.filter(attendee =>
         Object.entries(attendee)
-            .filter(([key]) => !["created_at", "updated_at", "id", "event_id", "events_location"].includes(key))
-            .some(([_, value]) =>
-                value && value.toString().toLowerCase().includes(searchQuery.value.toLowerCase())
-            )
+            .filter(([key]) => !["created_at", "updated_at", "id", "event_id", "events_location", "mobile_number_format"].includes(key))
+            .some(([key, value]) => {
+                if (key === "gender") {
+                    return value.toLowerCase().trim() === searchQuery.value.toLowerCase().trim(); // ✅ Exact match for gender
+                }
+                return value && value.toString().toLowerCase().includes(searchQuery.value.toLowerCase());
+            })
     );
 });
 

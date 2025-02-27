@@ -7,7 +7,7 @@ import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout.vue';
 
 // ✅ Receive `eventId` and `form` as props
 const props = defineProps({ 
-    eventId: String, 
+    eventId: Number, 
     eventValues: Object,
     form: Object
 });
@@ -48,26 +48,30 @@ const submitTest = () => {
     Swal.fire('Submitted!', 'This is a test submission. No data has been received. Please copy the URL link and submit the data.', 'success');
 };
 
-const generateSignUpForm = () => {
-    Swal.fire({
-        title: 'Are you sure you want to Generate Sign Up Form?',
-        text: 'This action will create default questions for this event!',
-        icon: 'warning',
-        showCancelButton: true,
-        confirmButtonText: 'Yes, generate it!',
-        cancelButtonText: 'No, cancel'
-    }).then((result) => {
-        if (result.isConfirmed) {
-            router.post(route('signup.generate'), { event_id: props.eventId }, {
-                onSuccess: (response) => {
-                    Swal.fire('Generated!', 'Sign Up Form has been created.', 'success');
+// const generateSignUpForm = () => {
+//     Swal.fire({
+//         title: 'Are you sure you want to Generate Sign Up Form?',
+//         text: 'This action will create default questions for this event!',
+//         icon: 'warning',
+//         showCancelButton: true,
+//         confirmButtonText: 'Yes, generate it!',
+//         cancelButtonText: 'No, cancel'
+//     }).then((result) => {
+//         if (result.isConfirmed) {
+//             router.post(route('signup.generate'), { event_id: props.eventId }, {
+//                 onSuccess: (response) => {
+//                     Swal.fire('Generated!', 'Sign Up Form has been created.', 'success');
                     
-                    // ✅ Update form data when the response is received
-                    signupForm.value = response.props.form;
-                }
-            });
-        }
-    });
+//                     // ✅ Update form data when the response is received
+//                     signupForm.value = response.props.form;
+//                 }
+//             });
+//         }
+//     });
+// };
+
+const createSignUpForm = () => {
+    router.get(route('signup.create', { eventId: props.eventId }));
 };
 
 // ✅ Redirect to edit form page
@@ -103,14 +107,14 @@ watchEffect(() => {
                     </button>  
 
                     <!-- ✅ Show "Generate Sign Up Form" only if signupForm does NOT exist -->
-                    <button v-if="!signupForm && userRole === 'admin'" @click="generateSignUpForm()" class="btn btn-primary">
-                        Generate Sign Up Form
+                    <button v-if="!signupForm && userRole === 'admin'" @click="createSignUpForm()" class="btn btn-primary">
+                        Create Sign Up Form
                     </button>
                 </div>
             </div>
         </template>
 
-        <div class="container mt-4 mb-4 pb-4 d-flex justify-content-center align-items-center flex-column" style="min-height: 100vh;">
+        <div class="container mt-4 mb-4 pb-4 d-flex justify-content-center align-items-center flex-column">
             <div class="mx-auto max-w-7xl sm:px-6 lg:px-8">
                 <!-- ✅ If a signup form exists, display it -->
                 <div v-if="signupForm">
@@ -177,12 +181,12 @@ watchEffect(() => {
                 <div v-if="!signupForm" class="text-center text-gray-600 mt-5">
                     <!-- ✅ Admin sees this message and can generate a form -->
                     <p v-if="userRole === 'admin'">
-                        No signup form generated yet. Click <strong>"Generate Sign Up Form"</strong> to create one.
+                        No signup form created yet. Click <strong>"Create Sign Up Form"</strong> to create one.
                     </p>
 
                     <!-- ✅ Host sees this message but cannot generate -->
                     <p v-else-if="userRole === 'host'">
-                        No signup form generated yet. Please contact the Admin to generate the form for you.
+                        No signup form created yet. Please contact the Admin to create the form for you.
                     </p>
                 </div>
 

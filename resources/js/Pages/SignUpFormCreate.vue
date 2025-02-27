@@ -5,20 +5,44 @@ import Swal from 'sweetalert2';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout.vue';
 import { Head } from '@inertiajs/vue3';
 
-// ✅ Receive props
+// ✅ Receive `events` as a prop
 const props = defineProps({ 
-    events: Object,
-    form: Object, // 👈 Form data (for editing)
+    events: Number,
 });
 
-// ✅ Reactive form fields
-const headerText = ref(props.form.heading);
-const descriptionText = ref(props.form.event_description);
-const termsLink = ref(props.form.terms_link);
-const policyLink = ref(props.form.privacy_link);
+// ✅ Default Questions with Column Names
+const defaultQuestions = ref([
+    { text: 'Events Location', type: 'dropdown', column_name: 'events_location', options: ['Option 1', 'Option 2'] },
+    { text: 'Email Address', type: 'email', column_name: 'email_address', options: [] },
+    { text: 'First Name', type: 'text', column_name: 'first_name', options: [] },
+    { text: 'Last Name', type: 'text', column_name: 'last_name', options: [] },
+    { text: 'Mobile Number', type: 'number', column_name: 'mobile_number', options: [], format: '###-###-####' },
+    { text: 'Age', type: 'dropdown', column_name: 'age', options: ['Under 21', '22-44', '45+'] },
+    { text: 'Gender', type: 'dropdown', column_name: 'gender', options: ['Female', 'Male', 'Nonbinary/Other'] },
+    { text: 'Combined Household Income?', type: 'dropdown', column_name: 'household_income', options: ['>$150,000', '$100,000-$150,000', '$66,000-$99,000', '<$66,000', 'Prefer not to say'] },
+    { text: 'Where did you hear about this event?', type: 'dropdown', column_name: 'where_did_you_hear', options: ['FB/IG', 'Poster in store', 'Email', 'Word of mouth', 'Other'] },
+    { text: 'Favorite adventure sport?', type: 'dropdown', column_name: 'fave_sport', options: ['Snow Sports (Skiing, Snowboarding, Snowshoeing)',
+                'Climbing (Indoor, Outdoor, Bouldering, Slacklining)',
+                'Trail Sports (Trail Running, Trail Walking)',
+                'Skate Sports (Skateboarding, Rollerblading)',
+                'Cycling (Mountain Biking, Road Cycling, BMX)',
+                'Water Sports (Kayaking, Canoeing, Surfing, Windsurfing, Fly Fishing, Scuba Diving, Paddleboarding)',
+                'Outdoor Activities (Hiking, Camping)',
+                'Aerial Sports (Paragliding, Hang Gliding)',
+                'Extreme Sports (Bungee Jumping, BASE Jumping)',
+                'Other'] },
+    { text: 'How much would you spend on equipment?', type: 'dropdown', column_name: 'how_much_spend', options: ['Less than $500', '$500-$1,000', 'More than $1,000'] },
+    { text: 'How often do you climb? (Specify type)', type: 'dropdown', column_name: 'how_often_climb', options: ['More than once a year', 'Once a year', 'Once every 2 years', 'Never'] },
+    { text: 'How often do you climb overseas? (Specify type)', type: 'dropdown', column_name: 'how_often_climb_overseas', options: ['More than once a year', 'Once a year', 'Once every 2 years', 'Never'] },
+    { text: 'How many days per year do you climb? (Specify type)', type: 'dropdown', column_name: 'how_often_climb_per_year', options: ['1-4 days', '5-10 days', '11-19 days', '20+ days', 'Never'] },
+]);
 
-// ✅ Convert existing questions into reactive state
-const questions = ref(JSON.parse(props.form.questions || '[]'));
+// ✅ Reactive copy of questions (to modify in UI)
+const questions = ref([...defaultQuestions.value]);
+const headerText = ref('GET A CHANCE TO WIN AMAZING PRICES!');
+const descriptionText = ref('*By entering the competition you accept the competition terms and conditions and consent to receiving marketing materials related to the offerings of Adventure Entertainment and our partners.');
+const termsLink = ref('#');
+const policyLink = ref('https://adventureentertainment.com/privacy-policy/');
 
 // ✅ Dragging logic
 const draggedQuestionIndex = ref(null);
@@ -76,10 +100,16 @@ const removeQuestion = (index) => {
     });
 };
 
-// ✅ Save the form (update)
+const removeDropdownOption = (question, optIndex) => {
+    if (question.options.length > 2) {
+        question.options.splice(optIndex, 1);
+    }
+};
+
+// ✅ Save the form
 const saveForm = () => {
-   //Validate if all dropdown got a value
-   for (let question of questions.value) {
+    //Validate if all dropdown got a value
+    for (let question of questions.value) {
         // ✅ Validate Dropdown Options
         if (question.type === 'dropdown') {
             for (let option of question.options) {
@@ -102,26 +132,26 @@ const saveForm = () => {
             return;
         }
     }
-
+    
     Swal.fire({
         title: 'Save changes?',
-        text: 'This will update the sign-up form.',
+        text: 'This will create the signup form.',
         icon: 'warning',
         showCancelButton: true,
-        confirmButtonText: 'Yes, update it!',
+        confirmButtonText: 'Yes, create it!',
         cancelButtonText: 'No, cancel'
     }).then((result) => {
         if (result.isConfirmed) {
-            router.post(route('signup.update', { eventId: props.events.id }), { 
-                heading: headerText.value,
-                event_description: descriptionText.value,
-                terms_link: termsLink.value,
-                privacy_link: policyLink.value,
+            router.post(route('signup.generate', { eventId: props.events }),{ 
+                headerText: headerText.value,
+                descriptionText: descriptionText.value,
+                termsLink: termsLink.value,
+                policyLink: policyLink.value,
                 questions: questions.value
             }, {
                 onSuccess: () => {
-                    Swal.fire('Saved!', 'Sign Up Form has been updated.', 'success');
-                    router.get(route('signup.index', { eventId: props.events.id }));
+                    Swal.fire('Saved!', 'Sign Up Form has been created.', 'success');
+                    router.get(route('signup.index', { eventId: props.events }));
                 }
             });
         }
@@ -130,35 +160,40 @@ const saveForm = () => {
 </script>
 
 <template>
-    <Head title="Edit Sign Up Form" />
+    <Head title="Create Sign Up Form" />
 
     <AuthenticatedLayout>
         <template #header>
             <h2 class="text-xl font-semibold leading-tight text-gray-800">
-                Edit Sign Up Form for Event: {{ events.event_name }}
+                Create Sign Up Form for Event: {{ events.event_name }}
             </h2>
         </template>
 
         <div class="py-6 mx-auto w-full px-4 md:w-1/2">
             <div class="bg-white p-6 shadow rounded-lg">
+                <!-- ✅ Draggable Questions Section -->
                 <h2 class="text-lg font-bold mb-3">Edit Header Text</h2>
-                <label class="font-medium">Header Text:</label>
-                <input v-model="headerText" type="text" class="w-full border p-2 rounded mb-2" />
+                <div>
+                    <label class="font-medium">Header Text:</label>
+                    <input v-model="headerText" type="text" class="w-full border p-2 rounded mb-2" />
 
-                <label class="font-medium">Description Text:</label>
-                <textarea v-model="descriptionText" class="w-full border p-2 rounded mb-2 h-32"></textarea>
+                    <label class="font-medium">Description Text:</label>
+                    <textarea v-model="descriptionText" class="w-full border p-2 rounded mb-2 h-32"></textarea>
 
-                <label class="font-medium">Terms and Condition Link:</label>
-                <input v-model="termsLink" type="text" class="w-full border p-2 rounded mb-2" />
+                    <label class="font-medium">Terms and Condition Link:</label>
+                    <input v-model="termsLink" type="text" class="w-full border p-2 rounded mb-2" />
 
-                <label class="font-medium">Privacy Policy Link:</label>
-                <input v-model="policyLink" type="text" class="w-full border p-2 rounded mb-2" />
+                    <label class="font-medium">Privacy Policy Link:</label>
+                    <input v-model="policyLink" type="text" class="w-full border p-2 rounded mb-2" />
+                </div>
             </div>
         </div>
 
         <div class="pb-5 mx-auto w-full px-4 md:w-1/2">
             <div class="bg-white p-6 shadow rounded-lg">
-                <h2 class="text-lg font-bold mb-3">Edit Questions (Drag to Reorder)</h2>
+                
+                <!-- ✅ Draggable Questions Section -->
+                <h2 class="text-lg font-bold mb-3">Create Questions (Drag to Reorder)</h2>
                 <div>
                     <div
                         v-for="(question, index) in questions"
@@ -169,7 +204,7 @@ const saveForm = () => {
                         @drop="drop(index)"
                         class="mb-4 p-3 border rounded shadow-sm bg-gray-100 cursor-grab"
                     >
-                        <label class="font-medium">Question:</label> 
+                        <label class="font-medium">Question:</label>
                         <label class="font-medium m-2 text-red-500" 
                         v-if="question.column_name == 'events_location' || question.column_name == 'email_address'
                         || question.column_name == 'first_name' || question.column_name == 'last_name'
@@ -185,7 +220,7 @@ const saveForm = () => {
                             placeholder="Enter column name for new questions only"
                         />
 
-                        <label class="font-medium">Type:</label>
+                        <label class="font-medium">Question Type:</label>
                         <select v-model="question.type" class="w-full border p-2 rounded mb-2">
                             <option value="email">Email</option>
                             <option value="text">Text Input</option>
@@ -196,16 +231,18 @@ const saveForm = () => {
                         <!-- ✅ Dropdown Options -->
                         <div v-if="question.type === 'dropdown'">
                             <label class="font-medium">Dropdown Options:</label>
-                            <div v-for="(option, optIndex) in question.options" :key="optIndex" 
-                                draggable="true"
-                                @dragstart="dragStartOption(question, optIndex)"  @dragover.prevent
-                                @drop="dropOption(question, optIndex)" 
-                                class="flex gap-2 mb-2">
+                            <div v-for="(option, optIndex) in question.options" draggable="true"
+                            @dragstart="dragStartOption(question, optIndex)"  @dragover.prevent
+                            @drop="dropOption(question, optIndex)" :key="optIndex" class="flex gap-2 mb-2">
                                 <input v-model="question.options[optIndex]" type="text" class="flex-1 border p-2 rounded" />
                                 <button @click="question.options.push('')" class="bg-green-500 text-white px-3 py-2 rounded">
                                     <i class="fa-solid fa-add"></i>
                                 </button>
-                                <button @click="question.options.splice(optIndex, 1)" class="bg-red-500 text-white px-3 py-2 rounded"  v-if="question.options.length > 2">
+                                <button 
+                                    @click="removeDropdownOption(question, optIndex)" 
+                                    class="bg-red-500 text-white px-3 py-2 rounded"
+                                    v-if="question.options.length > 2"
+                                >
                                     <i class="fa-solid fa-trash"></i>
                                 </button>
                             </div>
@@ -225,15 +262,16 @@ const saveForm = () => {
                         <div v-if="question.column_name !== 'events_location' && question.column_name !== 'email_address'
                         && question.column_name !== 'mobile_number' && question.column_name !== 'first_name' && question.column_name !== 'last_name'
                         && question.column_name !== 'age' && question.column_name !== 'gender'">
-                            <button @click="removeQuestion(index)" class="bg-red-500 text-white px-3 py-1 rounded mt-2">Remove</button>
+                            <button @click="removeQuestion(index)" class="bg-red-500 text-white px-3 py-1 rounded mt-2">Remove Question</button>
                         </div>
                     </div>
                 </div>
 
                 <div class="d-flex justify-content-between mt-4">
                     <button @click="addQuestion" class="bg-blue-500 text-white px-3 py-2 rounded">Add Question</button>
-                    <button @click="saveForm" class="bg-green-500 text-white px-4 py-2 rounded">Update Form</button>
+                    <button @click="saveForm" class="bg-green-500 text-white px-4 py-2 rounded">Save Form</button>
                 </div>
+
             </div>
         </div>
     </AuthenticatedLayout>

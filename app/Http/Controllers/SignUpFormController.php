@@ -15,7 +15,8 @@ class SignUpFormController extends Controller
 {
     // Show the signup form page
     public function index($eventId)
-    {
+    {   
+        $eventId = (int) $eventId;
         // Find the signup form for the given event
         $form = SignUpForm::where('event_id', $eventId)->first();
         $eventValues = Events::where('id', $eventId)->first();
@@ -26,102 +27,81 @@ class SignUpFormController extends Controller
         ]);
     }
 
+    public function create($eventId){
+        $eventId = (int) $eventId;
+        return inertia('SignUpFormCreate', ['events' => $eventId]);
+    }
+
     // Generate a new sign up form with default questions
-    public function generate(Request $request)
+    public function generate(Request $request, $eventId)
     {   
         // Fetch event details
-        $event = DB::table('events')->where('id', $request->event_id)->first();
-        if (!$event) {
-            return redirect()->back()->withErrors('Event not found.');
-        }
-
+        $event = DB::table('events')->where('id', $eventId)->first();
         // Format the table name: `event_name_date_created`
         $eventName = Str::slug($event->event_name, '_');
         $tableName = $eventName . "_" . now()->format('Y_m_d');
-        // Default Questions as per your specifications
-        $defaultQuestions = [
-            ['text' => 'Events Location', 'type' => 'dropdown', 'options' => ['Option 1', 'Option 2']], // User will input locations
-            ['text' => 'Email Address', 'type' => 'email', 'options' => []],
-            ['text' => 'First Name', 'type' => 'text', 'options' => []],
-            ['text' => 'Last Name', 'type' => 'text', 'options' => []],
-            ['text' => 'Mobile Number', 'type' => 'number', 'options' => [], 'format' => '###-###-####'], // ✅ Added format here
-            ['text' => 'Age', 'type' => 'dropdown', 'options' => ['Under 21', '22-44', '45+']],
-            ['text' => 'Gender', 'type' => 'dropdown', 'options' => ['Female', 'Male', 'Nonbinary/Other']],
-            ['text' => 'Combined Household Income?', 'type' => 'dropdown', 'options' => [
-                '>$150,000', '$100,000-$150,000', '$66,000-$99,000', '<$66,000', 'Prefer not to say'
-            ]],
-            ['text' => 'Where did you hear about this event?', 'type' => 'dropdown', 'options' => [
-                'FB/IG', 'Poster in store', 'Email', 'Word of mouth', 'Other'
-            ]],
-            ['text' => 'Favorite adventure sport?', 'type' => 'dropdown', 'options' => [
-                'Snow Sports (Skiing, Snowboarding, Snowshoeing)',
-                'Climbing (Indoor, Outdoor, Bouldering, Slacklining)',
-                'Trail Sports (Trail Running, Trail Walking)',
-                'Skate Sports (Skateboarding, Rollerblading)',
-                'Cycling (Mountain Biking, Road Cycling, BMX)',
-                'Water Sports (Kayaking, Canoeing, Surfing, Windsurfing, Fly Fishing, Scuba Diving, Paddleboarding)',
-                'Outdoor Activities (Hiking, Camping)',
-                'Aerial Sports (Paragliding, Hang Gliding)',
-                'Extreme Sports (Bungee Jumping, BASE Jumping)',
-                'Other'
-            ]],
-            ['text' => 'How much would you spend on equipment?', 'type' => 'dropdown', 'options' => [
-                'Less than $500', '$500-$1,000', 'More than $1,000'
-            ]],
-            ['text' => 'How often do you climb? (Specify type)', 'type' => 'dropdown', 'options' => [
-                'More than once a year', 'Once a year', 'Once every 2 years', 'Never'
-            ]],
-            ['text' => 'How often do you climb overseas? (Specify type)', 'type' => 'dropdown', 'options' => [
-                'More than once a year', 'Once a year', 'Once every 2 years', 'Never'
-            ]],
-            ['text' => 'How many days per year do you climb? (Specify type)', 'type' => 'dropdown', 'options' => [
-                '1-4 days', '5-10 days', '11-19 days', '20+ days', 'Never'
-            ]]
-        ];
-        
+
+        $questions = $request->questions;
+
+        // ✅ CREATE TABLE BASED ON COLUMN NAMES FROM QUESTIONS
+        Schema::create($tableName, function (Blueprint $table) use ($questions) {
+            $table->id();
+            $table->foreignId('event_id')->constrained('events')->onDelete('cascade');
+            $table->foreignId('location_id')->nullable()->constrained('locations')->onDelete('set null');
+            $table->timestamps(); // ✅ Add timestamps
+
+            // ✅ Loop through questions and create columns
+            foreach ($questions as $question) {
+                $columnName = $question['column_name']; // Use provided column name
+
+                // ✅ Define column type based on question type
+                switch ($question['type']) {
+                    case 'text':
+                    case 'email':
+                        $table->string($columnName)->nullable();
+                        break;
+                    case 'number':
+                        $table->string($columnName)->nullable(); // Store as string to maintain format
+                        if (isset($question['format'])) {
+                            $table->string($columnName . '_format')->nullable(); // Store number format separately
+                        }
+                        break;
+                    case 'dropdown':
+                        $table->string($columnName)->nullable();
+                        break;
+                }
+            }
+        });
+     
         // Create the signup form
         SignUpForm::create([
-            'event_id' => $request->event_id,
-            'event_description' => '*By entering the competition you accept the competition terms and conditions and consent to receiving marketing materials related to the offerings of Adventure Entertainment and our partners.',
-            'privacy_link' => '#',
-            'terms_link' => '#',
-            'heading' => 'GET A CHANCE TO WIN AMAZING PRIZES!',
+            'event_id' => $eventId,
+            'event_description' => $request->descriptionText,
+            'privacy_link' => $request->policyLink,
+            'terms_link' => $request->termsLink,
+            'heading' => $request->headerText,
             'table_name' => $tableName,
-            'questions' => json_encode($defaultQuestions),
+            'questions' => json_encode($questions)
         ]);
 
-        $locationNames = ['Option 1', 'Option 2']; // Example location names
+        // ✅ Extract Location Names from the form (if any)
+        $locationNames = [];
+        foreach ($questions as $question) {
+            if (stripos($question['column_name'], 'events_location') !== false && $question['type'] === 'dropdown') {
+                $locationNames = array_merge($locationNames, $question['options']);
+            }
+        }
 
+        // ✅ Store unique locations in the `locations` table
+        $locationNames = array_unique($locationNames);
         foreach ($locationNames as $name) {
             Location::create([
-                'event_id' => $request->event_id,
+                'event_id' => $eventId,
                 'name' => $name
             ]);
         }
 
-        // ✅ CREATE TABLE BASED ON QUESTIONS
-        Schema::create($tableName, function (Blueprint $table) use ($defaultQuestions) {
-            $table->id();
-            $table->foreignId('event_id')->constrained('events')->onDelete('cascade');
-            $table->foreignId('location_id')->nullable()->constrained('locations')->onDelete('set null');
-            $table->timestamps(); // Add timestamps
-            
-            foreach ($defaultQuestions as $question) {
-                $columnName = Str::slug($question['text'], '_'); // Convert question text to column name
-                if ($question['type'] === 'text' || $question['type'] === 'number' || $question['type'] === 'email') {
-                    $table->string($columnName)->nullable();
-                } elseif ($question['type'] === 'dropdown') {
-                    $table->string($columnName)->nullable();
-                }
-            }
-
-            // ✅ Store format in a separate column (if needed)
-            if ($question['type'] === 'number' && isset($question['format'])) {
-                $table->string($columnName . '_format')->nullable(); // Stores the format
-            }
-        });
-
-        return redirect()->route('signup.index', ['eventId' => $request->event_id]);
+        return redirect()->route('signup.index', ['eventId' => $eventId]);
     }
     
     // Show the edit page
@@ -129,96 +109,95 @@ class SignUpFormController extends Controller
     {   
         $form = SignUpForm::findOrFail($formId);
         $events = Events::findOrFail($form->event_id);
-        
         return inertia('SignUpFormEdit', ['form' => $form, 'events' => $events]);
     }
 
     // Update form
     public function update(Request $request, $eventId)
-    {
+    {   
+        $eventId = (int) $eventId;
         $form = SignUpForm::where('event_id', $eventId)->firstOrFail();
+        $tableName = $form->table_name;
+        // ✅ Decode existing questions from database
         $oldQuestions = json_decode($form->questions, true);
-        $newQuestions = json_decode($request->questions, true);
-        $oldTableName = $form->table_name;
-    
-        // ✅ Ensure old table name exists
-        if (empty($oldTableName) || !Schema::hasTable($oldTableName)) {
-            return redirect()->back()->withErrors("Error: The existing table does not exist.");
-        }
-    
-        // ✅ Modify Table Columns
-        Schema::table($oldTableName, function (Blueprint $table) use ($oldQuestions, $newQuestions) {
-            foreach ($oldQuestions as $question) {
-                $oldColumn = Str::slug($question['text'], '_');
-                if (!Schema::hasColumn($table->getTable(), $oldColumn)) continue;
-                
-                // Remove old columns that no longer exist
-                if (!in_array($oldColumn, array_map(fn($q) => Str::slug($q['text'], '_'), $newQuestions))) {
-                    $table->dropColumn($oldColumn);
-                }
-            }
-    
-            foreach ($newQuestions as $question) {
-                $newColumn = Str::slug($question['text'], '_');
-                if (!Schema::hasColumn($table->getTable(), $newColumn)) {
-                    $table->string($newColumn)->nullable();
-                }
-            }
-        });
-    
-        // ✅ Extract and Save Unique Locations
-        $newLocationOptions = [];
-    
-        foreach ($newQuestions as $question) {
-            if (isset($question['text']) && stripos($question['text'], 'location') !== false && $question['type'] === 'dropdown') {
-                $newLocationOptions = array_merge($newLocationOptions, $question['options']);
-            }
-        }
-    
-        $uniqueNewLocations = array_unique($newLocationOptions);
-    
-        // ✅ Fetch all existing locations with their IDs
-        $existingLocations = Location::where('event_id', $eventId)->get()->keyBy('name');
+        $newQuestions = $request->questions;
 
-        // ✅ Track updated locations
-        $updatedLocations = [];
-
-        foreach ($uniqueNewLocations as $newLocationName) {
-            if ($existingLocations->has($newLocationName)) {
-                // ✅ Location already exists, no need to update
-                $updatedLocations[] = $existingLocations[$newLocationName]->id;
-            } else {
-                // ✅ Check if location exists but with a different name
-                $existingLocation = Location::where('event_id', $eventId)->whereNotIn('id', $updatedLocations)->first();
-                if ($existingLocation) {
-                    // ✅ Update existing location's name (Keep ID)
-                    $existingLocation->update(['name' => $newLocationName]);
-                    $updatedLocations[] = $existingLocation->id;
-                } else {
-                    // ✅ Create new location if it's completely new
-                    $newLocation = Location::create([
-                        'event_id' => $eventId,
-                        'name' => $newLocationName
-                    ]);
-                    $updatedLocations[] = $newLocation->id;
-                }
-            }
-        }
-
-        // ✅ Find locations that were removed and delete them
-        Location::where('event_id', $eventId)
-            ->whereNotIn('id', $updatedLocations)
-            ->delete();
-
-        // ✅ Update Form in Database
         $form->update([
             'heading' => $request->heading,
             'event_description' => $request->event_description,
             'privacy_link' => $request->privacy_link,
             'terms_link' => $request->terms_link,
-            'questions' => json_encode($newQuestions),
+            'questions' => json_encode($request->questions), 
         ]);
+
+        // ✅ Extract old and new column names
+        $oldColumns = collect($oldQuestions)->pluck('column_name')->toArray();
+        $newColumns = collect($newQuestions)->pluck('column_name')->toArray();
+
+        // ✅ Find new questions that were added
+        $columnsToAdd = array_diff($newColumns, $oldColumns);
+
+        // ✅ Add new columns to the database table
+        if (!empty($columnsToAdd)) {
+            Schema::table($tableName, function (Blueprint $table) use ($columnsToAdd, $newQuestions) {
+                foreach ($newQuestions as $question) {
+                    if (in_array($question['column_name'], $columnsToAdd)) {
+                        // ✅ Define column type based on question type
+                        switch ($question['type']) {
+                            case 'text':
+                            case 'email':
+                                $table->string($question['column_name'])->nullable();
+                                break;
+                            case 'number':
+                                $table->string($question['column_name'])->nullable(); // Store as string for format
+                                if (isset($question['format'])) {
+                                    $table->string($question['column_name'] . '_format')->nullable(); // Store number format
+                                }
+                                break;
+                            case 'dropdown':
+                                $table->string($question['column_name'])->nullable();
+                                break;
+                        }
+                    }
+                }
+            });
+        }
+        
+        // ✅ Extract and Save Unique Locations
+        $newLocationOptions = [];
+
+        foreach ($newQuestions as $question) {
+            if ($question['column_name'] === 'events_location') { 
+                $newLocationOptions = array_merge($newLocationOptions, $question['options']);
+            }
+        }
+     
+        $uniqueNewLocations = array_unique($newLocationOptions);
     
+        // ✅ Fetch all existing locations with their IDs
+        $existingLocations = Location::where('event_id', $eventId)->get()->keyBy('name');
+
+        foreach ($uniqueNewLocations as $newLocationName) {
+            if ($existingLocations->has($newLocationName)) {
+                // ✅ If location exists, no change is needed
+                continue;
+            } 
+
+            // ✅ Find an existing location ID that is not in the new list
+            $unusedLocation = Location::where('event_id', $eventId)->whereNotIn('name', $uniqueNewLocations)->first();
+
+            if ($unusedLocation) {
+                // ✅ Update existing location instead of creating a new one
+                $unusedLocation->update(['name' => $newLocationName]);
+            } else {
+                // ✅ Create a new location if all are already in use
+                Location::create([
+                    'event_id' => $eventId,
+                    'name' => $newLocationName
+                ]);
+            }
+        }
+        
         return redirect()->route('signup.index', ['eventId' => $eventId])->with('success', 'Form updated successfully. Locations updated.');
     }
     

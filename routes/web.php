@@ -41,7 +41,7 @@ Route::middleware(['auth', RoleMiddleware::class . ':admin,host'])->group(functi
     Route::delete('/attendee/{attendee}/event/{event}', [AttendeesController::class, 'destroy'])->name('attendees.destroy');
 
     //SIGN UP FORM ROUTES
-    Route::get('/signup-form/{eventId}', [SignUpFormController::class, 'index'])->name('signup.index');
+    Route::get('/signup-form/index/{eventId}', [SignUpFormController::class, 'index'])->name('signup.index');
 });
 
 Route::middleware(['auth', RoleMiddleware::class . ':admin'])->group(function () {  
@@ -56,7 +56,9 @@ Route::middleware(['auth', RoleMiddleware::class . ':admin'])->group(function ()
 
     //SIGN UP FORM ROUTES
     Route::post('/signup-form/{eventId}', [SignUpFormController::class, 'store'])->name('signup.store');
-    Route::post('/signup-form', [SignUpFormController::class, 'generate'])->name('signup.generate');
+    Route::get('/signup-form/create/{eventId}', [SignUpFormController::class, 'create'])->name('signup.create');
+    Route::post('/signup-form/generate/{eventId}', [SignUpFormController::class, 'generate'])->name('signup.generate');
+
     Route::delete('/signup-form/{eventId}', [SignUpFormController::class, 'destroy'])->name('signup.destroy');
 
     //EDIT SIGN UP FORM ROUTES
