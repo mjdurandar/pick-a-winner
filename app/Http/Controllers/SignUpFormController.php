@@ -118,10 +118,11 @@ class SignUpFormController extends Controller
         $eventId = (int) $eventId;
         $form = SignUpForm::where('event_id', $eventId)->firstOrFail();
         $tableName = $form->table_name;
+    
         // ✅ Decode existing questions from database
         $oldQuestions = json_decode($form->questions, true);
         $newQuestions = $request->questions;
-
+    
         $form->update([
             'heading' => $request->heading,
             'event_description' => $request->event_description,
@@ -129,14 +130,14 @@ class SignUpFormController extends Controller
             'terms_link' => $request->terms_link,
             'questions' => json_encode($request->questions), 
         ]);
-
+    
         // ✅ Extract old and new column names
         $oldColumns = collect($oldQuestions)->pluck('column_name')->toArray();
         $newColumns = collect($newQuestions)->pluck('column_name')->toArray();
-
+    
         // ✅ Find new questions that were added
         $columnsToAdd = array_diff($newColumns, $oldColumns);
-
+    
         // ✅ Add new columns to the database table
         if (!empty($columnsToAdd)) {
             Schema::table($tableName, function (Blueprint $table) use ($columnsToAdd, $newQuestions) {
@@ -162,44 +163,46 @@ class SignUpFormController extends Controller
                 }
             });
         }
-        
-        // ✅ Extract and Save Unique Locations
+    
+        // ✅ Extract New Locations from the "events_location" dropdown
         $newLocationOptions = [];
-
         foreach ($newQuestions as $question) {
             if ($question['column_name'] === 'events_location') { 
                 $newLocationOptions = array_merge($newLocationOptions, $question['options']);
             }
         }
-     
-        $uniqueNewLocations = array_unique($newLocationOptions);
     
-        // ✅ Fetch all existing locations with their IDs
+        // ✅ Ensure we have unique new locations
+        $uniqueNewLocations = array_unique($newLocationOptions);
+        
+        // ✅ Fetch all existing locations
         $existingLocations = Location::where('event_id', $eventId)->get()->keyBy('name');
-
+        
+        $updatedLocations = [];
+    
         foreach ($uniqueNewLocations as $newLocationName) {
             if ($existingLocations->has($newLocationName)) {
-                // ✅ If location exists, no change is needed
-                continue;
-            } 
-
-            // ✅ Find an existing location ID that is not in the new list
-            $unusedLocation = Location::where('event_id', $eventId)->whereNotIn('name', $uniqueNewLocations)->first();
-
-            if ($unusedLocation) {
-                // ✅ Update existing location instead of creating a new one
-                $unusedLocation->update(['name' => $newLocationName]);
+                // ✅ Location exists, just keep track
+                $updatedLocations[] = $existingLocations[$newLocationName]->id;
             } else {
-                // ✅ Create a new location if all are already in use
-                Location::create([
+                // ✅ Add new location
+                $newLocation = Location::create([
                     'event_id' => $eventId,
                     'name' => $newLocationName
                 ]);
+                $updatedLocations[] = $newLocation->id;
             }
         }
-        
-        return redirect()->route('signup.index', ['eventId' => $eventId])->with('success', 'Form updated successfully. Locations updated.');
+    
+        // ✅ Remove old locations that are no longer in the dropdown
+        Location::where('event_id', $eventId)
+            ->whereNotIn('id', $updatedLocations)
+            ->delete();
+    
+        return redirect()->route('signup.index', ['eventId' => $eventId])
+            ->with('success', 'Form updated successfully. Locations updated.');
     }
+    
     
     //EMBED FUNCTIONS
     public function embed($eventId)
