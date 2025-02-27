@@ -19,6 +19,11 @@ const policyLink = ref(props.form.privacy_link);
 
 // ✅ Convert existing questions into reactive state
 const questions = ref(JSON.parse(props.form.questions || '[]'));
+questions.value.forEach((question) => {
+    if (question.column_name === "events_location" && !question.hiddenOptions) {
+        question.hiddenOptions = []; // ✅ Ensure hiddenOptions exists
+    }
+});
 
 // ✅ Dragging logic
 const draggedQuestionIndex = ref(null);
@@ -30,6 +35,21 @@ const drop = (index) => {
         const movedQuestion = questions.value.splice(draggedQuestionIndex.value, 1)[0];
         questions.value.splice(index, 0, movedQuestion);
         draggedQuestionIndex.value = null;
+    }
+};
+
+const toggleHiddenOption = (question, option) => {
+    if (!question.hiddenOptions) {
+        question.hiddenOptions = []; // ✅ Ensure it's initialized
+    }
+
+    const index = question.hiddenOptions.indexOf(option);
+    if (index === -1) {
+        // ✅ Add to hiddenOptions
+        question.hiddenOptions.push(option);
+    } else {
+        // ✅ Remove from hiddenOptions
+        question.hiddenOptions.splice(index, 1);
     }
 };
 
@@ -77,32 +97,43 @@ const removeQuestion = (index) => {
 };
 
 const removeDropdownOption = (question, optIndex) => {
-    const optionValue = question.options[optIndex]?.trim();
+    if(question.column_name === 'events_location'){
+        const optionValue = question.options[optIndex]?.trim();
 
-    // ✅ If the option is empty, remove it immediately
-    if (!optionValue) {
-        question.options.splice(optIndex, 1);
-        return;
-    }
-
-    // ✅ If the option has a value, show a confirmation before removing
-    Swal.fire({
-        title: "Remove Location?",
-        text: "Are you sure you want to remove this option? The Win Sheet connected to this location will also be removed.",
-        icon: "warning",
-        showCancelButton: true,
-        confirmButtonText: "Yes, remove it!",
-        cancelButtonText: "No, cancel"
-    }).then((result) => {
-        if (result.isConfirmed) {
+        // ✅ If the option is empty, remove it immediately
+        if (!optionValue) {
             question.options.splice(optIndex, 1);
+            return;
         }
-    });
+
+        // ✅ If the option has a value, show a confirmation before removing
+        Swal.fire({
+            title: "Remove Location?",
+            text: "Are you sure you want to remove this option? The Win Sheet connected to this location will also be removed.",
+            icon: "warning",
+            showCancelButton: true,
+            confirmButtonText: "Yes, remove it!",
+            cancelButtonText: "No, cancel"
+        }).then((result) => {
+            if (result.isConfirmed) {
+                question.options.splice(optIndex, 1);
+            }
+        });
+    }
+    else{
+        question.options.splice(optIndex, 1);
+    }
 };
 
 
 // ✅ Save the form (update)
 const saveForm = () => {
+    questions.value.forEach(question => {
+        // ✅ Ensure hiddenOptions exists
+        if (question.column_name === "events_location" && !question.hiddenOptions) {
+            question.hiddenOptions = [];
+        }
+    });
    //Validate if all dropdown got a value
    for (let question of questions.value) {
         // ✅ Validate Dropdown Options
@@ -216,6 +247,7 @@ const saveForm = () => {
                             <option value="text">Text Input</option>
                             <option value="dropdown">Dropdown</option>
                             <option value="number">Number</option>
+                            <option @click="showAddressBar">Address</option>
                         </select>
 
                         <!-- ✅ Dropdown Options -->
@@ -226,6 +258,13 @@ const saveForm = () => {
                                 @dragstart="dragStartOption(question, optIndex)"  @dragover.prevent
                                 @drop="dropOption(question, optIndex)" 
                                 class="flex gap-2 mb-2">
+                                <div class="m-auto" title="Hide this Location" v-if="question.column_name === 'events_location'">
+                                    <input 
+                                        type="checkbox" 
+                                        :checked="question.hiddenOptions.includes(option)" 
+                                        @change="toggleHiddenOption(question, option)"
+                                    >
+                                </div>
                                 <input v-model="question.options[optIndex]" type="text" class="flex-1 border p-2 rounded" />
                                 <button @click="question.options.push('')" class="bg-green-500 text-white px-3 py-2 rounded">
                                     <i class="fa-solid fa-add"></i>

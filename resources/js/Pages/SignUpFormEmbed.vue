@@ -70,6 +70,11 @@ const formatPhoneNumber = (index, fieldName, format) => {
     formValues.value[fieldName] = formattedNumber;
 };
 
+// Computed property to filter options
+const getVisibleOptions = (question) => {
+    return question.options.filter(option => !question.hiddenOptions.includes(option));
+};
+
 </script>
 
 <template>
@@ -135,11 +140,12 @@ const formatPhoneNumber = (index, fieldName, format) => {
                 </template>
 
                 <!-- ✅ Dropdowns -->
-                <template v-else-if="question.type === 'dropdown'">
+                 <!-- ✅ Dropdowns -->
+                 <template v-else-if="question.type === 'dropdown'">
                     <div class="pb-3">
                         <select v-model="formValues[question.text]" class="form-select" required>
                         <option value="">Select an option</option>
-                        <option v-for="option in question.options" :key="option" :value="option">{{ option }}</option>
+                        <option v-for="option in getVisibleOptions(question)" :key="option" :value="option">{{ option }}</option>
                     </select>
                     </div>
                 </template>

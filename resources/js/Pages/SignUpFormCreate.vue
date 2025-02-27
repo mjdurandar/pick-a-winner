@@ -12,7 +12,7 @@ const props = defineProps({
 
 // ✅ Default Questions with Column Names
 const defaultQuestions = ref([
-    { text: 'Events Location', type: 'dropdown', column_name: 'events_location', options: ['Option 1', 'Option 2'] },
+    { text: 'Events Location', type: 'dropdown', column_name: 'events_location', options: ['Option 1', 'Option 2'], hiddenOptions: [] },
     { text: 'Email Address', type: 'email', column_name: 'email_address', options: [] },
     { text: 'First Name', type: 'text', column_name: 'first_name', options: [] },
     { text: 'Last Name', type: 'text', column_name: 'last_name', options: [] },
