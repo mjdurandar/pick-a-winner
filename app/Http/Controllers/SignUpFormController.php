@@ -218,7 +218,7 @@ class SignUpFormController extends Controller
     }
 
     public function storeEmbeddedData(Request $request, $eventId)
-    {   
+    {  
         $form = SignUpForm::where('event_id', $eventId)->firstOrFail();
         $tableName = $form->table_name; // Ensure correct table
 
@@ -229,7 +229,7 @@ class SignUpFormController extends Controller
 
         // Get the list of valid columns from the database table
         $validColumns = Schema::getColumnListing($tableName);
-    
+        
         // Transform request data: Normalize question text into column names
         $insertData = [
             'event_id' => $eventId,
@@ -238,24 +238,25 @@ class SignUpFormController extends Controller
         ];
 
         $selectedLocationName = null; // Placeholder for selected location name
-    
+        $questions = json_decode($form->questions, true);
         foreach ($request->except('_token') as $key => $value) {
-            $columnName = Str::slug($key, '_');
-            if (in_array($columnName, $validColumns)) {
-                if (stripos($key, 'Mobile Number') !== false) {
-                    // Fetch the stored format for mobile number
-                    $questions = json_decode($form->questions, true);
-                    $mobileQuestion = collect($questions)->firstWhere('text', 'Mobile Number');
-    
-                    if ($mobileQuestion && isset($mobileQuestion['format'])) {
-                        $value = $this->validateMobileNumber($value, $mobileQuestion['format']);
+            // Find the corresponding column name from the questions
+            $question = collect($questions)->firstWhere('text', $key);
+            if ($question) {
+                $columnName = $question['column_name'];
+                
+                if (in_array($columnName, $validColumns)) {
+                    if (stripos($key, 'Mobile Number') !== false) {
+                        if (isset($question['format'])) {
+                            $value = $this->validateMobileNumber($value, $question['format']);
+                        }
                     }
+                    $insertData[$columnName] = $value;
                 }
-                $insertData[$columnName] = $value;
-            }
     
-            if (stripos($key, 'location') !== false || stripos($key, 'where are you attending') !== false) {
-                $selectedLocationName = $value;
+                if ($columnName === 'events_location') {
+                    $selectedLocationName = $value;
+                }
             }
         }
 
@@ -269,10 +270,9 @@ class SignUpFormController extends Controller
                 $insertData['location_id'] = $location->id;
             }
         }
-    
         // Insert the validated data into the correct table
         DB::table($tableName)->insert($insertData);
-
+        
         return redirect()->route('signup.embed', ['eventId' => $eventId])->with('success');
     }
 

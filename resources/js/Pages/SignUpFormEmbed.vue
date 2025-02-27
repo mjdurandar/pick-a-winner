@@ -72,6 +72,9 @@ const formatPhoneNumber = (index, fieldName, format) => {
 
 // Computed property to filter options
 const getVisibleOptions = (question) => {
+    if(!question.hiddenOptions) {
+        question.hiddenOptions = [];
+    }
     return question.options.filter(option => !question.hiddenOptions.includes(option));
 };
 
