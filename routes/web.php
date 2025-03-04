@@ -11,6 +11,9 @@ use App\Http\Controllers\PrizeController;
 use Illuminate\Support\Facades\Route;
 use Inertia\Inertia;
 use App\Http\Middleware\RoleMiddleware;
+Route::get('/logs', function () {
+    return file_get_contents(storage_path('logs/laravel.log'));
+});
 
 Route::get('/', function () {
     return Inertia::render('Auth/Login');
