@@ -1,7 +1,7 @@
 <script setup>
     import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout.vue';
     import { Head, router } from '@inertiajs/vue3';
-    import { ref, computed, watchEffect } from 'vue';
+    import { ref, computed } from 'vue';
     import { Bar } from 'vue-chartjs';
     import {
         Chart as ChartJS,
@@ -37,9 +37,15 @@
         return props.locations.filter(location => location.event_id === selectedEvent.value);
     });
 
+    // ✅ Helper function to truncate text
+    const truncateText = (text, length) => {
+        if (text.length <= length) return text;
+        return text.substring(0, length) + '...';
+    };
+
     // ✅ Chart Data for Attendees Per Location
     const chartData = computed(() => ({
-        labels: props.attendeesChartData.map(item => item.location), // Location names
+        labels: props.attendeesChartData.map(item => truncateText(item.location, 10)), // Truncate location names to 10 characters
         datasets: [
             {
                 label: 'Attendees Per Location',
@@ -51,7 +57,19 @@
 
     const chartOptions = {
         responsive: true,
-        maintainAspectRatio: false
+        maintainAspectRatio: false,
+        plugins: {
+            tooltip: {
+                callbacks: {
+                    label: function(context) {
+                        const index = context.dataIndex;
+                        const fullLocationName = props.attendeesChartData[index].location;
+                        const count = context.raw;
+                        return `${fullLocationName}: ${count}`;
+                    }
+                }
+            }
+        }
     };
 
     // ✅ Function to Handle Event Change
