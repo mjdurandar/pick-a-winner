@@ -158,7 +158,7 @@ const goToSignUpForm = (eventId) => {
                             <img style="height: 200px;" :src="'/storage/' + event.event_banner" class="card-img-top" alt="Event Banner" />
                             <div class="card-body">
                                 <h5 class="card-title">{{ event.event_name }}</h5>
-                                <p class="card-text">{{ event.event_description }}</p>
+                                <p class="card-text mb-1" style="font-size: 14px; font-weight: 500;">{{ event.event_country }}</p>
                                 <p class="text-muted">📅 {{ event.event_date }}</p>
                                 <p class="text-muted">👤 {{ event.event_coordinator }}</p>
                                 <div class="d-flex justify-content-between mt-3">
@@ -217,7 +217,16 @@ const goToSignUpForm = (eventId) => {
                             </div>
                             <div class="mb-3">
                                 <label class="form-label">Country</label>
-                                <input v-model="form.event_country" type="text" class="form-control" required />
+                                <select v-model="form.event_country" class="form-select" required>
+                                    <option value="AUSTRALIA & NEW ZEALAND">AUSTRALIA & NEW ZEALAND</option>
+                                    <option value="USA & CANADA">USA & CANADA</option>
+                                    <option value="USA">USA</option>
+                                    <option value="Canada">Canada</option>
+                                    <option value="UK">UK</option>
+                                    <option value="Australia">Australia</option>
+                                    <option value="New Zealand">New Zealand</option>
+                                    <option value="Germany">Germany</option>
+                                </select>
                             </div>
                             <div class="mb-3">
                                 <label class="form-label">Event Banner</label>

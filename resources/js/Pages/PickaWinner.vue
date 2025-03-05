@@ -41,6 +41,7 @@ const goToAttendeesPage = (eventId) => {
                             <img style="height: 200px;" :src="'/storage/' + event.event_banner" class="card-img-top" alt="Event Banner" />
                             <div class="card-body">
                                 <h5 class="card-title">{{ event.event_name }}</h5>
+                                <p class="card-text mb-1" style="font-size: 14px; font-weight: 500;">{{ event.event_country }}</p>
                                 <p class="text-muted">📅 {{ event.event_date }}</p>
                                 <div class="d-flex justify-content-between mt-3">
                                     <button class="btn btn-primary btn-sm me-2" @click="goToAttendeesPage(event.id)">
