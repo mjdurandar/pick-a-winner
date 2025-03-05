@@ -38,6 +38,7 @@ const handleFileChange = (event) => {
 const openCreateModal = () => {
     isEditing.value = false;
     form.reset(); // Clear form
+    document.getElementById('event_banner').value = '';
     let modalElement = new bootstrap.Modal(document.getElementById('createEventModal'));
     modalElement.show();
 };
@@ -220,7 +221,7 @@ const goToSignUpForm = (eventId) => {
                             </div>
                             <div class="mb-3">
                                 <label class="form-label">Event Banner</label>
-                                <input type="file" @change="handleFileChange" class="form-control" />
+                                <input type="file" @change="handleFileChange" id="event_banner" class="form-control" />
                             </div>
                             <div class="modal-footer">
                                 <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>

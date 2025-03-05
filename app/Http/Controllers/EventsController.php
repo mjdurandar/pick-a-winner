@@ -35,9 +35,19 @@ class EventsController extends Controller
         ]);
     
         // Store file
-        $path = $request->file('event_banner')->store('event_banners', 'public');
+        $destinationPath = public_path('storage/event_banners');
+        if (!file_exists($destinationPath)) {
+            mkdir($destinationPath, 0755, true);
+        }
+        $file = $request->file('event_banner');
+        $filename = time() . '_' . $file->getClientOriginalName();
+        $file->move($destinationPath, $filename);
     
-        Events::create(array_merge($request->except('event_banner'), ['event_banner' => $path]));
+        $path = 'event_banners/' . $filename;
+        Events::create(array_merge(
+            $request->except('event_banner'),
+            ['event_banner' => $path]
+        ));
     
         return redirect()->route('events.index');
     }
@@ -58,11 +68,22 @@ class EventsController extends Controller
             'event_coordinator_email' => 'required|email',
             'event_country' => 'required|string',
         ]);
-    
         // If a new file is uploaded, store it
         if ($request->hasFile('event_banner')) {
-            $path = $request->file('event_banner')->store('event_banners', 'public');
-            $event->event_banner = $path; // Update banner
+            $destinationPath = public_path('storage/event_banners');
+
+            // Ensure the directory exists
+            if (!file_exists($destinationPath)) {
+                mkdir($destinationPath, 0755, true);
+            }
+    
+            // Store the file in the directory
+            $file = $request->file('event_banner');
+            $filename = time() . '_' . $file->getClientOriginalName(); // Unique file name
+            $file->move($destinationPath, $filename);
+    
+            // Update event_banner with the relative path
+            $event->event_banner = 'event_banners/' . $filename;
         }
     
         // Update event with new data

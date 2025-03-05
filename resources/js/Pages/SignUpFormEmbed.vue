@@ -1,7 +1,14 @@
 <script setup>
-import { ref, computed } from 'vue';
+import { ref, computed, watch } from 'vue';
 import { router } from '@inertiajs/vue3';
 import Swal from 'sweetalert2';
+
+const hasAddressFields = computed(() => {
+    return JSON.parse(props.form.questions).some(question => 
+        ['street_address', 'street_address_2', 'city', 'state', 'zip_code', 'country'].includes(question.column_name)
+    );
+});
+
 
 const props = defineProps({
     form: Object,
@@ -18,6 +25,17 @@ const marketingPermission = ref(false); // ✅ Track checkbox state
 const csrfToken = computed(() => {
     return document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '';
 });
+
+// Phone number formats for different countries
+const phoneFormats = {
+    'Australia': '## #### ####',
+    'New Zealand': '## ### ####',
+    'USA': '(###) ###-####',
+    'Canada': '(###) ###-####',
+    'Germany': '#### ######',
+    'United Kingdom': '#### ### ####',
+    'Europe': '## ### ####'
+};
 
 // Handle form submission
 const submitForm = () => {
@@ -44,39 +62,55 @@ const submitForm = () => {
     });
 };
 
-const formatPhoneNumber = (index, fieldName, format) => {
-    let rawValue = formValues.value[fieldName];
+const formatPhoneNumber = (fieldName, format) => {
+    if (!formValues.value[fieldName]) return;
 
-    if (!rawValue || !format) return;
-
-    // Remove all non-numeric characters
-    rawValue = rawValue.replace(/\D/g, '');
-
-    // Apply format dynamically
+    let rawValue = formValues.value[fieldName].replace(/\D/g, ''); // Remove non-numeric characters
     let formattedNumber = '';
     let rawIndex = 0;
 
-    for (let char of format) {
-        if (char === '#') {
-            if (rawValue[rawIndex]) {
-                formattedNumber += rawValue[rawIndex];
-                rawIndex++;
+    for (let i = 0; i < format.length; i++) {
+        if (format[i] === '#') {
+            if (rawIndex < rawValue.length) {
+                formattedNumber += rawValue[rawIndex++];
             }
         } else {
-            formattedNumber += char;
+            if (rawIndex < rawValue.length) {
+                formattedNumber += format[i]; // Add separator if there's still numbers left
+            }
         }
     }
 
     formValues.value[fieldName] = formattedNumber;
 };
 
+
 // Computed property to filter options
 const getVisibleOptions = (question) => {
+    
     if(!question.hiddenOptions) {
         question.hiddenOptions = [];
     }
     return question.options.filter(option => !question.hiddenOptions.includes(option));
 };
+
+// Watch for changes in the country field and update the phone number format
+watch(() => formValues.value['Country'], (newCountry) => {
+    console.log('Country changed:', newCountry); // Debugging log
+    formValues.value['mobile_number'] = '';
+
+    if (!newCountry) {
+        return;
+    }
+
+    const format = phoneFormats[newCountry];
+
+    if (format) {
+        formatPhoneNumber('Mobile Number', format);
+    } else {
+        console.log('No format found for', newCountry);
+    }
+});
 
 </script>
 
@@ -88,7 +122,7 @@ const getVisibleOptions = (question) => {
             <div class="w-100">
                 <img :src="'/storage/' + event.event_banner" alt="Event Banner" 
                      class="img-fluid w-100" 
-                     style="object-fit: cover; height: 100%;">
+                     style=" height: 350px;">
             </div>
 
             <!-- ✅ Thank You Card (Shown after submission) -->
@@ -102,8 +136,8 @@ const getVisibleOptions = (question) => {
                 <h2 class="mt-2 mb-3 fw-bold" style="font-size: 20px;">{{ form.heading }}</h2>
                 <p class="mb-3">{{ form.event_description }}</p>
                 <p class="mb-2">
-                    <a :href="form.terms_link" target="_blank" class="text-decoration-none">Terms and Conditions</a> |
-                    <a :href="form.privacy_link" target="_blank" class="text-decoration-none">Privacy Policy</a>
+                    <a :href="form.terms_link" target="_blank" class="text-decoration-none" style="color: #0000EE;">Terms and Conditions</a> |
+                    <a :href="form.privacy_link" target="_blank" class="text-decoration-none" style="color: #0000EE;">Privacy Policy</a>
                 </p>
             </div>
         </div>
@@ -115,10 +149,10 @@ const getVisibleOptions = (question) => {
             <input type="hidden" :value="csrfToken" name="_token">
 
             <template v-for="(question, index) in JSON.parse(form.questions)" :key="index">
-                <label class="form-label">{{ question.text }}</label>
-
+                <label class="form-label" v-if="question.column_name !== 'street_address' && question.column_name !== 'street_address_2' && question.column_name !== 'city' && question.column_name !== 'state' && question.column_name !== 'zip_code' && question.column_name !== 'country'" >{{ question.text }}</label>
+                <label class="form-label" v-if="question.column_name === 'street_address'">Address</label>
                 <!-- ✅ Text & Number Inputs -->
-                <template v-if="question.type === 'text'">
+                <template v-if="question.type === 'text' && question.column_name !== 'street_address' && question.column_name !== 'street_address_2' && question.column_name !== 'city' && question.column_name !== 'state' && question.column_name !== 'zip_code' && question.column_name !== 'country'" >
                     <div class="pb-3">
                         <input v-model="formValues[question.text]" type="text" class="form-control" required>
                     </div>
@@ -130,26 +164,45 @@ const getVisibleOptions = (question) => {
                     </div>
                 </template>
 
-                <template v-if="question.type === 'number'">
+                <template v-if="question.type === 'number' && question.column_name === 'mobile_number'">
                     <div class="pb-3">
                         <input 
-                        v-model="formValues[question.text]" 
-                        :type="question.format === 'FREE-NUMERIC' ? 'number' : 'text'" 
-                        class="form-control"
-                        :placeholder="question.format === 'FREE-NUMERIC' ? 'Enter number' : question.format"
-                        required
-                        @input="formatPhoneNumber(index, question.text, question.format)">
+                            v-model="formValues[question.column_name]" 
+                            class="form-control"
+                            required
+                            :disabled="hasAddressFields && !formValues['Country']"
+                            @input="formatPhoneNumber(question.column_name, phoneFormats[formValues['Country']])"
+                        >
                     </div>
                 </template>
 
                 <!-- ✅ Dropdowns -->
-                 <!-- ✅ Dropdowns -->
-                 <template v-else-if="question.type === 'dropdown'">
+                 <template v-else-if="question.type === 'dropdown' && question.column_name !== 'country'" >
                     <div class="pb-3">
                         <select v-model="formValues[question.text]" class="form-select" required>
                         <option value="">Select an option</option>
                         <option v-for="option in getVisibleOptions(question)" :key="option" :value="option">{{ option }}</option>
                     </select>
+                    </div>
+                </template>
+
+                <!-- ✅ Address Fields -->
+                <template v-if="question.column_name === 'street_address' || question.column_name === 'street_address_2' || question.column_name === 'city' || question.column_name === 'state' || question.column_name === 'zip_code' || question.column_name === 'country'">
+                    <div class="pb-2">
+                        <div class="d-flex">
+                            <input v-if="question.column_name === 'street_address'" v-model="formValues[question.text]" type="text" class="form-control" placeholder="Street Address" required>
+                            <input v-if="question.column_name === 'street_address_2'" v-model="formValues[question.text]" type="text" class="form-control" placeholder="Address Line 2">
+                            <input v-if="question.column_name === 'city'" v-model="formValues[question.text]" type="text" class="flex-1 form-control" placeholder="City" required>
+                            <input v-if="question.column_name === 'state'" v-model="formValues[question.text]" type="text" class="flex-1 form-control" placeholder="State" required>
+                            <input v-if="question.column_name === 'zip_code'" v-model="formValues[question.text]" type="number" class="flex-1 form-control" placeholder="Zip Code" required>                
+                        </div>
+                        <label class="form-label" v-if="question.column_name === 'country'">Country</label>
+                        <div v-if="question.column_name === 'country'">
+                            <select v-model="formValues[question.text]" class="form-select" required>
+                            <option value="">Select an option</option>
+                            <option v-for="option in getVisibleOptions(question)" :key="option" :value="option">{{ option }}</option>
+                            </select>       
+                        </div>  
                     </div>
                 </template>
             </template>

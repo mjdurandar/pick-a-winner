@@ -16,7 +16,13 @@ const defaultQuestions = ref([
     { text: 'Email Address', type: 'email', column_name: 'email_address', options: [] },
     { text: 'First Name', type: 'text', column_name: 'first_name', options: [] },
     { text: 'Last Name', type: 'text', column_name: 'last_name', options: [] },
-    { text: 'Mobile Number', type: 'number', column_name: 'mobile_number', options: [], format: '###-###-####' },
+    { text: 'Street Address', type: 'text', column_name: 'street_address', options: [] },
+    { text: 'Address Line 2', type: 'text', column_name: 'street_address_2', options: [] },
+    { text: 'City', type: 'text', column_name: 'city', options: [] },
+    { text: 'State', type: 'text', column_name: 'state', options: [] },
+    { text: 'Zip Code', type: 'text', column_name: 'zip_code', options: [] },
+    { text: 'Country', type: 'dropdown', column_name: 'country', options: ['Australia', 'New Zealand', 'USA', 'Canada', 'Germany', 'United Kingdom', 'Europe'] },
+    { text: 'Mobile Number', type: 'number', column_name: 'mobile_number', options: [], format: '###-###-####'},
     { text: 'Age', type: 'dropdown', column_name: 'age', options: ['Under 21', '22-44', '45+'] },
     { text: 'Gender', type: 'dropdown', column_name: 'gender', options: ['Female', 'Male', 'Nonbinary/Other'] },
     { text: 'Combined Household Income?', type: 'dropdown', column_name: 'household_income', options: ['>$150,000', '$100,000-$150,000', '$66,000-$99,000', '<$66,000', 'Prefer not to say'] },
@@ -249,7 +255,7 @@ const saveForm = () => {
                         </div>
 
                         <!-- ✅ Number Format -->
-                        <div v-if="question.type === 'number'">
+                        <!-- <div v-if="question.type === 'number'">
                             <label class="font-medium">Number Format:</label>
                             <select v-model="question.format" class="w-full border p-2 rounded mb-2">
                                 <option value="+1 (###) ###-####">USA: +1 (###) ###-####</option>
@@ -257,7 +263,7 @@ const saveForm = () => {
                                 <option value="###-###-####">Custom: ###-###-####</option>
                                 <option value="FREE-NUMERIC">Any</option>
                             </select>
-                        </div>
+                        </div> -->
 
                         <div v-if="question.column_name !== 'events_location' && question.column_name !== 'email_address'
                         && question.column_name !== 'mobile_number' && question.column_name !== 'first_name' && question.column_name !== 'last_name'

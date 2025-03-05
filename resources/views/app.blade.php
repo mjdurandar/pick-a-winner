@@ -5,7 +5,7 @@
         <meta name="viewport" content="width=device-width, initial-scale=1">
 
         <title inertia>Pick a Winner</title>
-
+        <link rel="icon" href="https://s3-ap-southeast-2.amazonaws.com/yc.cldmlk.com/jrvyz6cav5m2kaq1mqmsb7ag7r/uploads/1710312954714_AdventureEntertainment_Logo_RGB_Black.png" type="image/x-icon"> 
         <!-- Fonts -->
         <link rel="preconnect" href="https://fonts.bunny.net">
         <link href="https://fonts.bunny.net/css?family=figtree:400,500,600&display=swap" rel="stylesheet" />

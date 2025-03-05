@@ -130,8 +130,8 @@ watchEffect(() => {
                             <h2 class="mt-2 mb-3 fw-bold" style="font-size: 20px;">{{ form.heading }}</h2>
                             <p class="mb-3">{{ form.event_description }}</p>
                             <p class="mb-2">
-                                <a :href="form.terms_link" target="_blank" class="text-decoration-none">Terms and Conditions</a> |
-                                <a :href="form.privacy_link" target="_blank" class="text-decoration-none">Privacy Policy</a>
+                                <a :href="form.terms_link" target="_blank" class="text-decoration-none" style="color: #0000EE;">Terms and Conditions</a> |
+                                <a :href="form.privacy_link" target="_blank" class="text-decoration-none" style="color: #0000EE;">Privacy Policy</a>
                             </p>
                         </div>
                     </div>

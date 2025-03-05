@@ -239,10 +239,16 @@ const saveForm = () => {
                             type="text" 
                             class="w-full border p-2 rounded mb-2 bg-gray-200" 
                             placeholder="Enter column name for new questions only"
+                            :disabled="question.column_name === 'events_location' || question.column_name === 'email_address'
+                            || question.column_name === 'mobile_number' || question.column_name === 'first_name' || question.column_name === 'last_name'
+                            || question.column_name === 'age' || question.column_name === 'gender' || question.column_name === 'street_address' || question.column_name === 'street_address_2' || question.column_name === 'city'
+                            || question.column_name === 'state' || question.column_name === 'zip_code' || question.column_name === 'country'"
                         />
 
                         <label class="font-medium">Type:</label>
-                        <select v-model="question.type" class="w-full border p-2 rounded mb-2">
+                        <select v-model="question.type" class="w-full border p-2 rounded mb-2" :disabled="question.column_name === 'events_location' || question.column_name === 'email_address'
+                            || question.column_name === 'mobile_number' || question.column_name === 'first_name' || question.column_name === 'last_name' || question.column_name === 'street_address' || question.column_name === 'street_address_2' || question.column_name === 'city'
+                            || question.column_name === 'state' || question.column_name === 'zip_code' || question.column_name === 'country'">
                             <option value="email">Email</option>
                             <option value="text">Text Input</option>
                             <option value="dropdown">Dropdown</option>
@@ -276,7 +282,7 @@ const saveForm = () => {
                         </div>
 
                         <!-- ✅ Number Format -->
-                        <div v-if="question.type === 'number'">
+                        <!-- <div v-if="question.type === 'number'">
                             <label class="font-medium">Number Format:</label>
                             <select v-model="question.format" class="w-full border p-2 rounded mb-2">
                                 <option value="+1 (###) ###-####">USA: +1 (###) ###-####</option>
@@ -284,11 +290,12 @@ const saveForm = () => {
                                 <option value="###-###-####">Custom: ###-###-####</option>
                                 <option value="FREE-NUMERIC">Any</option>
                             </select>
-                        </div>
+                        </div> -->
 
                         <div v-if="question.column_name !== 'events_location' && question.column_name !== 'email_address'
                         && question.column_name !== 'mobile_number' && question.column_name !== 'first_name' && question.column_name !== 'last_name'
-                        && question.column_name !== 'age' && question.column_name !== 'gender'">
+                        && question.column_name !== 'age' && question.column_name !== 'gender' && question.column_name !== 'street_address' && question.column_name !== 'street_address_2' && question.column_name !== 'city'
+                        && question.column_name !== 'state' && question.column_name !== 'zip_code' && question.column_name !== 'country'">
                             <button @click="removeQuestion(index)" class="bg-red-500 text-white px-3 py-1 rounded mt-2">Remove</button>
                         </div>
                     </div>
