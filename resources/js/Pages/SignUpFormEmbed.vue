@@ -167,11 +167,11 @@ watch(() => formValues.value['Country'], (newCountry) => {
                 <template v-if="question.type === 'number' && question.column_name === 'mobile_number'">
                     <div class="pb-3">
                         <input 
-                            v-model="formValues[question.column_name]" 
+                            v-model="formValues[question.text]" 
                             class="form-control"
                             required
                             :disabled="hasAddressFields && !formValues['Country']"
-                            @input="formatPhoneNumber(question.column_name, phoneFormats[formValues['Country']])"
+                            @input="formatPhoneNumber(question.text, phoneFormats[formValues['Country']])"
                         >
                     </div>
                 </template>

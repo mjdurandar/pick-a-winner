@@ -22,7 +22,7 @@ const defaultQuestions = ref([
     { text: 'State', type: 'text', column_name: 'state', options: [] },
     { text: 'Zip Code', type: 'text', column_name: 'zip_code', options: [] },
     { text: 'Country', type: 'dropdown', column_name: 'country', options: ['Australia', 'New Zealand', 'USA', 'Canada', 'Germany', 'United Kingdom', 'Europe'] },
-    { text: 'Mobile Number', type: 'number', column_name: 'mobile_number', options: [], format: '###-###-####'},
+    { text: 'Mobile Number', type: 'number', column_name: 'mobile_number', options: []},
     { text: 'Age', type: 'dropdown', column_name: 'age', options: ['Under 21', '22-44', '45+'] },
     { text: 'Gender', type: 'dropdown', column_name: 'gender', options: ['Female', 'Male', 'Nonbinary/Other'] },
     { text: 'Combined Household Income?', type: 'dropdown', column_name: 'household_income', options: ['>$150,000', '$100,000-$150,000', '$66,000-$99,000', '<$66,000', 'Prefer not to say'] },
