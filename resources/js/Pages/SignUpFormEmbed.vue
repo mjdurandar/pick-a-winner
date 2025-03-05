@@ -44,6 +44,12 @@ const submitForm = () => {
         Swal.fire('Error!', 'You must accept the Marketing Permission terms.', 'error');
         return;
     }
+
+    // 🚨 Check mobile number before submission
+    if (!isMobileNumberValid.value) {
+        Swal.fire('Error!', 'Please enter a valid mobile number.', 'error');
+        return;
+    }
     router.post(route('signup.storeEmbedded', { eventId: props.event.id }), { 
         ...formValues.value,
         marketing_permission: marketingPermission.value, // ✅ Include checkbox value in the request
@@ -61,6 +67,21 @@ const submitForm = () => {
         }
     });
 };
+
+// ✅ Computed property to check if the phone number is complete
+const isMobileNumberValid = computed(() => {
+    const country = formValues.value['Country'];
+    const format = phoneFormats[country];
+    const phoneNumber = formValues.value['Mobile Number'] || '';
+
+    if (!format || !phoneNumber) return false;
+
+    // Count how many digits are required in the format
+    const requiredDigits = (format.match(/#/g) || []).length;
+    const enteredDigits = phoneNumber.replace(/\D/g, '').length;
+
+    return enteredDigits === requiredDigits;
+});
 
 const formatPhoneNumber = (fieldName, format) => {
     if (!formValues.value[fieldName]) return;

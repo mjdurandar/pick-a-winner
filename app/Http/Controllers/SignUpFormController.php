@@ -62,9 +62,9 @@ class SignUpFormController extends Controller
                         break;
                     case 'number':
                         $table->string($columnName)->nullable(); // Store as string to maintain format
-                        if (isset($question['format'])) {
-                            $table->string($columnName . '_format')->nullable(); // Store number format separately
-                        }
+                        // if (isset($question['format'])) {
+                        //     $table->string($columnName . '_format')->nullable(); // Store number format separately
+                        // }
                         break;
                     case 'dropdown':
                         $table->string($columnName)->nullable();
@@ -151,9 +151,9 @@ class SignUpFormController extends Controller
                                 break;
                             case 'number':
                                 $table->string($question['column_name'])->nullable(); // Store as string for format
-                                if (isset($question['format'])) {
-                                    $table->string($question['column_name'] . '_format')->nullable(); // Store number format
-                                }
+                                // if (isset($question['format'])) {
+                                //     $table->string($question['column_name'] . '_format')->nullable(); // Store number format
+                                // }
                                 break;
                             case 'dropdown':
                                 $table->string($question['column_name'])->nullable();
