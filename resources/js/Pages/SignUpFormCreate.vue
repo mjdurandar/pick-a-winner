@@ -8,8 +8,8 @@ import { Head } from '@inertiajs/vue3';
 // ✅ Receive `events` as a prop
 const props = defineProps({ 
     events: Number,
-});
-
+}); 
+    
 // ✅ Default Questions with Column Names
 const defaultQuestions = ref([
     { text: 'Events Location', type: 'dropdown', column_name: 'events_location', options: ['Option 1', 'Option 2'], hiddenOptions: [] },

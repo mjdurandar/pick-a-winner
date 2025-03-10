@@ -221,6 +221,18 @@ class SignUpFormController extends Controller
     {   
         $form = SignUpForm::where('event_id', $eventId)->firstOrFail();
         $tableName = $form->table_name; // Ensure correct table
+        // Get Email Address from Request
+        $email = $request->input('Email Address'); // Make sure this matches the form input name
+ 
+        if ($email) {
+            $emailExists = DB::table($tableName)
+                ->where('email_address', $email)
+                ->exists();
+
+            if ($emailExists) {
+              return back()->withErrors(['email' => 'This email has already been submitted!']);
+            }
+        }
 
         // Ensure table exists before inserting
         if (!Schema::hasTable($tableName)) {

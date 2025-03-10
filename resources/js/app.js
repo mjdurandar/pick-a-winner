@@ -17,7 +17,16 @@ createInertiaApp({
             import.meta.glob('./Pages/**/*.vue'),
         ),
     setup({ el, App, props, plugin }) {
-        return createApp({ render: () => h(App, props) })
+        const app = createApp({ render: () => h(App, props) });
+        
+        // Add global error handler for session expiration
+        app.config.errorHandler = (error) => {
+            if (error.response && error.response.status === 419) {
+                window.location.href = '/login';
+            }
+        };
+        
+        return app
             .use(plugin)
             .use(ZiggyVue)
             .mount(el);

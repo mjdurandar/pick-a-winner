@@ -4,6 +4,7 @@ namespace App\Http\Middleware;
 
 use Illuminate\Http\Request;
 use Inertia\Middleware;
+use Illuminate\Support\Facades\Auth;
 
 class HandleInertiaRequests extends Middleware
 {
@@ -35,5 +36,20 @@ class HandleInertiaRequests extends Middleware
                 'user' => $request->user(),
             ],
         ];
+    }
+
+    /**
+     * Handle the incoming request.
+     */
+    public function handle(Request $request, \Closure $next)
+    {
+        if (!$request->user() && !$request->is(['login', 'register', 'forgot-password', 'reset-password/*', 'adventureentertainment/form/*'])) {
+            if ($request->header('X-Inertia')) {
+                return response()->json(['message' => 'Session expired'], 419);
+            }
+            return redirect()->route('login');
+        }
+
+        return parent::handle($request, $next);
     }
 }

@@ -62,8 +62,13 @@ const submitForm = () => {
             isSubmitted.value = true; // ✅ Show thank-you card
         },
         onError: (errors) => {
-            Swal.fire('Error!', 'Please fill all required fields.', 'error');
-            console.log(errors);
+          if(errors.email){
+            Swal.fire('Error!', errors.email, 'error');
+          }
+          else{
+            Swal.fire('Error!', 'An error occurred. Please try again.', 'error');
+            console.error(errors);
+          }
         }
     });
 };
