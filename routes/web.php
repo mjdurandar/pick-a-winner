@@ -22,6 +22,10 @@ Route::get('/', function () {
 Route::get('/adventureentertainment/form/{eventId}', [SignUpFormController::class, 'embed'])->name('signup.embed');
 Route::post('/adventureentertainment/form/{eventId}', [SignUpFormController::class, 'storeEmbeddedData'])->name('signup.storeEmbedded');
 
+// Location verification routes
+Route::get('/api/events/{event}/locations', [PickaWinnerController::class, 'getLocations']);
+Route::post('/picka-winner/verify', [PickaWinnerController::class, 'verify'])->name('picka-winner.verify');
+
 //SHARED ROUTES
 Route::middleware(['auth', RoleMiddleware::class . ':admin,host'])->group(function () {
     //events page

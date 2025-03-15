@@ -9,6 +9,7 @@ use App\Models\Location;
 use App\Models\Prize;
 use App\Models\SignUpForm;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Session;
 
 class PickaWinnerController extends Controller
 {
@@ -59,7 +60,7 @@ class PickaWinnerController extends Controller
         $event = Events::findOrFail($eventId);
         $prize = Prize::where('event_id', $eventId)->where('location_id', $locationId)->get();
         // ✅ Get the dynamic table name from the event
-        // ✅ Query the event’s signup form table for attendees from this location
+        // ✅ Query the event's signup form table for attendees from this location
         $attendees = DB::table($tableName)
         ->leftJoin('locations', "$tableName.location_id", '=', 'locations.id') // ✅ Join locations table
         ->select(
@@ -125,5 +126,52 @@ class PickaWinnerController extends Controller
             'prizes' => $prizes,
         ]);
     }
-    
+
+    public function getLocations(Events $event)
+    {     
+        return response()->json(
+            Location::where('event_id', $event->id)
+                ->select(['id', 'name'])
+                ->get()
+        );
+    }
+
+    public function verify(Request $request)
+    {
+        $validated = $request->validate([
+            'event_id' => 'required|exists:events,id',
+            'location_id' => 'required|exists:locations,id',
+            'password' => 'required|string',
+        ]);
+
+        $location = Location::where('id', $validated['location_id'])
+            ->where('event_id', $validated['event_id'])
+            ->first();
+
+        if (!$location) {
+            return back()->withErrors([
+                'password' => 'Invalid location selected.'
+            ]);
+        }
+
+        // Get the first word before the hyphen and convert to uppercase
+        $locationPassword = strtoupper(explode('-', $location->name)[0]);
+        $locationPassword = trim($locationPassword); // Remove any whitespace
+
+        // Check if password matches
+        if (strtoupper($validated['password']) !== $locationPassword) {
+            return back()->withErrors([
+                'password' => 'Invalid password. The password should be the location name before the hyphen in uppercase (e.g., MANILA for "MANILA - NORTH").'
+            ]);
+        }
+
+        // Store location access in session
+        Session::put('verified_location_id', $location->id);
+        Session::put('verified_event_id', $validated['event_id']);
+
+        return redirect()->route('pickawinner.locationpage', [
+            'location' => $validated['location_id'],
+            'event' => $validated['event_id']
+        ]);
+    }
 }
