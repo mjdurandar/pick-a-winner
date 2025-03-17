@@ -11,6 +11,21 @@ use App\Http\Controllers\PrizeController;
 use Illuminate\Support\Facades\Route;
 use Inertia\Inertia;
 use App\Http\Middleware\RoleMiddleware;
+
+// Public Pick a Winner Routes
+Route::get('/pickawinner', [PickaWinnerController::class, 'index'])->name('pickawinner.index');
+Route::get('/pickawinner/{eventId}', [PickaWinnerController::class, 'pickawinner'])->name('pickawinner.page');
+Route::get('/pickawinner/show/{location}/{event}', [PickaWinnerController::class, 'pickawinnerlocationpage'])->name('pickawinner.locationpage');
+Route::get('/pickawinner/alllocation/{event}', [PickaWinnerController::class, 'alllocation'])->name('pickawinner.alllocation');
+Route::get('/api/events/{event}/locations', [PickaWinnerController::class, 'getLocations']);
+Route::post('/picka-winner/verify', [PickaWinnerController::class, 'verify'])->name('picka-winner.verify');
+
+// Prize Management Routes (no auth required)
+Route::patch('/prize/{prize}', [PrizeController::class, 'update'])->name('prize.update');
+Route::post('/prize', [PrizeController::class, 'addPrize'])->name('prize.store');
+Route::delete('/prize/{prize}', [PrizeController::class, 'destroy'])->name('prize.destroy');
+Route::post('/prize/winner/{prize}', [PrizeController::class, 'addWinner'])->name('prize.assignWinner');
+
 Route::get('/logs', function () {
     return file_get_contents(storage_path('logs/laravel.log'));
 });
@@ -22,25 +37,10 @@ Route::get('/', function () {
 Route::get('/adventureentertainment/form/{eventId}', [SignUpFormController::class, 'embed'])->name('signup.embed');
 Route::post('/adventureentertainment/form/{eventId}', [SignUpFormController::class, 'storeEmbeddedData'])->name('signup.storeEmbedded');
 
-// Location verification routes
-Route::get('/api/events/{event}/locations', [PickaWinnerController::class, 'getLocations']);
-Route::post('/picka-winner/verify', [PickaWinnerController::class, 'verify'])->name('picka-winner.verify');
-
 //SHARED ROUTES
 Route::middleware(['auth', RoleMiddleware::class . ':admin,host'])->group(function () {
     //events page
     Route::get('/events', [EventsController::class, 'index'])->name('events.index');
-    // PICK A WINNER ALL LOCATION ROUTES
-    Route::get('/pickawinner/alllocation/{event}', [PickaWinnerController::class, 'alllocation'])->name('pickawinner.alllocation');
-    //PICK A WINNER ROUTES
-    Route::get('/pickawinner', [PickaWinnerController::class, 'index'])->name('pickawinner.index');
-    Route::get('/pickawinner/{eventId}', [PickaWinnerController::class, 'pickawinner'])->name('pickawinner.page');
-    Route::get('/pickawinner/show/{location}/{event}', [PickaWinnerController::class, 'pickawinnerlocationpage'])->name('pickawinner.locationpage');
-    //PRIZE ROUTES
-    Route::patch('/prize/{prize}', [PrizeController::class, 'update'])->name('prize.update');
-    Route::post('/prize', [PrizeController::class, 'addPrize'])->name('prize.store');
-    Route::delete('/prize/{prize}', [PrizeController::class, 'destroy'])->name('prize.destroy');
-    Route::post('/prize/winner/{prize}', [PrizeController::class, 'addWinner'])->name('prize.assignWinner');
 
     //ATTENDEES ROUTES
     Route::get('/attendees/{eventId}', [AttendeesController::class, 'index'])->name('attendees.index');

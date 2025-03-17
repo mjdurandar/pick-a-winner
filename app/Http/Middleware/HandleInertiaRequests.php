@@ -44,7 +44,19 @@ class HandleInertiaRequests extends Middleware
      */
     public function handle(Request $request, \Closure $next)
     {
-        if (!$request->user() && !$request->is(['login', 'register', 'forgot-password', 'reset-password/*', 'adventureentertainment/form/*'])) {
+        if (!$request->user() && !$request->is([
+            'login', 
+            'register', 
+            'forgot-password', 
+            'reset-password/*', 
+            'adventureentertainment/form/*',
+            'pickawinner',
+            'pickawinner/*',
+            'api/events/*/locations',
+            'picka-winner/verify',
+            'prize/*',
+            'prize'
+        ])) {
             if ($request->header('X-Inertia')) {
                 return Inertia::location(route('login'));
             }

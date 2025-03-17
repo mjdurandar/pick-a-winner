@@ -1,6 +1,6 @@
 <script setup>
 import { ref, computed } from 'vue';
-import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout.vue';
+import PickaWinnerLayout from '@/Layouts/PickaWinnerLayout.vue';
 import { Head } from '@inertiajs/vue3';
 import { router } from '@inertiajs/vue3';
 
@@ -17,7 +17,7 @@ const copiedIndex = ref(null); // ✅ Index of copied location link
 // ✅ Computed Property to Filter Locations
 const filteredLocations = computed(() => {
     if (!searchQuery.value) {
-        return props.locations; // ✅ Use props.locations instead of just locations
+        return props.locations;
     }
     return props.locations.filter(location =>
         location.name.toLowerCase().includes(searchQuery.value.toLowerCase())
@@ -49,19 +49,13 @@ const allLocationsPage = () => {
 <template>
     <Head title="Pick a Winner Page" />
 
-    <AuthenticatedLayout>
-        <template #header>
-            <h2 class="text-xl font-semibold leading-tight text-gray-800">
-                Pick a Winner for {{ event.event_name }}
-            </h2>
-        </template>
-
+    <PickaWinnerLayout>
         <div class="p-4">
             <div class="mx-auto max-w-3xl">
                 <div class="overflow-hidden bg-white shadow-sm sm:rounded-lg">
                     <div class="p-6 text-gray-900 text-center">
                         <div class="d-flex justify-content-between items-center mb-4">
-                            <h3 class="text-lg font-semibold mb-4">Please select a Location</h3>
+                            <h3 class="text-lg font-semibold mb-4">Pick a Winner for {{ event.event_name }}</h3>
                             <button class="btn btn-primary" @click="allLocationsPage()">All Locations</button>
                         </div>
                         <!-- ✅ Search Bar -->
@@ -106,5 +100,5 @@ const allLocationsPage = () => {
                 </div>
             </div>
         </div>
-    </AuthenticatedLayout>
+    </PickaWinnerLayout>
 </template>
