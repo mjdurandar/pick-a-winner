@@ -23,6 +23,7 @@ Route::post('/picka-winner/verify', [PickaWinnerController::class, 'verify'])->n
 // Prize Management Routes (no auth required)
 Route::patch('/prize/{prize}', [PrizeController::class, 'update'])->name('prize.update');
 Route::post('/prize', [PrizeController::class, 'addPrize'])->name('prize.store');
+Route::post('/prize/multiple', [PrizeController::class, 'storeMultiple'])->name('prize.storeMultiple');
 Route::delete('/prize/{prize}', [PrizeController::class, 'destroy'])->name('prize.destroy');
 Route::post('/prize/winner/{prize}', [PrizeController::class, 'addWinner'])->name('prize.assignWinner');
 

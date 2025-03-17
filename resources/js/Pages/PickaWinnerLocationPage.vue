@@ -1,6 +1,6 @@
 <script setup>
 import Swal from 'sweetalert2';
-import { ref, computed, onMounted, onUnmounted } from 'vue';
+import { ref, computed, onMounted, onUnmounted, watch } from 'vue';
 import { useForm, router } from '@inertiajs/vue3';
 import PickaWinnerLayout from '@/Layouts/PickaWinnerLayout.vue';
 import { Head } from '@inertiajs/vue3';
@@ -45,6 +45,52 @@ const form = useForm({
     location_id: '',
     prize_name: '',
 });
+
+// Add new refs for prize creation
+const showPrizeQuantityModal = ref(false);
+const prizeQuantity = ref(1);
+const prizeNames = ref([]);
+const hasPrizes = computed(() => props.prizes.length > 0);
+
+// Function to initialize prize names array
+const initializePrizeNames = () => {
+    prizeNames.value = Array(prizeQuantity.value).fill('');
+};
+
+// Function to handle quantity change
+const handleQuantityChange = () => {
+    if (prizeQuantity.value < 1) prizeQuantity.value = 1;
+    initializePrizeNames();
+};
+
+// Function to save multiple prizes
+const saveMultiplePrizes = () => {
+    if (prizeNames.value.some(name => !name.trim())) {
+        Swal.fire('Error', 'All prize names must be filled!', 'error');
+        return;
+    }
+
+    // Create a single request with all prizes
+    const data = new FormData();
+    data.append('prizes', JSON.stringify(prizeNames.value));
+    data.append('event_id', props.event.id);
+    data.append('location_id', props.location.id);
+
+    router.post(route('prize.storeMultiple'), data, {
+        onSuccess: () => {
+            let modalElement = bootstrap.Modal.getInstance(document.getElementById('prizeQuantityModal'));
+            modalElement.hide();
+            Swal.fire('Success!', `All ${prizeNames.value.length} prizes have been created.`, 'success');
+            showPrizeQuantityModal.value = false;
+            prizeQuantity.value = 1;
+            prizeNames.value = [];
+        },
+        onError: (errors) => {
+            console.error('Error creating prizes:', errors);
+            Swal.fire('Error!', 'There was an issue creating the prizes.', 'error');
+        }
+    });
+};
 
 // ✅ Define Props (Expecting location, event & attendees list)
 const props = defineProps({
@@ -115,6 +161,13 @@ const fetchAttendees = () => {
 
 onMounted(() => {
     pollingInterval = setInterval(fetchAttendees, 5000); // ✅ Fetch attendees every 5 seconds
+    
+    // Check if there are no prizes and show the modal
+    if (props.prizes.length === 0) {
+        showPrizeQuantityModal.value = true;
+        let modalElement = new bootstrap.Modal(document.getElementById('prizeQuantityModal'));
+        modalElement.show();
+    }
 });
 
 onUnmounted(() => {
@@ -459,6 +512,44 @@ const eligibleAttendees = computed(() => {
                                     </button>
                                 </div>
                             </form>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Add new Prize Quantity Modal -->
+            <div class="modal fade" id="prizeQuantityModal" tabindex="-1" aria-labelledby="prizeQuantityModalLabel" data-bs-backdrop="static" data-bs-keyboard="false">
+                <div class="modal-dialog">
+                    <div class="modal-content">
+                        <div class="modal-header">
+                            <h5 class="modal-title">Create Prizes</h5>
+                        </div>
+                        <div class="modal-body">
+                            <div class="mb-3">
+                                <label class="form-label">Number of Prizes</label>
+                                <input 
+                                    type="number" 
+                                    v-model="prizeQuantity" 
+                                    min="1" 
+                                    class="form-control" 
+                                    @change="handleQuantityChange"
+                                />
+                            </div>
+                            
+                            <div v-for="(name, index) in prizeNames" :key="index" class="mb-3">
+                                <label class="form-label">Prize {{ index + 1 }}</label>
+                                <input 
+                                    type="text" 
+                                    v-model="prizeNames[index]" 
+                                    class="form-control" 
+                                    required
+                                />
+                            </div>
+                        </div>
+                        <div class="modal-footer">
+                            <button type="button" class="btn btn-success" @click="saveMultiplePrizes">
+                                Save All Prizes
+                            </button>
                         </div>
                     </div>
                 </div>

@@ -56,4 +56,32 @@ class PrizeController extends Controller
         return redirect()->back()->with('success', 'Prize deleted successfully.');
     }
 
+    public function storeMultiple(Request $request)
+    {
+        $request->validate([
+            'prizes' => 'required|string',
+            'event_id' => 'required|exists:events,id',
+            'location_id' => 'required|exists:locations,id',
+        ]);
+
+        $prizes = json_decode($request->prizes, true);
+        
+        if (!is_array($prizes)) {
+            return back()->withErrors(['prizes' => 'Invalid prizes data']);
+        }
+
+        $createdPrizes = [];
+        foreach ($prizes as $prizeName) {
+            $prize = Prize::create([
+                'event_id' => $request->event_id,
+                'location_id' => $request->location_id,
+                'prize_name' => $prizeName,
+                'winner' => "No Winner Yet",
+            ]);
+            $createdPrizes[] = $prize;
+        }
+
+        return back()->with('success', count($createdPrizes) . ' prizes created successfully');
+    }
+
 }
