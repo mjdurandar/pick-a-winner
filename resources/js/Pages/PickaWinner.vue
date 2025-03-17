@@ -126,7 +126,7 @@ watch(() => form.event_id, () => {
         <!-- Selection Modal -->
         <div class="flex items-center justify-center min-h-screen">
             <div class="bg-white p-8 rounded-lg shadow-lg w-full max-w-md">
-                <h2 class="text-2xl font-bold text-center mb-6">Pick a Winner Selection</h2>
+                <h2 class="text-2xl font-bold text-center mb-6">Pick a Winner</h2>
                 
                 <form @submit.prevent="handleSubmit">
                     <div class="mb-4">
@@ -158,7 +158,7 @@ watch(() => form.event_id, () => {
                                 @change="form.is_all_locations = !form.is_all_locations; toggleAllLocations()"
                                 class="form-checkbox h-4 w-4 text-blue-500 cursor-pointer"
                             >
-                            <span class="ml-2 text-gray-700">Show all locations</span>
+                            <span class="ml-2 text-gray-700">All locations?</span>
                         </label>
                     </div>
 

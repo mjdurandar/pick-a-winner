@@ -313,7 +313,7 @@ const eligibleAttendees = computed(() => {
                             <div class="mt-3 overflow-x-auto">
                                 <table class="min-w-full border-collapse border border-gray-300">
                                     <thead>
-                                        <tr class="bg-green-200">
+                                        <tr class="bg-green-400">
                                             <th class="border border-gray-300 p-2">Prizes</th>
                                             <th class="border border-gray-300 p-2">Name</th>
                                             <th class="border border-gray-300 p-2">Email</th>
@@ -322,7 +322,8 @@ const eligibleAttendees = computed(() => {
                                         </tr>
                                     </thead>
                                     <tbody>
-                                        <tr v-for="(prize, index) in prizes" :key="index" class="text-left">
+                                        <tr v-for="(prize, index) in prizes" :key="index" class="text-left" 
+                                        :class="{'bg-green-200': prize.winner_email}">
                                             <td class="border border-gray-300 p-2">{{ prize.prize_name }}</td>
                                             <td class="border border-gray-300 p-2">{{ prize.winner }}</td>
                                             <td class="border border-gray-300 p-2">{{ prize.winner_email || 'No Winner Yet' }}</td>
