@@ -140,9 +140,25 @@ class PickaWinnerController extends Controller
     {
         $validated = $request->validate([
             'event_id' => 'required|exists:events,id',
-            'location_id' => 'required|exists:locations,id',
+            'location_id' => 'required_unless:is_all_locations,true|exists:locations,id',
             'password' => 'required|string',
+            'is_all_locations' => 'boolean'
         ]);
+
+        if ($validated['is_all_locations'] ?? false) {
+            $event = Events::findOrFail($validated['event_id']);
+            
+            // For all locations, password should match event name
+            if (strtoupper($validated['password']) !== strtoupper($event->event_name)) {
+                return back()->withErrors([
+                    'password' => 'Invalid password. For all locations, use the event name as password.'
+                ]);
+            }
+
+            return redirect()->route('pickawinner.alllocation', [
+                'event' => $validated['event_id']
+            ]);
+        }
 
         $location = Location::where('id', $validated['location_id'])
             ->where('event_id', $validated['event_id'])
@@ -161,7 +177,7 @@ class PickaWinnerController extends Controller
         // Check if password matches
         if (strtoupper($validated['password']) !== $locationPassword) {
             return back()->withErrors([
-                'password' => 'Invalid password. The password should be the location name before the hyphen in uppercase (e.g., MANILA for "MANILA - NORTH").'
+                'password' => 'Invalid password.'
             ]);
         }
 

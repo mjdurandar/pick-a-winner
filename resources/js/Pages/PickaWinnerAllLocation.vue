@@ -2,7 +2,7 @@
 import Swal from 'sweetalert2';
 import { ref, computed } from 'vue';
 import { useForm, router } from '@inertiajs/vue3';
-import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout.vue';
+import PickaWinnerLayout from '@/Layouts/PickaWinnerLayout.vue';
 import { Head } from '@inertiajs/vue3';
 
 // Track if we are editing an event
@@ -213,174 +213,174 @@ const eligibleAttendees = computed(() => {
 <template>
     <Head title="Pick a Winner All Location Page" />
 
-    <AuthenticatedLayout>
-        <template #header>
-            <h2 class="text-xl font-semibold leading-tight text-gray-800">
-                Pick a Winner for {{ event.event_name }} <!-- ✅ Display Location & Event Name -->
+    <PickaWinnerLayout>
+        <div class="p-6">
+            <h2 class="text-2xl font-bold mb-6 text-center">
+                Pick a Winner for {{ event.event_name }}
             </h2>
-        </template>
-        <!-- ✅ Prizes Button -->
-        <div class="mt-3 p-2">
-            <div class="mx-auto max-w-7xl sm:px-6 lg:px-8">
-                <div class="overflow-hidden bg-white shadow-sm sm:rounded-lg">
-                    <div class="p-6 text-gray-900">
-                        <div class="d-flex justify-content-end">
-                            <button 
-                                class="bg-green-500 text-white px-4 py-2 rounded hover:bg-green-700"
-                                @click="openAddPrizeModal()"
-                            >
-                                Add Prizes
-                            </button>
-                        </div>
-                        
-                        <div class="mt-3 overflow-x-auto">
-                            <table class="min-w-full border-collapse border border-gray-300">
-                                <thead>
-                                    <tr class="bg-green-200">
-                                        <th class="border border-gray-300 p-2">Prizes</th>
-                                        <th class="border border-gray-300 p-2">Name</th>
-                                        <th class="border border-gray-300 p-2">Email</th>
-                                        <th class="border border-gray-300 p-2">Mobile Number</th>
-                                        <th class="border border-gray-300 p-2">Actions</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    <tr v-for="(prize, index) in prizes" :key="index" class="text-left">
-                                        <td class="border border-gray-300 p-2">{{ prize.prize_name }}</td>
-                                        <td class="border border-gray-300 p-2">{{ prize.winner }}</td>
-                                        <td class="border border-gray-300 p-2">{{ prize.winner_email || 'No Winner Yet' }}</td>
-                                        <td class="border border-gray-300 p-2">{{ prize.winner_mobile_number || 'No Winner Yet' }}</td>
-                                        <td class="border border-gray-300 p-2 flex flex-col md:flex-row gap-2 justify-center">
-                                            <a class="btn btn-success" @click="openPickWinnerModal(prize)">Pick a Winner</a>
-                                            <a class="btn btn-primary" @click="openEditModal(prize)"><i class="fa-solid fa-pen-to-square"></i></a>
-                                            <a class="btn btn-danger" @click="destroy(prize.id)"><i class="fa-solid fa-trash"></i></a>
-                                        </td>
-                                    </tr>
-                                </tbody>
-                            </table>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
-        <!-- ✅ Attendees Table -->
-        <div class="p-2 pb-5">
-            <div class="mx-auto max-w-7xl sm:px-6 lg:px-8">
-                <div class="overflow-hidden bg-white shadow-sm sm:rounded-lg">
-                    <div class="p-6 text-gray-900">
-                        <div class="d-flex justify-content-between">
-                            <h3 class="text-lg font-semibold mb-4">Attendees at {{ event.event_name }}</h3>
-                            <!-- ✅ Search Bar -->
-                            <div class="mb-3">
-                                <input
-                                    v-model="searchQuery"
-                                    type="text"
-                                    placeholder="Search attendees..."
-                                    class="w-full p-2 border rounded"
-                                />
-                            </div>
-                        </div>
-                        <!-- ✅ Attendees Table -->
-                         <div class="overflow-x-auto">
-                            <table class="w-full border-collapse border border-gray-300 ">
-                            <thead>
-                                <tr class="bg-gray-200">
-                                    <th class="border border-gray-300 p-2">Name</th>
-                                    <th class="border border-gray-300 p-2">Email</th>
-                                    <th class="border border-gray-300 p-2">Gender</th>
-                                    <th class="border border-gray-300 p-2">Mobile Number</th>
-                                    <th class="border border-gray-300 p-2">Location</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                <tr v-for="(attendee, index) in filteredAttendees" :key="index" class="text-left">
-                                    <td class="border border-gray-300 p-2">{{ attendee.first_name }} {{ attendee.last_name }}</td>
-                                    <td class="border border-gray-300 p-2">{{ attendee.email_address }}</td>
-                                    <td class="border border-gray-300 p-2">{{ attendee.gender }}</td>
-                                    <td class="border border-gray-300 p-2">{{ attendee.mobile_number }}</td>
-                                    <td class="border border-gray-300 p-2">{{ attendee.location_name }}</td>
-                                </tr>
-                            </tbody>
-                        </table>
-                         </div>
-                        <!-- ✅ If No Attendees Found -->
-                        <!-- <div v-if="filteredAttendees.length === 0" class="text-gray-600 text-center mt-4">
-                            No matching attendees found.
-                        </div> -->
-                        <!-- ✅ If No Attendees Found -->
-                        <div v-if="attendees.length === 0" class="text-gray-600 text-center mt-4">
-                            No attendees have registered for this Events.
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
-
-        <!-- Pick Winner Modal -->
-        <div class="modal fade" id="pickWinnerModal" tabindex="-1" aria-labelledby="pickWinnerModalLabel" 
-            data-bs-backdrop="static" data-bs-keyboard="false">
-            <div class="modal-dialog">
-                <div class="modal-content">
-                    <div class="modal-header">
-                        <h5 class="modal-title">🎉 Picking a Winner 🎉</h5>
-                        <!-- <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close" v-if="!isPicking"></button> -->
-                    </div>
-                    <div class="modal-body text-center">
-                        <h3 class="text-xl font-bold text-green-600">
-                            <template v-if="isPicking">
-                                🔄 Searching...
-                            </template>
-                            <template v-else>
-                                🎉 Winner Selected! 🎉
-                            </template>
-                        </h3>
-
-                        <div class="text-2xl font-bold text-blue-500 mt-3">
-                            <span v-if="isPicking" class="animate-pulse">{{ winnerDisplay }}</span>
-                            <span v-else class="text-green-500">{{ winnerDisplay }}</span>
-                        </div>
-
-                        <template v-if="selectedWinner && !isPicking">
-                            <p class="mt-3"><strong>Name:</strong> {{ selectedWinner.first_name }} {{ selectedWinner.last_name }}</p>
-                            <p><strong>Email:</strong> {{ selectedWinner.email_address }}</p>
-                            <p><strong>Phone:</strong> {{ selectedWinner.mobile_number }}</p>
-                        </template>
-                    </div>
-                    <div class="modal-footer">
-                        <button type="button" class="btn btn-secondary" v-if="!isPicking" @click="confirmCancel()">Cancel</button>
-                        <button type="button" class="btn btn-success" v-if="!isPicking" @click="confirmWinner()">
-                            Confirm Winner
-                        </button>
-                    </div>
-                </div>
-            </div>
-        </div>
-
-        <!-- Bootstrap Modal for Create/Edit -->
-        <div class="modal fade" id="createPrizeModal" tabindex="-1" aria-labelledby="createPrizeModalLabel">
-            <div class="modal-dialog">
-                <div class="modal-content">
-                    <div class="modal-header">
-                        <h5 class="modal-title" id="createPrizeModalLabel">{{ isEditing ? 'Edit Prize' : 'Create Prize' }}</h5>
-                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
-                    </div>
-                    <div class="modal-body">
-                        <form @submit.prevent="savePrize">
-                            <div class="mb-3">
-                                <label class="form-label">Prize</label>
-                                <input v-model="form.prize_name" type="text" class="form-control" required />
-                            </div>
-
-                            <div class="modal-footer">
-                                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                                <button type="submit" class="btn btn-success">
-                                    {{ isEditing ? 'Update Prize' : 'Save Prize' }}
+            <!-- Prizes Section -->
+            <div class="mt-3 p-2">
+                <div class="mx-auto max-w-7xl sm:px-6 lg:px-8">
+                    <div class="overflow-hidden bg-white shadow-sm sm:rounded-lg">
+                        <div class="p-6 text-gray-900">
+                            <div class="d-flex justify-content-between">
+                                <div class="flex items-center space-x-2">
+                                    <!-- We'll keep the checkbox hidden for all locations page -->
+                                </div>
+                                <button 
+                                    class="bg-green-500 text-white px-4 py-2 rounded hover:bg-green-700"
+                                    @click="openAddPrizeModal()"
+                                >
+                                    Add Prizes
                                 </button>
                             </div>
-                        </form>
+                            
+                            <div class="mt-3 overflow-x-auto">
+                                <table class="min-w-full border-collapse border border-gray-300">
+                                    <thead>
+                                        <tr class="bg-green-200">
+                                            <th class="border border-gray-300 p-2">Prizes</th>
+                                            <th class="border border-gray-300 p-2">Name</th>
+                                            <th class="border border-gray-300 p-2">Email</th>
+                                            <th class="border border-gray-300 p-2">Mobile Number</th>
+                                            <th class="border border-gray-300 p-2">Actions</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        <tr v-for="(prize, index) in prizes" :key="index" class="text-left">
+                                            <td class="border border-gray-300 p-2">{{ prize.prize_name }}</td>
+                                            <td class="border border-gray-300 p-2">{{ prize.winner }}</td>
+                                            <td class="border border-gray-300 p-2">{{ prize.winner_email || 'No Winner Yet' }}</td>
+                                            <td class="border border-gray-300 p-2">{{ prize.winner_mobile_number || 'No Winner Yet' }}</td>
+                                            <td class="border border-gray-300 p-2 flex flex-col md:flex-row gap-2 justify-center">
+                                                <a class="btn btn-success" @click="openPickWinnerModal(prize)">Pick a Winner</a>
+                                                <a class="btn btn-primary" @click="openEditModal(prize)"><i class="fa-solid fa-pen-to-square"></i></a>
+                                                <a class="btn btn-danger" @click="destroy(prize.id)"><i class="fa-solid fa-trash"></i></a>
+                                            </td>
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Attendees Table -->
+            <div class="p-2 pb-5">
+                <div class="mx-auto max-w-7xl sm:px-6 lg:px-8">
+                    <div class="overflow-hidden bg-white shadow-sm sm:rounded-lg">
+                        <div class="p-6 text-gray-900">
+                            <div class="d-flex justify-content-between">
+                                <h3 class="text-lg font-semibold mb-4">Attendees at {{ event.event_name }}</h3>
+                                <div class="flex items-center space-x-2">
+                                    <div class="mb-3">
+                                        <input
+                                            v-model="searchQuery"
+                                            type="text"
+                                            placeholder="Search attendees..."
+                                            class="w-full p-2 border rounded"
+                                        />
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="overflow-x-auto">
+                                <table class="w-full border-collapse border border-gray-300">
+                                    <thead>
+                                        <tr class="bg-gray-200">
+                                            <th class="border border-gray-300 p-2">Name</th>
+                                            <th class="border border-gray-300 p-2">Email</th>
+                                            <th class="border border-gray-300 p-2">Gender</th>
+                                            <th class="border border-gray-300 p-2">Mobile Number</th>
+                                            <th class="border border-gray-300 p-2">Event Location</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        <tr v-for="(attendee, index) in filteredAttendees" :key="index" class="text-left">
+                                            <td class="border border-gray-300 p-2">{{ attendee.first_name }} {{ attendee.last_name }}</td>
+                                            <td class="border border-gray-300 p-2">{{ attendee.email_address }}</td>
+                                            <td class="border border-gray-300 p-2">{{ attendee.gender }}</td>
+                                            <td class="border border-gray-300 p-2">{{ attendee.mobile_number }}</td>
+                                            <td class="border border-gray-300 p-2">{{ attendee.location_name }}</td>
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
+
+                            <div v-if="attendees.length === 0" class="text-gray-600 text-center mt-4">
+                                No attendees have registered for this event.
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Pick Winner Modal -->
+            <div class="modal fade" id="pickWinnerModal" tabindex="-1" aria-labelledby="pickWinnerModalLabel" 
+                data-bs-backdrop="static" data-bs-keyboard="false">
+                <div class="modal-dialog">
+                    <div class="modal-content">
+                        <div class="modal-header">
+                            <h5 class="modal-title">🎉 Picking a Winner 🎉</h5>
+                        </div>
+                        <div class="modal-body text-center">
+                            <h3 class="text-xl font-bold text-green-600">
+                                <template v-if="isPicking">
+                                    🔄 Searching...
+                                </template>
+                                <template v-else>
+                                    🎉 Winner Selected! 🎉
+                                </template>
+                            </h3>
+
+                            <div class="text-2xl font-bold text-blue-500 mt-3">
+                                <span v-if="isPicking" class="animate-pulse">{{ winnerDisplay }}</span>
+                                <span v-else class="text-green-500">{{ winnerDisplay }}</span>
+                            </div>
+
+                            <template v-if="selectedWinner && !isPicking">
+                                <p class="mt-3"><strong>Name:</strong> {{ selectedWinner.first_name }} {{ selectedWinner.last_name }}</p>
+                                <p><strong>Email:</strong> {{ selectedWinner.email_address }}</p>
+                                <p><strong>Phone:</strong> {{ selectedWinner.mobile_number }}</p>
+                            </template>
+                        </div>
+                        <div class="modal-footer">
+                            <button type="button" class="btn btn-secondary" v-if="!isPicking" @click="confirmCancel()">Cancel</button>
+                            <button type="button" class="btn btn-success" v-if="!isPicking" @click="confirmWinner()">
+                                Confirm Winner
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Bootstrap Modal for Create/Edit -->
+            <div class="modal fade" id="createPrizeModal" tabindex="-1" aria-labelledby="createPrizeModalLabel">
+                <div class="modal-dialog">
+                    <div class="modal-content">
+                        <div class="modal-header">
+                            <h5 class="modal-title" id="createPrizeModalLabel">{{ isEditing ? 'Edit Prize' : 'Create Prize' }}</h5>
+                            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                        </div>
+                        <div class="modal-body">
+                            <form @submit.prevent="savePrize">
+                                <div class="mb-3">
+                                    <label class="form-label">Prize</label>
+                                    <input v-model="form.prize_name" type="text" class="form-control" required />
+                                </div>
+
+                                <div class="modal-footer">
+                                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                                    <button type="submit" class="btn btn-success">
+                                        {{ isEditing ? 'Update Prize' : 'Save Prize' }}
+                                    </button>
+                                </div>
+                            </form>
+                        </div>
                     </div>
                 </div>
             </div>
         </div>
-    </AuthenticatedLayout>
+    </PickaWinnerLayout>
 </template>

@@ -1,6 +1,6 @@
 <script setup>
 import Swal from 'sweetalert2';
-import { ref, onMounted, computed } from 'vue';
+import { ref, onMounted, computed, watch } from 'vue';
 import { useForm, router } from '@inertiajs/vue3';
 import PickaWinnerLayout from '@/Layouts/PickaWinnerLayout.vue';
 import { Head } from '@inertiajs/vue3';
@@ -16,7 +16,8 @@ const locations = ref([]);
 const form = useForm({
     event_id: '',
     location_id: '',
-    password: ''
+    password: '',
+    is_all_locations: false
 });
 
 // Get the selected location object
@@ -24,8 +25,12 @@ const selectedLocation = computed(() => {
     return locations.value.find(loc => loc.id === form.location_id);
 });
 
-// Get the password hint (first word before hyphen)
-const getLocationPassword = computed(() => {
+// Get the password hint based on selection
+const getPasswordHint = computed(() => {
+    if (form.is_all_locations) {
+        const selectedEvent = props.events.find(e => e.id === form.event_id);
+        return selectedEvent ? selectedEvent.event_name.toUpperCase() : '';
+    }
     if (!selectedLocation.value) return '';
     const firstWord = selectedLocation.value.name.split('-')[0];
     return firstWord.trim().toUpperCase();
@@ -33,6 +38,12 @@ const getLocationPassword = computed(() => {
 
 const loadLocations = async () => {
     if (!form.event_id) {
+        locations.value = [];
+        form.location_id = '';
+        return;
+    }
+    
+    if (form.is_all_locations) {
         locations.value = [];
         form.location_id = '';
         return;
@@ -48,11 +59,30 @@ const loadLocations = async () => {
 };
 
 const handleSubmit = () => {
+    // Handle all locations case
+    if (form.is_all_locations) {
+        const selectedEvent = props.events.find(e => e.id === form.event_id);
+        if (!selectedEvent) return;
+
+        // Check if password matches event name
+        if (form.password.toUpperCase() === selectedEvent.event_name.toUpperCase()) {
+            // Redirect to all locations page for the selected event
+            router.visit(route('pickawinner.alllocation', selectedEvent.id));
+            return;
+        }
+        
+        // Show error if password doesn't match
+        Swal.fire({
+            icon: 'error',
+            title: 'Invalid Password',
+            text: 'The password must match the event name.',
+        });
+        return;
+    }
+
+    // Handle single location case
     form.post(route('picka-winner.verify'), {
         preserveScroll: true,
-        onSuccess: () => {
-            // The redirect will be handled automatically by Inertia
-        },
         onError: () => {
             Swal.fire({
                 icon: 'error',
@@ -62,6 +92,31 @@ const handleSubmit = () => {
         }
     });
 };
+
+const toggleAllLocations = () => {
+    // Set the form state first
+    if (!form.is_all_locations) {
+        // If we're checking the box
+        const selectedEvent = props.events.find(e => e.id === form.event_id);
+        if (selectedEvent) {
+            form.password = selectedEvent.event_name.toUpperCase();
+        }
+    } else {
+        // If we're unchecking the box
+        form.password = '';
+    }
+    
+    form.location_id = '';
+    loadLocations();
+};
+
+// Watch for event changes
+watch(() => form.event_id, () => {
+    form.is_all_locations = false;
+    form.location_id = '';
+    form.password = '';
+    loadLocations();
+});
 </script>
 
 <template>
@@ -82,7 +137,7 @@ const handleSubmit = () => {
                             id="event"
                             v-model="form.event_id"
                             class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                            @change="loadLocations"
+                            required
                         >
                             <option value="">Select an event</option>
                             <option v-for="event in events" :key="event.id" :value="event.id">
@@ -94,7 +149,20 @@ const handleSubmit = () => {
                         </div>
                     </div>
 
-                    <div class="mb-4">
+                    <!-- All Locations Checkbox -->
+                    <div v-if="form.event_id" class="mb-4">
+                        <label class="flex items-center cursor-pointer">
+                            <input
+                                type="checkbox"
+                                :checked="form.is_all_locations"
+                                @change="form.is_all_locations = !form.is_all_locations; toggleAllLocations()"
+                                class="form-checkbox h-4 w-4 text-blue-500 cursor-pointer"
+                            >
+                            <span class="ml-2 text-gray-700">Show all locations</span>
+                        </label>
+                    </div>
+
+                    <div v-if="!form.is_all_locations" class="mb-4">
                         <label class="block text-gray-700 text-sm font-bold mb-2" for="location">
                             Select Location
                         </label>
@@ -103,6 +171,7 @@ const handleSubmit = () => {
                             v-model="form.location_id"
                             class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
                             :disabled="!form.event_id"
+                            :required="!form.is_all_locations"
                         >
                             <option value="">Select a location</option>
                             <option v-for="location in locations" :key="location.id" :value="location.id">
@@ -123,14 +192,17 @@ const handleSubmit = () => {
                             type="password"
                             v-model="form.password"
                             class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                            placeholder="Enter location password"
+                            :placeholder="form.is_all_locations ? 'Enter event name as password' : 'Enter location password'"
                             @input="form.password = form.password.toUpperCase()"
+                            required
                         />
-                        <p class="text-gray-600 text-sm mt-1" v-if="!selectedLocation">
-                            Password is the location name before the hyphen in UPPERCASE
-                        </p>
-                        <p class="text-gray-600 text-sm mt-1" v-else>
-                            For "{{ selectedLocation.name }}", the password would be "{{ getLocationPassword }}"
+                        <p class="text-gray-600 text-sm mt-1" v-if="form.event_id">
+                            <template v-if="form.is_all_locations">
+                                Password is "{{ props.events.find(e => e.id === form.event_id)?.event_name.toUpperCase() }}"
+                            </template>
+                            <template v-else>
+                                Password is the location name before the hyphen in UPPERCASE
+                            </template>
                         </p>
                         <div v-if="form.errors.password" class="text-red-500 text-sm mt-1">
                             {{ form.errors.password }}
@@ -140,7 +212,7 @@ const handleSubmit = () => {
                     <button
                         type="submit"
                         class="w-full bg-blue-500 text-white py-2 px-4 rounded-md hover:bg-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
-                        :disabled="form.processing"
+                        :disabled="form.processing || (!form.is_all_locations && !form.location_id) || !form.event_id || !form.password"
                     >
                         {{ form.processing ? 'Verifying...' : 'Continue' }}
                     </button>
