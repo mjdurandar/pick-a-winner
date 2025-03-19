@@ -36,8 +36,6 @@ class LocationController extends Controller
             'password' => $request->password
         ]);
 
-        return response()->json([
-            'message' => 'Password updated successfully'
-        ]);
+        return back()->with('success', 'Password updated successfully');
     }
 }
