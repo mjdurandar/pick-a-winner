@@ -60,6 +60,10 @@ const openEditModal = (event) => {
     modalElement.show();
 };
 
+const attendeesPage = (event) => {
+    router.get(route('attendees.index', { eventId: event.id }));
+};
+
 // Submit the form (Create or Update)
 const saveEvent = () => {
     const data = new FormData();
@@ -166,6 +170,9 @@ const goToSignUpForm = (eventId) => {
                                         Sign Up Form
                                     </button>
                                     <div>
+                                        <button @click="attendeesPage(event)" class="btn btn-success btn-sm me-2" v-if="userRole === 'admin'">
+                                            <i class="fa-solid fa-users"></i>
+                                        </button>
                                         <button @click="openEditModal(event)" class="btn btn-primary btn-sm me-2" v-if="userRole === 'admin'">
                                             <i class="fa-solid fa-pen-to-square"></i>
                                         </button>
