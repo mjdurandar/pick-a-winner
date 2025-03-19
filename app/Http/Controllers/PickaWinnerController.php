@@ -131,10 +131,10 @@ class PickaWinnerController extends Controller
         if ($validated['is_all_locations'] ?? false) {
             $event = Events::findOrFail($validated['event_id']);
             
-            // For all locations, password should match event name
-            if (strtoupper($validated['password']) !== strtoupper($event->event_name)) {
+            // For all locations, password should match event's stored password
+            if (strtoupper($validated['password']) !== strtoupper($event->password)) {
                 return back()->withErrors([
-                    'password' => 'Invalid password. For all locations, use the event name as password.'
+                    'password' => 'Invalid password. Please enter the correct event password.'
                 ]);
             }
 

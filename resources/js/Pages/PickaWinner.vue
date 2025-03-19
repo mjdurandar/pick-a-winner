@@ -64,8 +64,8 @@ const handleSubmit = () => {
         const selectedEvent = props.events.find(e => e.id === form.event_id);
         if (!selectedEvent) return;
 
-        // Check if password matches event name
-        if (form.password.toUpperCase() === selectedEvent.event_name.toUpperCase()) {
+        // Check if password matches event's stored password
+        if (form.password.toUpperCase() === selectedEvent.password.toUpperCase()) {
             // Redirect to all locations page for the selected event
             router.visit(route('pickawinner.alllocation', selectedEvent.id));
             return;
@@ -74,7 +74,8 @@ const handleSubmit = () => {
         // Show error if password doesn't match
         Swal.fire({
             icon: 'error',
-            title: 'Invalid Password'
+            title: 'Invalid Password',
+            text: 'The password you entered is incorrect.'
         });
         return;
     }
@@ -98,7 +99,7 @@ const toggleAllLocations = () => {
         // If we're checking the box
         const selectedEvent = props.events.find(e => e.id === form.event_id);
         if (selectedEvent) {
-            form.password = selectedEvent.event_name.toUpperCase();
+            form.password = selectedEvent.password;
         }
     } else {
         // If we're unchecking the box
