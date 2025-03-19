@@ -153,12 +153,8 @@ class PickaWinnerController extends Controller
             ]);
         }
 
-        // Get the first word before the hyphen and convert to uppercase
-        $locationPassword = strtoupper(explode('-', $location->name)[0]);
-        $locationPassword = trim($locationPassword); // Remove any whitespace
-
-        // Check if password matches
-        if (strtoupper($validated['password']) !== $locationPassword) {
+        // Check if password matches the stored password
+        if (strtoupper($validated['password']) !== strtoupper($location->password)) {
             return back()->withErrors([
                 'password' => 'Invalid password.'
             ]);

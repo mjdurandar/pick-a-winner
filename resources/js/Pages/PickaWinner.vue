@@ -74,8 +74,7 @@ const handleSubmit = () => {
         // Show error if password doesn't match
         Swal.fire({
             icon: 'error',
-            title: 'Invalid Password',
-            text: 'The password must match the event name.',
+            title: 'Invalid Password'
         });
         return;
     }
@@ -124,10 +123,15 @@ watch(() => form.event_id, () => {
 
     <PickaWinnerLayout>
         <!-- Selection Modal -->
-        <div class="flex items-center justify-center min-h-screen">
+        <div class="flex items-center justify-center min-h-screen p-3">
             <div class="bg-white p-8 rounded-lg shadow-lg w-full max-w-md">
-                <h2 class="text-2xl font-bold text-center mb-6">Pick a Winner</h2>
-                
+                <div class="flex justify-center mb-4">
+                    <img
+                        src="https://s3-ap-southeast-2.amazonaws.com/yc.cldmlk.com/jrvyz6cav5m2kaq1mqmsb7ag7r/uploads/1710312954714_AdventureEntertainment_Logo_RGB_Black.png"
+                        alt="Login"
+                        class="w-48"
+                    />
+                </div>
                 <form @submit.prevent="handleSubmit">
                     <div class="mb-4">
                         <label class="block text-gray-700 text-sm font-bold mb-2" for="event">
@@ -196,14 +200,14 @@ watch(() => form.event_id, () => {
                             @input="form.password = form.password.toUpperCase()"
                             required
                         />
-                        <p class="text-gray-600 text-sm mt-1" v-if="form.event_id">
+                        <!-- <p class="text-gray-600 text-sm mt-1" v-if="form.event_id">
                             <template v-if="form.is_all_locations">
                                 Password is "{{ props.events.find(e => e.id === form.event_id)?.event_name.toUpperCase() }}"
                             </template>
                             <template v-else>
                                 Password is the location name before the hyphen in UPPERCASE
                             </template>
-                        </p>
+                        </p> -->
                         <div v-if="form.errors.password" class="text-red-500 text-sm mt-1">
                             {{ form.errors.password }}
                         </div>
