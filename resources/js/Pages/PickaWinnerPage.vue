@@ -15,9 +15,12 @@ const props = defineProps({
 const searchQuery = ref(''); // ✅ Search query input
 const copiedIndex = ref(null); // ✅ Index of copied location link
 const showPasswordModal = ref(false);
+const showEventPasswordModal = ref(false);
 const selectedLocation = ref(null);
 const newPassword = ref('');
 const confirmPassword = ref('');
+const eventNewPassword = ref('');
+const eventConfirmPassword = ref('');
 
 // ✅ Computed Property to Filter Locations
 const filteredLocations = computed(() => {
@@ -36,14 +39,66 @@ const openPasswordModal = (location) => {
     showPasswordModal.value = true;
 };
 
-const generatePassword = () => {
+const openEventPasswordModal = () => {
+    eventNewPassword.value = '';
+    eventConfirmPassword.value = '';
+    showEventPasswordModal.value = true;
+};
+
+const generatePassword = (isEvent = false) => {
     const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
     let password = '';
     for (let i = 0; i < 8; i++) {
         password += chars.charAt(Math.floor(Math.random() * chars.length));
     }
-    newPassword.value = password;
-    confirmPassword.value = password;
+    if (isEvent) {
+        eventNewPassword.value = password;
+        eventConfirmPassword.value = password;
+    } else {
+        newPassword.value = password;
+        confirmPassword.value = password;
+    }
+};
+
+const updateEventPassword = async () => {
+    if (!eventNewPassword.value || !eventConfirmPassword.value) {
+        Swal.fire({
+            icon: 'error',
+            title: 'Error',
+            text: 'Please fill in all fields'
+        });
+        return;
+    }
+
+    if (eventNewPassword.value !== eventConfirmPassword.value) {
+        Swal.fire({
+            icon: 'error',
+            title: 'Error',
+            text: 'Passwords do not match'
+        });
+        return;
+    }
+
+    try {
+        await router.put(route('event.updatePassword', props.event.id), {
+            password: eventNewPassword.value
+        });
+
+        Swal.fire({
+            icon: 'success',
+            title: 'Success!',
+            text: 'Event password updated successfully',
+            timer: 1500,
+            showConfirmButton: false
+        });
+        showEventPasswordModal.value = false;
+    } catch (error) {
+        Swal.fire({
+            icon: 'error',
+            title: 'Error',
+            text: 'Failed to update password. Please try again.'
+        });
+    }
 };
 
 const updatePassword = async () => {
@@ -102,9 +157,25 @@ const copyPassword = (location, index) => {
     }, 2000);
 };
 
+const copyEventPassword = () => {
+    navigator.clipboard.writeText(props.event.password);
+    Swal.fire({
+        icon: 'success',
+        title: 'Copied!',
+        text: 'Event password copied to clipboard',
+        timer: 1500,
+        showConfirmButton: false
+    });
+};
+
 const allLocationsPage = () => {
     router.get(route('pickawinner.alllocation', { event: props.event.id }));
 };
+
+const openPasswordLocation = () => {
+
+}
+
 </script>
 
 <template>
@@ -115,8 +186,13 @@ const allLocationsPage = () => {
             <div class="mx-auto max-w-3xl">
                 <div class="overflow-hidden bg-white shadow-sm sm:rounded-lg">
                     <div class="p-6 text-gray-900 text-center">
-                        <div class="d-flex justify-content-between items-center mb-4">
+                        <div class="d-flex justify-content-between items-center">
                             <h3 class="text-lg font-semibold mb-4">Locations Password for {{ event.event_name }}</h3>
+                        </div>
+                        <div class="d-flex justify-content-between items-center mb-4">
+                            <button class="btn btn-primary" @click="openEventPasswordModal">
+                                <i class="fa-solid fa-key"></i> Event Password
+                            </button>
                         </div>
                         <!-- ✅ Search Bar -->
                         <input 
@@ -165,7 +241,7 @@ const allLocationsPage = () => {
             </div>
         </div>
 
-        <!-- Password Modal -->
+        <!-- Location Password Modal -->
         <div v-if="showPasswordModal" class="modal fade show" style="display: block;">
             <div class="modal-dialog">
                 <div class="modal-content">
@@ -193,7 +269,7 @@ const allLocationsPage = () => {
                         </div>
                     </div>
                     <div class="modal-footer">
-                        <button type="button" class="btn btn-secondary" @click="generatePassword">
+                        <button type="button" class="btn btn-secondary" @click="generatePassword(false)">
                             <i class="fa-solid fa-random"></i> Generate Password
                         </button>
                         <button type="button" class="btn btn-primary" @click="updatePassword">Save Changes</button>
@@ -201,6 +277,44 @@ const allLocationsPage = () => {
                 </div>
             </div>
         </div>
-        <div v-if="showPasswordModal" class="modal-backdrop fade show"></div>
+
+        <!-- Event Password Modal -->
+        <div v-if="showEventPasswordModal" class="modal fade show" style="display: block;">
+            <div class="modal-dialog">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h5 class="modal-title">Event Password - {{ event.event_name }}</h5>
+                        <button type="button" class="btn-close" @click="showEventPasswordModal = false"></button>
+                    </div>
+                    <div class="modal-body">
+                        <div class="mb-3">
+                            <label class="form-label">Current Password</label>
+                            <div class="input-group">
+                                <input type="text" :value="event.password" class="form-control" readonly>
+                                <button class="btn btn-outline-secondary" @click="copyEventPassword">
+                                    <i class="fa-solid fa-copy"></i>
+                                </button>
+                            </div>
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">New Password</label>
+                            <input type="text" v-model="eventNewPassword" class="form-control" placeholder="Enter new password">
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">Confirm New Password</label>
+                            <input type="text" v-model="eventConfirmPassword" class="form-control" placeholder="Confirm new password">
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" @click="generatePassword(true)">
+                            <i class="fa-solid fa-random"></i> Generate Password
+                        </button>
+                        <button type="button" class="btn btn-primary" @click="updateEventPassword">Save Changes</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div v-if="showPasswordModal || showEventPasswordModal" class="modal-backdrop fade show"></div>
     </AuthenticatedLayout>
 </template>

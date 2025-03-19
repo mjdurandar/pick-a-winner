@@ -74,6 +74,7 @@ Route::middleware(['auth', RoleMiddleware::class . ':admin'])->group(function ()
     Route::get('/location', [LocationController::class, 'index'])->name('location.index');
     Route::get('/location/{eventId}', [LocationController::class, 'locationpage'])->name('location.locationpage');
     Route::put('/location/{location}/password', [LocationController::class, 'updatePassword'])->name('location.updatePassword');
+    Route::put('/event/{event}/password', [EventsController::class, 'updatePassword'])->name('event.updatePassword');
 
     //EDIT SIGN UP FORM ROUTES
     Route::get('/signup-form/edit/{formId}', [SignUpFormController::class, 'edit'])->name('signup.edit');

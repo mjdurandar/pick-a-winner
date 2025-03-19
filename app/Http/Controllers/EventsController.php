@@ -92,6 +92,18 @@ class EventsController extends Controller
         return redirect()->route('events.index');
     }
     
+    public function updatePassword(Request $request, Events $event)
+    {
+        $request->validate([
+            'password' => 'required|string|min:8'
+        ]);
+
+        $event->update([
+            'password' => $request->password
+        ]);
+
+        return back()->with('success', 'Event password updated successfully');
+    }
 
     /**
      * Remove the specified resource from storage.
