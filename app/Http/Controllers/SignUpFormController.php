@@ -94,10 +94,13 @@ class SignUpFormController extends Controller
 
         // ✅ Store unique locations in the `locations` table
         $locationNames = array_unique($locationNames);
+       
         foreach ($locationNames as $name) {
+            $password = Str::random(10); 
             Location::create([
                 'event_id' => $eventId,
-                'name' => $name
+                'name' => $name,
+                'password' => $password
             ]);
         }
 

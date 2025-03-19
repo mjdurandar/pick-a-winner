@@ -3,6 +3,7 @@ import { ref, computed } from 'vue';
 import PickaWinnerLayout from '@/Layouts/PickaWinnerLayout.vue';
 import { Head } from '@inertiajs/vue3';
 import { router } from '@inertiajs/vue3';
+import LocationPasswordModal from '@/Components/LocationPasswordModal.vue';
 
 // ✅ Define Props to Receive Locations from Backend
 const props = defineProps({
@@ -73,19 +74,24 @@ const allLocationsPage = () => {
                                 :key="index" 
                                 class="flex items-center space-x-2 w-full"
                             >
-                                <!-- Location Button (Full Width) -->
-                                <button 
-                                    @click="goToLocationWinnerPage(location.id, event.id)"
-                                    class="bg-blue-500 text-white px-4 py-2 rounded w-full text-left truncate hover:bg-blue-700"
+                                <div class="bg-blue-500 text-white px-4 py-2 rounded w-full text-left truncate hover:bg-blue-700"
                                 >
                                     {{ location.name }}
+                                </div>
+                                <!-- Location Button (Full Width) -->
+                                <button 
+                                    @click="viewPassword(location.id, event.id, index)"
+                                    class="bg-green-300 text-gray-600 px-3 py-2 rounded hover:bg-gray-400 transition"
+                                    title="View Password"
+                                >  
+                                <i class="fa-solid fa-lock"></i>
                                 </button>
 
                                 <!-- Copy Link Button -->
                                 <button 
-                                    @click="copyLocationLink(location.id, event.id, index)"
+                                    @click="copyPassword(location.id, event.id, index)"
                                     class="bg-gray-300 text-gray-600 px-3 py-2 rounded hover:bg-gray-400 transition"
-                                    title="Copy link"
+                                    title="Copy Password"
                                 >   
                                 <i :class="copiedIndex === index ? 'fa-solid fa-check text-green-600' : 'fa-solid fa-copy'"></i>
                                 </button>

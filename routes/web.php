@@ -8,6 +8,7 @@ use App\Http\Controllers\UsersController;
 use App\Http\Controllers\PickaWinnerController;
 use App\Http\Controllers\SignUpFormController;
 use App\Http\Controllers\PrizeController;
+use App\Http\Controllers\LocationController;
 use Illuminate\Support\Facades\Route;
 use Inertia\Inertia;
 use App\Http\Middleware\RoleMiddleware;
@@ -68,6 +69,11 @@ Route::middleware(['auth', RoleMiddleware::class . ':admin'])->group(function ()
     Route::post('/signup-form/generate/{eventId}', [SignUpFormController::class, 'generate'])->name('signup.generate');
 
     Route::delete('/signup-form/{eventId}', [SignUpFormController::class, 'destroy'])->name('signup.destroy');
+
+    //LOCATION ROUTES
+    Route::get('/location', [LocationController::class, 'index'])->name('location.index');
+    Route::get('/location/{eventId}', [LocationController::class, 'locationpage'])->name('location.locationpage');
+    Route::put('/location/{location}/password', [LocationController::class, 'updatePassword'])->name('location.updatePassword');
 
     //EDIT SIGN UP FORM ROUTES
     Route::get('/signup-form/edit/{formId}', [SignUpFormController::class, 'edit'])->name('signup.edit');
