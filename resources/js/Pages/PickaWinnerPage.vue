@@ -60,46 +60,46 @@ const generatePassword = (isEvent = false) => {
     }
 };
 
-const updateEventPassword = async () => {
-    if (!eventNewPassword.value || !eventConfirmPassword.value) {
-        Swal.fire({
-            icon: 'error',
-            title: 'Error',
-            text: 'Please fill in all fields'
-        });
-        return;
-    }
+// const updateEventPassword = async () => {
+//     if (!eventNewPassword.value || !eventConfirmPassword.value) {
+//         Swal.fire({
+//             icon: 'error',
+//             title: 'Error',
+//             text: 'Please fill in all fields'
+//         });
+//         return;
+//     }
 
-    if (eventNewPassword.value !== eventConfirmPassword.value) {
-        Swal.fire({
-            icon: 'error',
-            title: 'Error',
-            text: 'Passwords do not match'
-        });
-        return;
-    }
+//     if (eventNewPassword.value !== eventConfirmPassword.value) {
+//         Swal.fire({
+//             icon: 'error',
+//             title: 'Error',
+//             text: 'Passwords do not match'
+//         });
+//         return;
+//     }
 
-    try {
-        await router.put(route('event.updatePassword', props.event.id), {
-            password: eventNewPassword.value
-        });
+//     try {
+//         await router.put(route('event.updatePassword', props.event.id), {
+//             password: eventNewPassword.value
+//         });
 
-        Swal.fire({
-            icon: 'success',
-            title: 'Success!',
-            text: 'Event password updated successfully',
-            timer: 1500,
-            showConfirmButton: false
-        });
-        showEventPasswordModal.value = false;
-    } catch (error) {
-        Swal.fire({
-            icon: 'error',
-            title: 'Error',
-            text: 'Failed to update password. Please try again.'
-        });
-    }
-};
+//         Swal.fire({
+//             icon: 'success',
+//             title: 'Success!',
+//             text: 'Event password updated successfully',
+//             timer: 1500,
+//             showConfirmButton: false
+//         });
+//         showEventPasswordModal.value = false;
+//     } catch (error) {
+//         Swal.fire({
+//             icon: 'error',
+//             title: 'Error',
+//             text: 'Failed to update password. Please try again.'
+//         });
+//     }
+// };
 
 const updatePassword = async () => {
     if (!newPassword.value || !confirmPassword.value) {
@@ -189,11 +189,11 @@ const openPasswordLocation = () => {
                         <div class="d-flex justify-content-between items-center">
                             <h3 class="text-lg font-semibold mb-4">Locations Password for {{ event.event_name }}</h3>
                         </div>
-                        <div class="d-flex justify-content-between items-center mb-4">
+                        <!-- <div class="d-flex justify-content-between items-center mb-4">
                             <button class="btn btn-primary" @click="openEventPasswordModal">
                                 <i class="fa-solid fa-key"></i> Event Password
                             </button>
-                        </div>
+                        </div> -->
                         <!-- ✅ Search Bar -->
                         <input 
                             v-model="searchQuery" 
@@ -279,7 +279,7 @@ const openPasswordLocation = () => {
         </div>
 
         <!-- Event Password Modal -->
-        <div v-if="showEventPasswordModal" class="modal fade show" style="display: block;">
+        <!-- <div v-if="showEventPasswordModal" class="modal fade show" style="display: block;">
             <div class="modal-dialog">
                 <div class="modal-content">
                     <div class="modal-header">
@@ -313,7 +313,7 @@ const openPasswordLocation = () => {
                     </div>
                 </div>
             </div>
-        </div>
+        </div> -->
 
         <div v-if="showPasswordModal || showEventPasswordModal" class="modal-backdrop fade show"></div>
     </AuthenticatedLayout>

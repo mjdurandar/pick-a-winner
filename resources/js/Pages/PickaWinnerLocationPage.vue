@@ -11,9 +11,6 @@ const isEditing = ref(false);
 // ✅ Search Query
 const searchQuery = ref('');
 
-// ✅ Checkbox to filter today's attendees (default: checked)
-const onlyTodayEntries = ref(true);
-
 // ✅ Get today's date in 'YYYY-MM-DD' format
 const getTodayDate = () => {
     const today = new Date();
@@ -310,24 +307,14 @@ const confirmCancel = () => {
     });
 };
 
-// ✅ Compute attendees who have NOT been picked as winners yet AND match today's date if the checkbox is checked
+// ✅ Compute attendees who have NOT been picked as winners yet
 const eligibleAttendees = computed(() => {
     return props.attendees.filter(attendee => {
         const isWinner = props.prizes.some(prize => prize.winner_email === attendee.email_address);
-
-        let entryDate = null;
-        if (attendee.created_at) {
-            try {
-                entryDate = new Date(attendee.created_at).toISOString().split('T')[0]; // ✅ Convert to UTC
-            } catch (error) {
-                console.error("Error parsing created_at:", attendee.created_at);
-            }
-        }
-
         // ✅ Ensure the attendee is from the selected location
         const matchesLocation = attendee.location_id === props.location.id;
 
-        return !isWinner && matchesLocation && (!onlyTodayEntries.value || entryDate === getTodayDate());
+        return !isWinner && matchesLocation;
     });
 });
 
@@ -349,12 +336,7 @@ const eligibleAttendees = computed(() => {
                 <div class="mx-auto max-w-7xl sm:px-6 lg:px-8">
                     <div class="overflow-hidden bg-white shadow-sm sm:rounded-lg">
                         <div class="p-6 text-gray-900">
-                            <div class="d-flex justify-content-between">
-                                <!-- ✅ Checkbox: Filter by Today's Entries -->
-                                <label class="flex items-center space-x-2">
-                                    <input type="checkbox" v-model="onlyTodayEntries" class="form-checkbox text-green-500">
-                                    <span>Only pick winners from today's entries.</span>
-                                </label>
+                            <div class="d-flex justify-content-end">
                                 <button 
                                     class="bg-green-500 text-white px-4 py-2 rounded hover:bg-green-700"
                                     @click="openAddPrizeModal()"

@@ -93,22 +93,22 @@ const handleSubmit = () => {
     });
 };
 
-const toggleAllLocations = () => {
-    // Set the form state first
-    if (!form.is_all_locations) {
-        // If we're checking the box
-        const selectedEvent = props.events.find(e => e.id === form.event_id);
-        if (selectedEvent) {
-            form.password = selectedEvent.password;
-        }
-    } else {
-        // If we're unchecking the box
-        form.password = '';
-    }
+// const toggleAllLocations = () => {
+//     // Set the form state first
+//     if (!form.is_all_locations) {
+//         // If we're checking the box
+//         const selectedEvent = props.events.find(e => e.id === form.event_id);
+//         if (selectedEvent) {
+//             form.password = selectedEvent.password;
+//         }
+//     } else {
+//         // If we're unchecking the box
+//         form.password = '';
+//     }
     
-    form.location_id = '';
-    loadLocations();
-};
+//     form.location_id = '';
+//     loadLocations();
+// };
 
 // Watch for event changes
 watch(() => form.event_id, () => {
@@ -155,7 +155,7 @@ watch(() => form.event_id, () => {
                     </div>
 
                     <!-- All Locations Checkbox -->
-                    <div v-if="form.event_id" class="mb-4">
+                    <!-- <div v-if="form.event_id" class="mb-4">
                         <label class="flex items-center cursor-pointer">
                             <input
                                 type="checkbox"
@@ -165,7 +165,7 @@ watch(() => form.event_id, () => {
                             >
                             <span class="ml-2 text-gray-700">All locations?</span>
                         </label>
-                    </div>
+                    </div> -->
 
                     <div v-if="!form.is_all_locations" class="mb-4">
                         <label class="block text-gray-700 text-sm font-bold mb-2" for="location">
