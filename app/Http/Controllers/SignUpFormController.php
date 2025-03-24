@@ -191,7 +191,8 @@ class SignUpFormController extends Controller
                 // ✅ Add new location
                 $newLocation = Location::create([
                     'event_id' => $eventId,
-                    'name' => $newLocationName
+                    'name' => $newLocationName,
+                    'password' => Str::random(10)
                 ]);
                 $updatedLocations[] = $newLocation->id;
             }

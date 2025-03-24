@@ -36,6 +36,16 @@ class PickaWinnerController extends Controller
 
     // Selected Location for Pick a Winner
     public function pickawinnerlocationpage($locationId, $eventId) {
+        // Check if location and event are verified in session
+        $verifiedLocationId = Session::get('verified_location_id');
+        $verifiedEventId = Session::get('verified_event_id');
+
+        if ($verifiedLocationId != $locationId || $verifiedEventId != $eventId) {
+            // If not verified, redirect to pickawinner page with error
+            return redirect()->route('pickawinner.page', ['eventId' => $eventId])
+                ->with('error', 'Please enter the correct password to access this location.');
+        }
+
         $signUpForm = SignUpForm::where('event_id', $eventId)->firstOrFail();
         $tableName = $signUpForm->table_name;
     
