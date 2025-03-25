@@ -328,12 +328,22 @@ const eligibleAttendees = computed(() => {
 
     <PickaWinnerLayout>
         <div class="p-6">
-            <h2 class="text-2xl font-bold mb-6 text-center">
-                Pick a Winner for {{ location.name }} - {{ event.event_name }}
-            </h2>
             <!-- ✅ Prizes Button -->
             <div class="mt-3 p-2">
                 <div class="mx-auto max-w-7xl sm:px-6 lg:px-8">
+                    <div class="d-flex flex-column flex-md-row justify-content-between items-center pb-4">
+                        <div class="mb-3 mb-md-0 text-center text-md-start">
+                            <img 
+                            :src="`/storage/${event.event_logo}`" 
+                            alt="Event Logo" 
+                            class="img-fluid" 
+                            style="max-width: 200px; max-height: 300px;"
+                            >
+                        </div>
+                        <h2 class="text-2xl font-bold text-center">
+                            {{ event.event_name }} <br> {{ location.name }} 
+                        </h2>
+                    </div>
                     <div class="overflow-hidden bg-white shadow-sm sm:rounded-lg">
                         <div class="p-6 text-gray-900">
                             <div class="d-flex justify-content-end">

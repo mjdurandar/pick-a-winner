@@ -23,6 +23,7 @@ const form = useForm({
     event_description: '',
     event_date: '',
     event_year: '',
+    event_logo: null,
     event_banner: null, // File input
     event_coordinator: '',
     event_coordinator_email: '',
@@ -34,11 +35,16 @@ const handleFileChange = (event) => {
     form.event_banner = event.target.files[0]; // Assign file to form
 };
 
+const handleLogoChange = (event) => {
+    form.event_logo = event.target.files[0]; // Assign file to form
+};
+
 // Open Modal for Creating a New Event
 const openCreateModal = () => {
     isEditing.value = false;
     form.reset(); // Clear form
     document.getElementById('event_banner').value = '';
+    document.getElementById('event_logo').value = '';
     let modalElement = new bootstrap.Modal(document.getElementById('createEventModal'));
     modalElement.show();
 };
@@ -55,6 +61,7 @@ const openEditModal = (event) => {
     form.event_coordinator_email = event.event_coordinator_email;
     form.event_country = event.event_country;
     form.event_banner = null; // Reset file input
+    form.event_logo = null; // Reset file input
 
     let modalElement = new bootstrap.Modal(document.getElementById('createEventModal'));
     modalElement.show();
@@ -73,6 +80,9 @@ const saveEvent = () => {
     data.append('event_date', form.event_date);
     if (form.event_banner) {
         data.append('event_banner', form.event_banner);
+    }
+    if (form.event_logo) {
+        data.append('event_logo', form.event_logo);
     }
     data.append('event_coordinator', form.event_coordinator);
     data.append('event_coordinator_email', form.event_coordinator_email);
@@ -241,6 +251,10 @@ const goToSignUpForm = (eventId) => {
                                     <option value="New Zealand">New Zealand</option>
                                     <option value="Germany">Germany</option>
                                 </select>
+                            </div>
+                            <div class="mb-3">
+                                <label class="form-label">Event Logo</label>
+                                <input type="file" @change="handleLogoChange" id="event_logo" class="form-control" />
                             </div>
                             <div class="mb-3">
                                 <label class="form-label">Event Banner</label>

@@ -14,6 +14,7 @@ class Events extends Model
         'event_date',
         'event_year',
         'event_banner',
+        'event_logo',
         'event_coordinator',
         'event_coordinator_email',
         'event_country',
