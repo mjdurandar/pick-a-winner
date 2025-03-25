@@ -129,54 +129,54 @@ class PickaWinnerController extends Controller
         );
     }
 
-    // public function verify(Request $request)
-    // {
-    //     $validated = $request->validate([
-    //         'event_id' => 'required|exists:events,id',
-    //         'location_id' => 'required_unless:is_all_locations,true|exists:locations,id',
-    //         'password' => 'required|string',
-    //         'is_all_locations' => 'boolean'
-    //     ]);
+    public function verify(Request $request)
+    {
+        $validated = $request->validate([
+            'event_id' => 'required|exists:events,id',
+            'location_id' => 'required_unless:is_all_locations,true|exists:locations,id',
+            'password' => 'required|string',
+            'is_all_locations' => 'boolean'
+        ]);
 
-    //     if ($validated['is_all_locations'] ?? false) {
-    //         $event = Events::findOrFail($validated['event_id']);
+        if ($validated['is_all_locations'] ?? false) {
+            $event = Events::findOrFail($validated['event_id']);
             
-    //         // For all locations, password should match event's stored password
-    //         if (strtoupper($validated['password']) !== strtoupper($event->password)) {
-    //             return back()->withErrors([
-    //                 'password' => 'Invalid password. Please enter the correct event password.'
-    //             ]);
-    //         }
+            // For all locations, password should match event's stored password
+            if (strtoupper($validated['password']) !== strtoupper($event->password)) {
+                return back()->withErrors([
+                    'password' => 'Invalid password. Please enter the correct event password.'
+                ]);
+            }
 
-    //         return redirect()->route('pickawinner.alllocation', [
-    //             'event' => $validated['event_id']
-    //         ]);
-    //     }
+            return redirect()->route('pickawinner.alllocation', [
+                'event' => $validated['event_id']
+            ]);
+        }
 
-    //     $location = Location::where('id', $validated['location_id'])
-    //         ->where('event_id', $validated['event_id'])
-    //         ->first();
+        $location = Location::where('id', $validated['location_id'])
+            ->where('event_id', $validated['event_id'])
+            ->first();
 
-    //     if (!$location) {
-    //         return back()->withErrors([
-    //             'password' => 'Invalid location selected.'
-    //         ]);
-    //     }
+        if (!$location) {
+            return back()->withErrors([
+                'password' => 'Invalid location selected.'
+            ]);
+        }
 
-    //     // Check if password matches the stored password
-    //     if (strtoupper($validated['password']) !== strtoupper($location->password)) {
-    //         return back()->withErrors([
-    //             'password' => 'Invalid password.'
-    //         ]);
-    //     }
+        // Check if password matches the stored password
+        if (strtoupper($validated['password']) !== strtoupper($location->password)) {
+            return back()->withErrors([
+                'password' => 'Invalid password.'
+            ]);
+        }
 
-    //     // Store location access in session
-    //     Session::put('verified_location_id', $location->id);
-    //     Session::put('verified_event_id', $validated['event_id']);
+        // Store location access in session
+        Session::put('verified_location_id', $location->id);
+        Session::put('verified_event_id', $validated['event_id']);
 
-    //     return redirect()->route('pickawinner.locationpage', [
-    //         'location' => $validated['location_id'],
-    //         'event' => $validated['event_id']
-    //     ]);
-    // }
+        return redirect()->route('pickawinner.locationpage', [
+            'location' => $validated['location_id'],
+            'event' => $validated['event_id']
+        ]);
+    }
 }

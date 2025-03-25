@@ -384,8 +384,6 @@ const eligibleAttendees = computed(() => {
                             <div class="d-flex justify-content-between">
                                 <h3 class="text-lg font-semibold mb-4">Attendees at {{ location.name }}</h3>
                                 <div class="flex items-center space-x-2">
-                                    <!-- <button class="btn btn-primary mb-3" @click="reload"><i class="fa-solid fa-arrows-rotate"></i></button> -->
-                                    <!-- ✅ Search Bar -->
                                     <div class="mb-3">
                                         <input
                                             v-model="searchQuery"
@@ -396,7 +394,6 @@ const eligibleAttendees = computed(() => {
                                     </div>
                                 </div>
                             </div>
-                            <!-- ✅ Attendees Table -->
                             <div class="overflow-x-auto">
                                 <table class="w-full border-collapse border border-gray-300">
                                     <thead>
@@ -419,11 +416,6 @@ const eligibleAttendees = computed(() => {
                                     </tbody>
                                 </table>
                             </div>
-                            <!-- ✅ If No Attendees Found -->
-                            <!-- <div v-if="filteredAttendees.length === 0" class="text-gray-600 text-center mt-4">
-                                No matching attendees found.
-                            </div> -->
-                            <!-- ✅ If No Attendees Found -->
                             <div v-if="attendees.length === 0" class="text-gray-600 text-center mt-4">
                                 No attendees have registered for this location.
                             </div>
