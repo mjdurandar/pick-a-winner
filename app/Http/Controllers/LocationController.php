@@ -6,6 +6,8 @@ use Illuminate\Http\Request;
 use Inertia\Inertia;    
 use App\Models\Events;
 use App\Models\Location;
+use Illuminate\Support\Str;
+
 class LocationController extends Controller
 {
     public function index()
@@ -37,5 +39,44 @@ class LocationController extends Controller
         ]);
 
         return back()->with('success', 'Password updated successfully');
+    }
+
+    public function store(Request $request)
+    {
+        $request->validate([
+            'name' => 'required|string|max:255',
+            'event_id' => 'required|exists:events,id',
+            'date' => 'required|date'
+        ]);
+
+        $location = Location::create([
+            'name' => $request->name,
+            'event_id' => $request->event_id,
+            'date' => $request->date,
+            'password' => Str::random(10) // Generate a random password for the location
+        ]);
+
+        return back()->with('success', 'Location created successfully');
+    }
+
+    public function update(Request $request, Location $location)
+    {
+        $request->validate([
+            'name' => 'required|string|max:255',
+            'date' => 'required|date'
+        ]);
+
+        $location->update([
+            'name' => $request->name,
+            'date' => $request->date
+        ]);
+
+        return back()->with('success', 'Location updated successfully');
+    }
+
+    public function destroy(Location $location)
+    {
+        $location->delete();
+        return back()->with('success', 'Location deleted successfully');
     }
 }
