@@ -1,5 +1,5 @@
 <script setup>
-import { ref, watchEffect } from 'vue';
+import { ref, watchEffect, onMounted } from 'vue';
 import { router } from '@inertiajs/vue3';
 import Swal from 'sweetalert2';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout.vue';
@@ -8,11 +8,19 @@ import { Head } from '@inertiajs/vue3';
 // ✅ Receive `events` as a prop
 const props = defineProps({ 
     events: Number,
+    locations: Array,
+    eventValues: Object
 }); 
+
+const showModal = ref(false); // Controls the visibility of the modal
+
+const selectLocation = (locationName) => {
+    selectedLocation.value = locationName; // Update the selected location
+    showModal.value = false; // Close the modal
+};
     
 // ✅ Default Questions with Column Names
 const defaultQuestions = ref([
-    { text: 'Events Location', type: 'dropdown', column_name: 'events_location', options: ['Option 1', 'Option 2'], hiddenOptions: [] },
     { text: 'Email Address', type: 'email', column_name: 'email_address', options: [] },
     { text: 'First Name', type: 'text', column_name: 'first_name', options: [] },
     { text: 'Last Name', type: 'text', column_name: 'last_name', options: [] },
@@ -55,6 +63,7 @@ const draggedQuestionIndex = ref(null);
 const dragStart = (index) => {
     draggedQuestionIndex.value = index;
 };
+const selectedLocation = ref(''); // Define the reactive variable for the selected location
 const drop = (index) => {
     if (draggedQuestionIndex.value !== null) {
         const movedQuestion = questions.value.splice(draggedQuestionIndex.value, 1)[0];
@@ -163,6 +172,11 @@ const saveForm = () => {
         }
     });
 };
+
+onMounted(() => {
+    console.log('Locations array:', props.locations);
+    console.log('Events:', props.eventValues);
+});
 </script>
 
 <template>
@@ -171,7 +185,7 @@ const saveForm = () => {
     <AuthenticatedLayout>
         <template #header>
             <h2 class="text-xl font-semibold leading-tight text-gray-800">
-                Create Sign Up Form for Event: {{ events.event_name }}
+                Create Sign Up Form for Event: {{ eventValues.event_name }}
             </h2>
         </template>
 
@@ -200,6 +214,14 @@ const saveForm = () => {
                 
                 <!-- ✅ Draggable Questions Section -->
                 <h2 class="text-lg font-bold mb-3">Create Questions (Drag to Reorder)</h2>
+                <div class="mb-4 p-3 border rounded shadow-sm bg-gray-100">
+                    <button 
+                        @click="showModal = true" 
+                        class="bg-blue-500 text-white px-4 py-2 rounded"
+                    >
+                        View Locations
+                    </button>
+                </div>
                 <div>
                     <div
                         v-for="(question, index) in questions"
@@ -278,6 +300,28 @@ const saveForm = () => {
                     <button @click="saveForm" class="bg-green-500 text-white px-4 py-2 rounded">Save Form</button>
                 </div>
 
+            </div>
+           <!-- Modal -->
+            <div v-if="showModal" class="fixed inset-0 bg-gray-800 bg-opacity-50 flex items-center justify-center z-50">
+                <div class="bg-white p-6 rounded-lg shadow-lg w-full max-w-lg mx-4 sm:mx-auto">
+                    <h2 class="text-lg font-bold mb-4">Locations for {{ eventValues.event_name }}</h2>
+                    <ul>
+                        <li 
+                            v-for="location in locations" 
+                            :key="location.id" 
+                            class="mb-2 p-2 border rounded cursor-pointer hover:bg-gray-100"
+                            @click="selectLocation(location.name)"
+                        >
+                            {{ location.name }} - {{ location.date }} - {{ location.time }}
+                        </li>
+                    </ul>
+                    <button 
+                        @click="showModal = false" 
+                        class="mt-4 bg-red-500 text-white px-4 py-2 rounded w-full sm:w-auto"
+                    >
+                        Close
+                    </button>
+                </div>
             </div>
         </div>
     </AuthenticatedLayout>

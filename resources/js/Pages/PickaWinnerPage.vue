@@ -31,6 +31,7 @@ const locationForm = useForm({
     name: '',
     event_id: '',
     date: '',
+    time: ''
 });
 
 // ✅ Computed Property to Filter Locations
@@ -197,6 +198,7 @@ const openLocationModal = (location = null) => {
         locationForm.id = location.id;
         locationForm.name = location.name;
         locationForm.date = location.date;
+        locationForm.time = location.time;
         locationForm.event_id = props.event.id;
     } else {
         isEditing.value = false;
@@ -209,8 +211,8 @@ const openLocationModal = (location = null) => {
 
 // Function to save location
 const saveLocation = () => {
-    if (!locationForm.name || !locationForm.date) {
-        Swal.fire('Error', 'Location name and date are required!', 'error');
+    if (!locationForm.name || !locationForm.date || !locationForm.time) {
+        Swal.fire('Error', 'Location name, date and time are required!', 'error');
         return;
     }
 
@@ -494,6 +496,15 @@ const closePasswordModal = () => {
                                 <input 
                                     v-model="locationForm.date" 
                                     type="date" 
+                                    class="form-control" 
+                                    required 
+                                />
+                            </div>
+                            <div class="mb-3">
+                                <label class="form-label">Time</label>
+                                <input 
+                                    v-model="locationForm.time" 
+                                    type="time" 
                                     class="form-control" 
                                     required 
                                 />

@@ -29,7 +29,9 @@ class SignUpFormController extends Controller
 
     public function create($eventId){
         $eventId = (int) $eventId;
-        return inertia('SignUpFormCreate', ['events' => $eventId]);
+        $event = Events::where('id', $eventId)->first();
+        $locations = Location::where('event_id', $eventId)->get();
+        return inertia('SignUpFormCreate', ['events' => $eventId , 'locations' => $locations, 'eventValues' => $event]);
     }
 
     // Generate a new sign up form with default questions

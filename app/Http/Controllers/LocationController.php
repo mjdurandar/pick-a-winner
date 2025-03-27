@@ -46,13 +46,15 @@ class LocationController extends Controller
         $request->validate([
             'name' => 'required|string|max:255',
             'event_id' => 'required|exists:events,id',
-            'date' => 'required|date'
+            'date' => 'required|date',
+            'time' => 'required'
         ]);
 
         $location = Location::create([
             'name' => $request->name,
             'event_id' => $request->event_id,
             'date' => $request->date,
+            'time' => $request->time,
             'password' => Str::random(10) // Generate a random password for the location
         ]);
 
@@ -63,12 +65,14 @@ class LocationController extends Controller
     {
         $request->validate([
             'name' => 'required|string|max:255',
-            'date' => 'required|date'
+            'date' => 'required|date',
+            'time' => 'required'
         ]);
 
         $location->update([
             'name' => $request->name,
-            'date' => $request->date
+            'date' => $request->date,
+            'time' => $request->time
         ]);
 
         return back()->with('success', 'Location updated successfully');
