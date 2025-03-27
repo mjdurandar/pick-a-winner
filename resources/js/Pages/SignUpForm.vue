@@ -9,7 +9,8 @@ import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout.vue';
 const props = defineProps({ 
     eventId: Number, 
     eventValues: Object,
-    form: Object
+    form: Object,
+    locations: Array
 });
 
 // ✅ Get user role from Inertia
@@ -17,6 +18,7 @@ const page = usePage();
 const user = computed(() => page.props.auth.user || null);
 const userRole = computed(() => user.value?.role); 
 
+const selectedLocation = ref('');
 // ✅ Store form data reactively
 const signupForm = ref(props.form || null);
 // ✅ Generate Signup Form Link
@@ -138,6 +140,13 @@ watchEffect(() => {
 
                     <!-- ✅ Sign-up Form -->
                     <div class="bg-white w-full md:w-3/5 mx-auto p-5 mt-4 rounded shadow-lg">
+                        <label class="block font-medium text-gray-800 mb-1">Events Location</label>
+                        <select v-model="selectedLocation" class="form-select mb-3 w-full border rounded px-3 py-2">
+                        <option value="" disabled>Select a location</option>
+                        <option v-for="location in locations" :key="location.id" :value="location.id">
+                            {{ location.name }} - {{ location.date }} - {{ location.time }}
+                        </option>
+                        </select>
                         <!-- ✅ Loop through questions -->
                         <div v-for="(question, index) in JSON.parse(signupForm.questions || '[]')" :key="index" class="mb-4">
                             <label class="block font-medium text-gray-800 mb-1">{{ question.text }}</label>

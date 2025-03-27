@@ -9,6 +9,7 @@ import { Head } from '@inertiajs/vue3';
 const props = defineProps({ 
     events: Object,
     form: Object, // 👈 Form data (for editing)
+    locations: Array, // Add locations prop
 });
 
 // ✅ Reactive form fields
@@ -125,6 +126,13 @@ const removeDropdownOption = (question, optIndex) => {
     }
 };
 
+const showModal = ref(false); // Controls the visibility of the modal
+const selectedLocation = ref(''); // Define the reactive variable for the selected location
+
+const selectLocation = (locationName) => {
+    selectedLocation.value = locationName; // Update the selected location
+    showModal.value = false; // Close the modal
+};
 
 // ✅ Save the form (update)
 const saveForm = () => {
@@ -215,6 +223,14 @@ const saveForm = () => {
         <div class="pb-5 mx-auto w-full px-4 md:w-1/2">
             <div class="bg-white p-6 shadow rounded-lg">
                 <h2 class="text-lg font-bold mb-3">Edit Questions (Drag to Reorder)</h2>
+                <div class="mb-4 p-3 border rounded shadow-sm bg-gray-100">
+                    <button 
+                        @click="showModal = true" 
+                        class="bg-blue-500 text-white px-4 py-2 rounded"
+                    >
+                        View Locations
+                    </button>
+                </div>
                 <div>
                     <div
                         v-for="(question, index) in questions"
@@ -304,6 +320,29 @@ const saveForm = () => {
                 <div class="d-flex justify-content-between mt-4">
                     <button @click="addQuestion" class="bg-blue-500 text-white px-3 py-2 rounded">Add Question</button>
                     <button @click="saveForm" class="bg-green-500 text-white px-4 py-2 rounded">Update Form</button>
+                </div>
+            </div>
+
+            <!-- Modal -->
+            <div v-if="showModal" class="fixed inset-0 bg-gray-800 bg-opacity-50 flex items-center justify-center z-50">
+                <div class="bg-white p-6 rounded-lg shadow-lg w-full max-w-lg mx-4 sm:mx-auto">
+                    <h2 class="text-lg font-bold mb-4">Locations for {{ events.event_name }}</h2>
+                    <ul>
+                        <li 
+                            v-for="location in locations" 
+                            :key="location.id" 
+                            class="mb-2 p-2 border rounded cursor-pointer hover:bg-gray-100"
+                            @click="selectLocation(location.name)"
+                        >
+                            {{ location.name }} - {{ location.date }} - {{ location.time }}
+                        </li>
+                    </ul>
+                    <button 
+                        @click="showModal = false" 
+                        class="mt-4 bg-red-500 text-white px-4 py-2 rounded w-full sm:w-auto"
+                    >
+                        Close
+                    </button>
                 </div>
             </div>
         </div>

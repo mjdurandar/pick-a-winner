@@ -20,10 +20,12 @@ class SignUpFormController extends Controller
         // Find the signup form for the given event
         $form = SignUpForm::where('event_id', $eventId)->first();
         $eventValues = Events::where('id', $eventId)->first();
+        $locations = Location::where('event_id', $eventId)->get();
         return inertia('SignUpForm', [
             'eventId' => $eventId,
             'eventValues' => $eventValues,
-            'form' => $form // ✅ Pass the form data to Vue
+            'form' => $form, // ✅ Pass the form data to Vue
+            'locations' => $locations // ✅ Pass locations to Vue
         ]);
     }
 
@@ -114,7 +116,8 @@ class SignUpFormController extends Controller
     {   
         $form = SignUpForm::findOrFail($formId);
         $events = Events::findOrFail($form->event_id);
-        return inertia('SignUpFormEdit', ['form' => $form, 'events' => $events]);
+        $locations = Location::where('event_id', $form->event_id)->get();
+        return inertia('SignUpFormEdit', ['form' => $form, 'events' => $events, 'locations' => $locations]);
     }
 
     // Update form
@@ -169,42 +172,6 @@ class SignUpFormController extends Controller
             });
         }
     
-        // ✅ Extract New Locations from the "events_location" dropdown
-        $newLocationOptions = [];
-        foreach ($newQuestions as $question) {
-            if ($question['column_name'] === 'events_location') { 
-                $newLocationOptions = array_merge($newLocationOptions, $question['options']);
-            }
-        }
-    
-        // ✅ Ensure we have unique new locations
-        $uniqueNewLocations = array_unique($newLocationOptions);
-        
-        // ✅ Fetch all existing locations
-        $existingLocations = Location::where('event_id', $eventId)->get()->keyBy('name');
-        
-        $updatedLocations = [];
-    
-        foreach ($uniqueNewLocations as $newLocationName) {
-            if ($existingLocations->has($newLocationName)) {
-                // ✅ Location exists, just keep track
-                $updatedLocations[] = $existingLocations[$newLocationName]->id;
-            } else {
-                // ✅ Add new location
-                $newLocation = Location::create([
-                    'event_id' => $eventId,
-                    'name' => $newLocationName,
-                    'password' => Str::random(10)
-                ]);
-                $updatedLocations[] = $newLocation->id;
-            }
-        }
-    
-        // ✅ Remove old locations that are no longer in the dropdown
-        Location::where('event_id', $eventId)
-            ->whereNotIn('id', $updatedLocations)
-            ->delete();
-    
         return redirect()->route('signup.index', ['eventId' => $eventId])
             ->with('success', 'Form updated successfully. Locations updated.');
     }
@@ -216,10 +183,12 @@ class SignUpFormController extends Controller
         // Fetch the form details
         $form = SignUpForm::where('event_id', $eventId)->firstOrFail();
         $event = Events::where('id', $eventId)->first();
-
+        $locations = Location::where('event_id', $eventId)->get();
+        
         return inertia('SignUpFormEmbed', [
             'form' => $form,
             'event' => $event,
+            'locations' => $locations
         ]);
     }
 
@@ -254,34 +223,23 @@ class SignUpFormController extends Controller
             'updated_at' => now(),
         ];
 
-        $selectedLocationName = null; // Placeholder for selected location name
+        // Handle location_id directly from the request
+        if ($request->has('events_location')) {
+            $insertData['location_id'] = $request->input('events_location');
+        }
+
         $questions = json_decode($form->questions, true);
         $questionMap = collect($questions)->pluck('column_name', 'text')->toArray();
-        foreach ($request->except('_token') as $key => $value) {
+        
+        foreach ($request->except(['_token', 'events_location']) as $key => $value) {
             // Find the corresponding column name from the questions
-  
             $columnName = $questionMap[$key] ?? null;
-       
-            $colums[] = $columnName;
+            
             if ($columnName && in_array($columnName, $validColumns)) {
                 $insertData[$columnName] = $value;
             }
-
-            if ($columnName === 'events_location') {
-                $selectedLocationName = $value;
-            }
         }
    
-        // ✅ Find Location ID from the Locations Table
-        if ($selectedLocationName) {
-            $location = Location::where('event_id', $eventId)
-                                ->where('name', $selectedLocationName)
-                                ->first();
-
-            if ($location) {
-                $insertData['location_id'] = $location->id;
-            }
-        }
         // Insert the validated data into the correct table
         DB::table($tableName)->insert($insertData);
         
