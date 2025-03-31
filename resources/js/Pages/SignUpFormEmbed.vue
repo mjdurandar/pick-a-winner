@@ -9,7 +9,6 @@ const hasAddressFields = computed(() => {
     );
 });
 
-
 const props = defineProps({
     form: Object,
     event: Object,
@@ -27,6 +26,102 @@ const selectedLocationData = ref({
     time: ''
 });
 
+// Get today's date
+const today = new Date();
+// Calculate date 3 weeks from today
+const threeWeeksFromToday = new Date(today);
+threeWeeksFromToday.setDate(today.getDate() + 21);
+
+// Format locations with proper date and time formats
+const formattedLocations = computed(() => {
+    if (!props.locations || !Array.isArray(props.locations)) return [];
+    
+    return props.locations.map(location => {
+        return {
+            ...location,
+            formatted_date: formatDate(location.date),
+            formatted_time: formatTime(location.time),
+            date_obj: new Date(location.date) // Add a proper Date object for easier comparison
+        };
+    });
+});
+
+// Filter to only include locations within the next 3 weeks
+const nextThreeWeeksLocations = computed(() => {
+    return formattedLocations.value.filter(location => {
+        // Only include locations from today up to 3 weeks from now
+        return location.date_obj >= today && location.date_obj <= threeWeeksFromToday;
+    });
+});
+
+// Group locations by date
+const groupedLocations = computed(() => {
+    if (!nextThreeWeeksLocations.value || !Array.isArray(nextThreeWeeksLocations.value)) return {};
+
+    // Group by date
+    const groupedByDate = nextThreeWeeksLocations.value.reduce((groups, location) => {
+        const dateKey = location.formatted_date;
+        if (!groups[dateKey]) groups[dateKey] = [];
+        groups[dateKey].push(location);
+        return groups;
+    }, {});
+
+    // Sort locations within each date group by time
+    Object.keys(groupedByDate).forEach(dateKey => {
+        groupedByDate[dateKey].sort((a, b) => {
+            return parseTimeToDate(a.time) - parseTimeToDate(b.time);
+        });
+    });
+
+    // Sort date keys chronologically
+    return Object.fromEntries(
+        Object.entries(groupedByDate)
+            .sort(([dateA], [dateB]) => {
+                // Get first location from each group to compare dates
+                const locationA = groupedByDate[dateA][0];
+                const locationB = groupedByDate[dateB][0];
+                return locationA.date_obj - locationB.date_obj;
+            })
+    );
+});
+
+// Helper function to parse time string to Date object for comparison
+function parseTimeToDate(timeString) {
+    if (!timeString) return new Date(0);
+    
+    try {
+        // Handle "7:00PM" or "7:00 PM" format
+        if (timeString.includes('AM') || timeString.includes('PM')) {
+            const timeParts = timeString.replace('AM', ' AM').replace('PM', ' PM').trim().split(' ');
+            const [hours, minutes] = timeParts[0].split(':');
+            const isPM = timeParts[1] === 'PM';
+            
+            const date = new Date();
+            date.setHours(isPM && parseInt(hours) < 12 ? parseInt(hours) + 12 : parseInt(hours));
+            date.setMinutes(parseInt(minutes));
+            date.setSeconds(0);
+            
+            return date;
+        }
+        
+        // Handle 24-hour format "HH:MM"
+        if (timeString.includes(':')) {
+            const [hours, minutes] = timeString.split(':');
+            const date = new Date();
+            date.setHours(parseInt(hours));
+            date.setMinutes(parseInt(minutes));
+            date.setSeconds(0);
+            
+            return date;
+        }
+        
+        return new Date(0); // Default
+    } catch (e) {
+        console.error("Error parsing time:", e);
+        return new Date(0);
+    }
+}
+
 // Function to handle location selection
 const handleLocationSelect = (event) => {
     const locationId = event.target.value;
@@ -35,8 +130,8 @@ const handleLocationSelect = (event) => {
         selectedLocationData.value = {
             id: location.id,
             name: location.name,
-            date: location.date,
-            time: location.time
+            date: formatDate(location.date),
+            time: formatTime(location.time)
         };
         // Add location ID to formValues with the correct key
         formValues.value['events_location'] = location.id;
@@ -143,22 +238,60 @@ const formatPhoneNumber = (fieldName, format) => {
     formValues.value[fieldName] = formattedNumber;
 };
 
-// ✅ Group locations by date (for hierarchical dropdown)
-const groupedLocations = computed(() => {
-    if (!props.locations || !Array.isArray(props.locations)) return {};
-
-    return props.locations.reduce((groups, location) => {
-        const formattedDate = formatDate(location.date);
-        if (!groups[formattedDate]) groups[formattedDate] = [];
-        groups[formattedDate].push(location);
-        return groups;
-    }, {});
-});
-
 // ✅ Convert date to readable format (e.g., March 31, 2025)
-const formatDate = (dateString) => {
-    return new Date(dateString).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
-};
+function formatDate(dateString) {
+    if (!dateString) return '';
+    
+    try {
+        // If date is already in a format like "March 7, 2025", no need to reformat
+        if (dateString.includes(',')) {
+            return dateString;
+        }
+        
+        const date = new Date(dateString);
+        if (isNaN(date.getTime())) return dateString; // Return original if invalid
+        
+        return date.toLocaleDateString('en-US', {
+            month: 'long',
+            day: '2-digit',
+            year: 'numeric'
+        });
+    } catch (e) {
+        console.error("Error formatting date:", e);
+        return dateString;
+    }
+}
+
+// Format time to "7:00PM" format
+function formatTime(timeString) {
+    if (!timeString) return '';
+    
+    try {
+        // If time is already in a format like "7:00 PM", no need to reformat except remove space
+        if (timeString.includes('AM') || timeString.includes('PM')) {
+            return timeString.replace(' ', ''); // Remove space between time and AM/PM
+        }
+        
+        // For 24-hour format "HH:MM"
+        if (timeString.includes(':')) {
+            const [hours, minutes] = timeString.split(':');
+            const date = new Date();
+            date.setHours(parseInt(hours));
+            date.setMinutes(parseInt(minutes));
+            
+            return date.toLocaleTimeString('en-US', {
+                hour: 'numeric',
+                minute: '2-digit',
+                hour12: true
+            }).replace(' ', ''); // Remove space between time and AM/PM
+        }
+        
+        return timeString;
+    } catch (e) {
+        console.error("Error formatting time:", e);
+        return timeString;
+    }
+}
 
 // Computed property to filter options
 const getVisibleOptions = (question) => {
@@ -187,6 +320,10 @@ watch(() => formValues.value['Country'], (newCountry) => {
     }
 });
 
+// Check if there are any upcoming events in the next 3 weeks
+const hasUpcomingEvents = computed(() => {
+    return Object.keys(groupedLocations.value).length > 0;
+});
 </script>
 
 <template>
@@ -224,32 +361,36 @@ watch(() => formValues.value['Country'], (newCountry) => {
             <input type="hidden" :value="csrfToken" name="_token">
 
             <label class="block font-medium text-gray-800 mb-1">Events Location</label>
-            <!-- <select 
-                v-model="selectedLocation" 
-                @change="handleLocationSelect"
-                class="form-select mb-3 w-full border rounded px-3 py-2"
-                required
-            >
-                <option value="" disabled>Select a location</option>
-                <option v-for="location in props.locations" :key="location.id" :value="location.id">
-                    {{ location.name }} - {{ location.date }} - {{ location.time }}
-                </option>
-            </select> -->
-            <select v-model="selectedLocation" @change="handleLocationSelect" class="form-select mb-3 w-full border rounded px-3 py-2" required>
-                <option value="" disabled>Select a location</option>
-                <optgroup v-for="(locations, date) in groupedLocations" :label="date" :key="date">
-                    <option v-for="location in locations" :key="location.id" :value="location.id">
-                        {{ location.name }} - {{ location.time }}
-                    </option>
-                </optgroup>
-            </select>
+            
+            <!-- Show location dropdown if there are upcoming events -->
+            <div v-if="hasUpcomingEvents">
+                <select 
+                    v-model="selectedLocation" 
+                    @change="handleLocationSelect"
+                    class="form-select mb-3 w-full border rounded px-3 py-2"
+                    required
+                >
+                    <option value="" disabled selected>Select a location</option>
+                    
+                    <optgroup v-for="(locations, date) in groupedLocations" :label="date" :key="date">
+                        <option v-for="location in locations" :key="location.id" :value="location.id">
+                            {{ location.name }} - {{ location.formatted_time }}
+                        </option>
+                    </optgroup>
+                </select>
+            </div>
+            
+            <!-- Message when no upcoming events -->
+            <div v-else class="alert alert-info mb-3">
+                No upcoming events in the next 3 weeks. Please check back later.
+            </div>
 
             <!-- Show selected location details -->
-            <!-- <div v-if="selectedLocationData.id" class="mb-4 p-3 bg-gray-50 rounded">
+            <div v-if="selectedLocationData.id" class="mb-4 p-3 bg-gray-50 rounded">
                 <p class="text-sm text-gray-600">Selected Location:</p>
                 <p class="font-medium">{{ selectedLocationData.name }}</p>
                 <p class="text-sm text-gray-600">{{ selectedLocationData.date }} at {{ selectedLocationData.time }}</p>
-            </div> -->
+            </div>
 
             <template v-for="(question, index) in JSON.parse(form.questions)" :key="index">
                 <label class="form-label" v-if="question.column_name !== 'street_address' && question.column_name !== 'street_address_2' && question.column_name !== 'city' && question.column_name !== 'state' && question.column_name !== 'zip_code' && question.column_name !== 'country'" >{{ question.text }}</label>
@@ -320,7 +461,7 @@ watch(() => formValues.value['Country'], (newCountry) => {
             </div>
 
             <div class="d-flex justify-content-center mt-4 mb-3">
-                <button type="submit" class="btn btn-primary w-40">Submit</button>
+                <button type="submit" class="btn btn-primary w-40" :disabled="!hasUpcomingEvents">Submit</button>
             </div>
         </form>
     </div>

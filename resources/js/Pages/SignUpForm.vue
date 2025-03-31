@@ -3,7 +3,6 @@ import { ref, watchEffect, computed } from 'vue';
 import { router, Head, usePage } from '@inertiajs/vue3';
 import Swal from 'sweetalert2';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout.vue';
-// import { Head } from '@inertiajs/vue3';
 
 // ✅ Receive `eventId` and `form` as props
 const props = defineProps({ 
@@ -26,6 +25,74 @@ const signupFormUrl = computed(() => {
     return `${window.location.origin}/adventureentertainment/form/${props.eventId}`;
 });
 
+// Format locations to display date and time in the desired format
+const formattedLocations = computed(() => {
+    if (!props.locations || !Array.isArray(props.locations)) return [];
+    
+    return props.locations.map(location => {
+        return {
+            ...location,
+            formatted_date: formatDate(location.date),
+            formatted_time: formatTime(location.time)
+        };
+    });
+});
+
+// Function to format date to "March 07, 2025" format
+function formatDate(dateString) {
+    if (!dateString) return '';
+    
+    try {
+        // If date is already in a format like "March 7, 2025", no need to reformat
+        if (dateString.includes(',')) {
+            return dateString;
+        }
+        
+        const date = new Date(dateString);
+        if (isNaN(date.getTime())) return dateString; // Return original if invalid
+        
+        return date.toLocaleDateString('en-US', {
+            month: 'long',
+            day: '2-digit',
+            year: 'numeric'
+        });
+    } catch (e) {
+        console.error("Error formatting date:", e);
+        return dateString;
+    }
+}
+
+// Function to format time to "7:00PM" format
+function formatTime(timeString) {
+    if (!timeString) return '';
+    
+    try {
+        // If time is already in a format like "7:00 PM", no need to reformat
+        if (timeString.includes('AM') || timeString.includes('PM')) {
+            // Remove space between time and AM/PM if exists
+            return timeString.replace(' ', '');
+        }
+        
+        // For 24-hour format "HH:MM"
+        if (timeString.includes(':')) {
+            const [hours, minutes] = timeString.split(':');
+            const date = new Date();
+            date.setHours(parseInt(hours));
+            date.setMinutes(parseInt(minutes));
+            
+            return date.toLocaleTimeString('en-US', {
+                hour: 'numeric',
+                minute: '2-digit',
+                hour12: true
+            }).replace(' ', ''); // Remove space between time and AM/PM
+        }
+        
+        return timeString;
+    } catch (e) {
+        console.error("Error formatting time:", e);
+        return timeString;
+    }
+}
 
 // ✅ Copy Signup Form URL to Clipboard
 const copySignupFormUrl = () => {
@@ -50,28 +117,6 @@ const submitTest = () => {
     Swal.fire('Submitted!', 'This is a test submission. No data has been received. Please copy the URL link and submit the data.', 'success');
 };
 
-// const generateSignUpForm = () => {
-//     Swal.fire({
-//         title: 'Are you sure you want to Generate Sign Up Form?',
-//         text: 'This action will create default questions for this event!',
-//         icon: 'warning',
-//         showCancelButton: true,
-//         confirmButtonText: 'Yes, generate it!',
-//         cancelButtonText: 'No, cancel'
-//     }).then((result) => {
-//         if (result.isConfirmed) {
-//             router.post(route('signup.generate'), { event_id: props.eventId }, {
-//                 onSuccess: (response) => {
-//                     Swal.fire('Generated!', 'Sign Up Form has been created.', 'success');
-                    
-//                     // ✅ Update form data when the response is received
-//                     signupForm.value = response.props.form;
-//                 }
-//             });
-//         }
-//     });
-// };
-
 const createSignUpForm = () => {
     router.get(route('signup.create', { eventId: props.eventId }));
 };
@@ -84,9 +129,9 @@ const editSignUpForm = () => {
 };
 
 const groupedLocations = computed(() => {
-    if (!props.locations || !Array.isArray(props.locations)) return {}; // Prevent errors
+    if (!formattedLocations.value || !Array.isArray(formattedLocations.value)) return {}; // Prevent errors
 
-    return props.locations.reduce((groups, location) => {
+    return formattedLocations.value.reduce((groups, location) => {
         if (!location.date) return groups; // Skip invalid entries
 
         const formattedDate = convertToISODate(location.date); // Convert date to valid format
@@ -107,11 +152,6 @@ const convertToISODate = (dateString) => {
         console.error("Invalid date:", dateString, error);
         return "";
     }
-};
-
-// Function to format dates nicely
-const formatDate = (dateString) => {
-    return new Date(dateString).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
 };
 
 // ✅ Watch for changes in `props.form` and update `signupForm`
@@ -178,12 +218,9 @@ watchEffect(() => {
                             <template v-for="(group, date) in groupedLocations" :key="date">
                                 <optgroup :label="formatDate(date)">
                                     <option v-for="location in group" :key="location.id" :value="location.id">
-                                        {{ location.name }} - {{ location.time }}
+                                        {{ location.name }} - {{ location.formatted_time }}
                                     </option>
                                 </optgroup>
-                                <!-- <option v-for="location in group" :key="location.id" :value="location.id">
-                                    {{ location.name }} - {{ location.time }}
-                                </option> -->
                             </template>
                         </select>
                         <!-- ✅ Loop through questions -->
@@ -242,4 +279,3 @@ watchEffect(() => {
         </div>
     </AuthenticatedLayout>
 </template>
-

@@ -123,7 +123,7 @@ class PickaWinnerController extends Controller
     {     
         return response()->json(
             Location::where('event_id', $event->id)
-                ->select(['id', 'name'])
+                ->select(['id', 'name', 'date', 'time'])
                 ->get()
         );
     }

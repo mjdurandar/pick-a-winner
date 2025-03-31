@@ -7,7 +7,8 @@ import { Head } from '@inertiajs/vue3';
 
 // Props from Laravel
 const props = defineProps({
-    events: Array
+    events: Array,
+    locations: Array
 });
 
 const showSelectionModal = ref(true);
@@ -24,6 +25,87 @@ const form = useForm({
 const selectedLocation = computed(() => {
     return locations.value.find(loc => loc.id === form.location_id);
 });
+
+// Format locations to display date and time in the desired format
+const formattedLocations = computed(() => {
+    return locations.value.map(location => {
+        return {
+            ...location,
+            formatted_date: formatDate(location.date),
+            formatted_time: formatTime(location.time)
+        };
+    });
+});
+
+// Group locations by date
+const groupedLocations = computed(() => {
+    return formattedLocations.value.reduce((groups, location) => {
+        const dateKey = location.date; // Use raw date for grouping key
+        if (!groups[dateKey]) {
+            groups[dateKey] = {
+                formatted_date: location.formatted_date,
+                locations: []
+            };
+        }
+        groups[dateKey].locations.push(location);
+        return groups;
+    }, {});
+});
+
+// Function to format date to "March 07, 2025" format
+function formatDate(dateString) {
+    if (!dateString) return '';
+    
+    try {
+        // If date is already in a format like "March 7, 2025", no need to reformat
+        if (dateString.includes(',')) {
+            return dateString;
+        }
+        
+        const date = new Date(dateString);
+        if (isNaN(date.getTime())) return dateString; // Return original if invalid
+        
+        return date.toLocaleDateString('en-US', {
+            month: 'long',
+            day: '2-digit',
+            year: 'numeric'
+        });
+    } catch (e) {
+        console.error("Error formatting date:", e);
+        return dateString;
+    }
+}
+
+// Function to format time to "7:00PM" format
+function formatTime(timeString) {
+    if (!timeString) return '';
+    
+    try {
+        // If time is already in a format like "7:00 PM", no need to reformat
+        if (timeString.includes('AM') || timeString.includes('PM')) {
+            return timeString.replace(' ', ''); // Remove space between time and AM/PM
+        }
+        
+        // For 24-hour format "HH:MM"
+        if (timeString.includes(':')) {
+            const [hours, minutes] = timeString.split(':');
+            const date = new Date();
+            date.setHours(parseInt(hours));
+            date.setMinutes(parseInt(minutes));
+            
+            return date.toLocaleTimeString('en-US', {
+                hour: 'numeric',
+                minute: '2-digit',
+                hour12: true
+            }).replace(' ', ''); // Remove space between time and AM/PM
+        }
+        
+        return timeString;
+    } catch (e) {
+        console.error("Error formatting time:", e);
+        return timeString;
+    }
+}
 
 // Get the password hint based on selection
 const getPasswordHint = computed(() => {
@@ -93,23 +175,6 @@ const handleSubmit = () => {
     });
 };
 
-// const toggleAllLocations = () => {
-//     // Set the form state first
-//     if (!form.is_all_locations) {
-//         // If we're checking the box
-//         const selectedEvent = props.events.find(e => e.id === form.event_id);
-//         if (selectedEvent) {
-//             form.password = selectedEvent.password;
-//         }
-//     } else {
-//         // If we're unchecking the box
-//         form.password = '';
-//     }
-    
-//     form.location_id = '';
-//     loadLocations();
-// };
-
 // Watch for event changes
 watch(() => form.event_id, () => {
     form.is_all_locations = false;
@@ -154,19 +219,6 @@ watch(() => form.event_id, () => {
                         </div>
                     </div>
 
-                    <!-- All Locations Checkbox -->
-                    <!-- <div v-if="form.event_id" class="mb-4">
-                        <label class="flex items-center cursor-pointer">
-                            <input
-                                type="checkbox"
-                                :checked="form.is_all_locations"
-                                @change="form.is_all_locations = !form.is_all_locations; toggleAllLocations()"
-                                class="form-checkbox h-4 w-4 text-blue-500 cursor-pointer"
-                            >
-                            <span class="ml-2 text-gray-700">All locations?</span>
-                        </label>
-                    </div> -->
-
                     <div v-if="!form.is_all_locations" class="mb-4">
                         <label class="block text-gray-700 text-sm font-bold mb-2" for="location">
                             Select Location
@@ -179,9 +231,13 @@ watch(() => form.event_id, () => {
                             :required="!form.is_all_locations"
                         >
                             <option value="">Select a location</option>
-                            <option v-for="location in locations" :key="location.id" :value="location.id">
-                                {{ location.name }}
-                            </option>
+                            <template v-for="(group, dateKey) in groupedLocations" :key="dateKey">
+                                <optgroup :label="group.formatted_date">
+                                    <option v-for="location in group.locations" :key="location.id" :value="location.id">
+                                        {{ location.name }} - {{ location.formatted_time }}
+                                    </option>
+                                </optgroup>
+                            </template>
                         </select>
                         <div v-if="form.errors.location_id" class="text-red-500 text-sm mt-1">
                             {{ form.errors.location_id }}
@@ -201,14 +257,6 @@ watch(() => form.event_id, () => {
                             @input="form.password = form.password.toUpperCase()"
                             required
                         />
-                        <!-- <p class="text-gray-600 text-sm mt-1" v-if="form.event_id">
-                            <template v-if="form.is_all_locations">
-                                Password is "{{ props.events.find(e => e.id === form.event_id)?.event_name.toUpperCase() }}"
-                            </template>
-                            <template v-else>
-                                Password is the location name before the hyphen in UPPERCASE
-                            </template>
-                        </p> -->
                         <div v-if="form.errors.password" class="text-red-500 text-sm mt-1">
                             {{ form.errors.password }}
                         </div>
@@ -226,5 +274,3 @@ watch(() => form.event_id, () => {
         </div>
     </PickaWinnerLayout>
 </template>
-
-

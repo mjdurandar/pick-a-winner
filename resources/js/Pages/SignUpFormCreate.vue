@@ -1,5 +1,5 @@
 <script setup>
-import { ref, watchEffect, onMounted } from 'vue';
+import { ref, watchEffect, onMounted, computed } from 'vue';
 import { router } from '@inertiajs/vue3';
 import Swal from 'sweetalert2';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout.vue';
@@ -11,6 +11,72 @@ const props = defineProps({
     locations: Array,
     eventValues: Object
 }); 
+
+// Format locations to display date and time in the desired format
+const formattedLocations = computed(() => {
+    return props.locations.map(location => {
+        return {
+            ...location,
+            formattedDate: formatDate(location.date),
+            formattedTime: formatTime(location.time)
+        };
+    });
+});
+
+// Function to format date to "March 07, 2025" format
+function formatDate(dateString) {
+    if (!dateString) return '';
+    
+    try {
+        // If date is already in a format like "March 7, 2025", no need to reformat
+        if (dateString.includes(',')) {
+            return dateString;
+        }
+        
+        const date = new Date(dateString);
+        if (isNaN(date.getTime())) return dateString; // Return original if invalid
+        
+        return date.toLocaleDateString('en-US', {
+            month: 'long',
+            day: '2-digit',
+            year: 'numeric'
+        });
+    } catch (e) {
+        console.error("Error formatting date:", e);
+        return dateString;
+    }
+}
+
+// Function to format time to "7:00 PM" format
+function formatTime(timeString) {
+    if (!timeString) return '';
+    
+    try {
+        // If time is already in a format like "7:00 PM", no need to reformat
+        if (timeString.includes('AM') || timeString.includes('PM')) {
+            return timeString;
+        }
+        
+        // For 24-hour format "HH:MM"
+        if (timeString.includes(':')) {
+            const [hours, minutes] = timeString.split(':');
+            const date = new Date();
+            date.setHours(parseInt(hours));
+            date.setMinutes(parseInt(minutes));
+            
+            return date.toLocaleTimeString('en-US', {
+                hour: 'numeric',
+                minute: '2-digit',
+                hour12: true
+            }).replace(' ', ''); // Remove space between time and AM/PM
+        }
+        
+        return timeString;
+    } catch (e) {
+        console.error("Error formatting time:", e);
+        return timeString;
+    }
+}
 
 const showModal = ref(false); // Controls the visibility of the modal
 
@@ -276,17 +342,6 @@ onMounted(() => {
                             </div>
                         </div>
 
-                        <!-- ✅ Number Format -->
-                        <!-- <div v-if="question.type === 'number'">
-                            <label class="font-medium">Number Format:</label>
-                            <select v-model="question.format" class="w-full border p-2 rounded mb-2">
-                                <option value="+1 (###) ###-####">USA: +1 (###) ###-####</option>
-                                <option value="+61 # #### ####">AU: +61 # #### ####</option>
-                                <option value="###-###-####">Custom: ###-###-####</option>
-                                <option value="FREE-NUMERIC">Any</option>
-                            </select>
-                        </div> -->
-
                         <div v-if="question.column_name !== 'events_location' && question.column_name !== 'email_address'
                         && question.column_name !== 'mobile_number' && question.column_name !== 'first_name' && question.column_name !== 'last_name'
                         && question.column_name !== 'age' && question.column_name !== 'gender'">
@@ -307,12 +362,12 @@ onMounted(() => {
                     <h2 class="text-lg font-bold mb-4">Locations for {{ eventValues.event_name }}</h2>
                     <ul>
                         <li 
-                            v-for="location in locations" 
+                            v-for="location in formattedLocations" 
                             :key="location.id" 
                             class="mb-2 p-2 border rounded cursor-pointer hover:bg-gray-100"
                             @click="selectLocation(location.name)"
                         >
-                            {{ location.name }} - {{ location.date }} - {{ location.time }}
+                            {{ location.name }} - {{ location.formattedDate }} - {{ location.formattedTime }}
                         </li>
                     </ul>
                     <button 

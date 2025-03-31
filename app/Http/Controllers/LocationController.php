@@ -22,6 +22,7 @@ class LocationController extends Controller
     {
         $event = Events::findOrFail($eventId);
         $locations = Location::where('event_id', $eventId)->get();
+
         return Inertia::render('PickaWinnerPage', [
             'event' => $event,
             'locations' => $locations
@@ -53,8 +54,8 @@ class LocationController extends Controller
         $location = Location::create([
             'name' => $request->name,
             'event_id' => $request->event_id,
-            'date' => date('F j, Y', strtotime($request->date)),
-            'time' => date('h:i A', strtotime($request->time)), 
+            'date' => $request->date,
+            'time' => $request->time,
             'password' => Str::random(10) // Generate a random password for the location
         ]);
 
@@ -71,8 +72,8 @@ class LocationController extends Controller
 
         $location->update([
             'name' => $request->name,
-            'date' => date('F j, Y', strtotime($request->date)),
-            'time' => date('h:i A', strtotime($request->time)), 
+            'date' => $request->date,
+            'time' => $request->time
         ]);
 
         return back()->with('success', 'Location updated successfully');
