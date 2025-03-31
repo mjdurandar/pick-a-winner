@@ -12,7 +12,7 @@ class LocationController extends Controller
 {
     public function index()
     {
-        $events = Events::all();
+        $events = Events::latest()->get();
         return Inertia::render('Locations', [
             'events' => $events
         ]);
