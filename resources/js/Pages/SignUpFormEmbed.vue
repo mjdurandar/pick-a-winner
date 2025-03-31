@@ -143,6 +143,22 @@ const formatPhoneNumber = (fieldName, format) => {
     formValues.value[fieldName] = formattedNumber;
 };
 
+// ✅ Group locations by date (for hierarchical dropdown)
+const groupedLocations = computed(() => {
+    if (!props.locations || !Array.isArray(props.locations)) return {};
+
+    return props.locations.reduce((groups, location) => {
+        const formattedDate = formatDate(location.date);
+        if (!groups[formattedDate]) groups[formattedDate] = [];
+        groups[formattedDate].push(location);
+        return groups;
+    }, {});
+});
+
+// ✅ Convert date to readable format (e.g., March 31, 2025)
+const formatDate = (dateString) => {
+    return new Date(dateString).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
+};
 
 // Computed property to filter options
 const getVisibleOptions = (question) => {
@@ -186,8 +202,8 @@ watch(() => formValues.value['Country'], (newCountry) => {
 
             <!-- ✅ Thank You Card (Shown after submission) -->
             <div v-if="isSubmitted" class="text-center p-5 border rounded shadow-sm bg-light">
-                <h2 class="mb-3 fw-bold" style="font-size: 20px;">Thank You for Signing Up!</h2>
-                <p class="mb-3">We've received your submission. We will contact you soon.</p>
+                <h2 class="mb-3 fw-bold" style="font-size: 20px;">Thank you for joining!</h2>
+                <p class="mb-3">You're now part of our community—stay tuned for exciting news, updates, and the chance to win amazing prizes!</p>
             </div>
 
             <!-- ✅ Event Details (Shown before submission) -->
@@ -208,7 +224,7 @@ watch(() => formValues.value['Country'], (newCountry) => {
             <input type="hidden" :value="csrfToken" name="_token">
 
             <label class="block font-medium text-gray-800 mb-1">Events Location</label>
-            <select 
+            <!-- <select 
                 v-model="selectedLocation" 
                 @change="handleLocationSelect"
                 class="form-select mb-3 w-full border rounded px-3 py-2"
@@ -218,6 +234,14 @@ watch(() => formValues.value['Country'], (newCountry) => {
                 <option v-for="location in props.locations" :key="location.id" :value="location.id">
                     {{ location.name }} - {{ location.date }} - {{ location.time }}
                 </option>
+            </select> -->
+            <select v-model="selectedLocation" @change="handleLocationSelect" class="form-select mb-3 w-full border rounded px-3 py-2" required>
+                <option value="" disabled>Select a location</option>
+                <optgroup v-for="(locations, date) in groupedLocations" :label="date" :key="date">
+                    <option v-for="location in locations" :key="location.id" :value="location.id">
+                        {{ location.name }} - {{ location.time }}
+                    </option>
+                </optgroup>
             </select>
 
             <!-- Show selected location details -->

@@ -42,7 +42,7 @@ class LocationController extends Controller
     }
 
     public function store(Request $request)
-    {
+    {   
         $request->validate([
             'name' => 'required|string|max:255',
             'event_id' => 'required|exists:events,id',
@@ -53,8 +53,8 @@ class LocationController extends Controller
         $location = Location::create([
             'name' => $request->name,
             'event_id' => $request->event_id,
-            'date' => $request->date,
-            'time' => $request->time,
+            'date' => date('F j, Y', strtotime($request->date)),
+            'time' => date('h:i A', strtotime($request->time)), 
             'password' => Str::random(10) // Generate a random password for the location
         ]);
 
@@ -71,8 +71,8 @@ class LocationController extends Controller
 
         $location->update([
             'name' => $request->name,
-            'date' => $request->date,
-            'time' => $request->time
+            'date' => date('F j, Y', strtotime($request->date)),
+            'time' => date('h:i A', strtotime($request->time)), 
         ]);
 
         return back()->with('success', 'Location updated successfully');

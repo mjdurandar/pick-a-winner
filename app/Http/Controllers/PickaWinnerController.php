@@ -42,8 +42,7 @@ class PickaWinnerController extends Controller
 
         if ($verifiedLocationId != $locationId || $verifiedEventId != $eventId) {
             // If not verified, redirect to pickawinner page with error
-            return redirect()->route('pickawinner.page', ['eventId' => $eventId])
-                ->with('error', 'Please enter the correct password to access this location.');
+            return redirect()->route('pickawinner.index');
         }
 
         $signUpForm = SignUpForm::where('event_id', $eventId)->firstOrFail();
@@ -53,10 +52,10 @@ class PickaWinnerController extends Controller
         $event = Events::findOrFail($eventId);
         $prize = Prize::where('event_id', $eventId)->where('location_id', $locationId)->get();
         
-        // ✅ Get the dynamic table name from the event
-        // ✅ Query the event's signup form table for attendees from this location
+        // Get the dynamic table name from the event
+        // Query the event's signup form table for attendees from this location
         $attendees = DB::table($tableName)
-        ->leftJoin('locations', "$tableName.location_id", '=', 'locations.id') // ✅ Join locations table
+        ->leftJoin('locations', "$tableName.location_id", '=', 'locations.id')
         ->select(
             "$tableName.id",
             "$tableName.first_name",
@@ -65,8 +64,8 @@ class PickaWinnerController extends Controller
             "$tableName.gender",
             "$tableName.mobile_number",
             "$tableName.location_id",
-            "locations.name as location_name", // ✅ Fetch the actual location name
-            DB::raw("DATE(CONVERT_TZ($tableName.created_at, '+00:00', '+00:00')) as created_at") // ✅ Force UTC
+            "locations.name as location_name",
+            DB::raw("DATE(CONVERT_TZ($tableName.created_at, '+00:00', '+00:00')) as created_at")
         )
         ->where("$tableName.event_id", $eventId)
         ->where("$tableName.location_id", $location->id)
@@ -166,7 +165,7 @@ class PickaWinnerController extends Controller
         // Check if password matches the stored password
         if (strtoupper($validated['password']) !== strtoupper($location->password)) {
             return back()->withErrors([
-                'password' => 'Invalid password.'
+                'password' => 'Invalid password. Please try again.'
             ]);
         }
 

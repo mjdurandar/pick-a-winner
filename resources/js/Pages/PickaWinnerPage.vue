@@ -186,9 +186,6 @@ const allLocationsPage = () => {
     router.get(route('pickawinner.alllocation', { event: props.event.id }));
 };
 
-const openPasswordLocation = () => {
-
-}
 
 // Function to open location creation modal
 const openLocationModal = (location = null) => {

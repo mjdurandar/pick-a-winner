@@ -1,6 +1,6 @@
 <script setup>
 import Swal from 'sweetalert2';
-import { ref, computed } from 'vue';
+import { ref, computed, onMounted } from 'vue';
 import { useForm, router } from '@inertiajs/vue3';
 import PickaWinnerLayout from '@/Layouts/PickaWinnerLayout.vue';
 import { Head } from '@inertiajs/vue3';
@@ -215,8 +215,16 @@ const eligibleAttendees = computed(() => {
 
     <PickaWinnerLayout>
         <div class="p-6">
+            <div class="flex justify-center items-center mb-3">
+                <!-- Replace the static logo with the dynamic event logo -->
+                <img 
+                :src="'/storage/' + props.event?.event_logo" 
+                    :alt="'Event Logo'" 
+                    class="w-10 h-10"
+                >
+            </div>
             <h2 class="text-2xl font-bold mb-6 text-center">
-                Pick a Winner for {{ event.event_name }}
+                {{ event.event_name }}
             </h2>
             <!-- Prizes Section -->
             <div class="mt-3 p-2">
@@ -385,6 +393,7 @@ const eligibleAttendees = computed(() => {
                     </div>
                 </div>
             </div>
+
         </div>
     </PickaWinnerLayout>
 </template>

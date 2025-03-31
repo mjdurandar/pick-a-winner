@@ -83,6 +83,37 @@ const editSignUpForm = () => {
     }
 };
 
+const groupedLocations = computed(() => {
+    if (!props.locations || !Array.isArray(props.locations)) return {}; // Prevent errors
+
+    return props.locations.reduce((groups, location) => {
+        if (!location.date) return groups; // Skip invalid entries
+
+        const formattedDate = convertToISODate(location.date); // Convert date to valid format
+
+        if (!groups[formattedDate]) {
+            groups[formattedDate] = [];
+        }
+        groups[formattedDate].push(location);
+        return groups;
+    }, {});
+});
+
+// Function to convert date to a consistent format
+const convertToISODate = (dateString) => {
+    try {
+        return new Date(dateString).toISOString().split("T")[0]; // Format as YYYY-MM-DD
+    } catch (error) {
+        console.error("Invalid date:", dateString, error);
+        return "";
+    }
+};
+
+// Function to format dates nicely
+const formatDate = (dateString) => {
+    return new Date(dateString).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" });
+};
+
 // ✅ Watch for changes in `props.form` and update `signupForm`
 watchEffect(() => {
     signupForm.value = props.form;
@@ -142,10 +173,18 @@ watchEffect(() => {
                     <div class="bg-white w-full md:w-3/5 mx-auto p-5 mt-4 rounded shadow-lg">
                         <label class="block font-medium text-gray-800 mb-1">Events Location</label>
                         <select v-model="selectedLocation" class="form-select mb-3 w-full border rounded px-3 py-2">
-                        <option value="" disabled>Select a location</option>
-                        <option v-for="location in locations" :key="location.id" :value="location.id">
-                            {{ location.name }} - {{ location.date }} - {{ location.time }}
-                        </option>
+                            <option value="" disabled>Select a location</option>
+
+                            <template v-for="(group, date) in groupedLocations" :key="date">
+                                <optgroup :label="formatDate(date)">
+                                    <option v-for="location in group" :key="location.id" :value="location.id">
+                                        {{ location.name }} - {{ location.time }}
+                                    </option>
+                                </optgroup>
+                                <!-- <option v-for="location in group" :key="location.id" :value="location.id">
+                                    {{ location.name }} - {{ location.time }}
+                                </option> -->
+                            </template>
                         </select>
                         <!-- ✅ Loop through questions -->
                         <div v-for="(question, index) in JSON.parse(signupForm.questions || '[]')" :key="index" class="mb-4">
