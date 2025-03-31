@@ -28,6 +28,11 @@ const selectedLocationData = ref({
 
 // Get today's date
 const today = new Date();
+
+// Calculate date 1 week ago
+const oneWeekAgo = new Date(today);
+oneWeekAgo.setDate(today.getDate() - 7);
+
 // Calculate date 3 weeks from today
 const threeWeeksFromToday = new Date(today);
 threeWeeksFromToday.setDate(today.getDate() + 21);
@@ -46,20 +51,20 @@ const formattedLocations = computed(() => {
     });
 });
 
-// Filter to only include locations within the next 3 weeks
-const nextThreeWeeksLocations = computed(() => {
+// Filter to only include locations from 1 week ago up to 3 weeks from now
+const fourWeekWindowLocations = computed(() => {
     return formattedLocations.value.filter(location => {
-        // Only include locations from today up to 3 weeks from now
-        return location.date_obj >= today && location.date_obj <= threeWeeksFromToday;
+        // Include locations from 1 week ago up to 3 weeks from now
+        return location.date_obj >= oneWeekAgo && location.date_obj <= threeWeeksFromToday;
     });
 });
 
 // Group locations by date
 const groupedLocations = computed(() => {
-    if (!nextThreeWeeksLocations.value || !Array.isArray(nextThreeWeeksLocations.value)) return {};
+    if (!fourWeekWindowLocations.value || !Array.isArray(fourWeekWindowLocations.value)) return {};
 
     // Group by date
-    const groupedByDate = nextThreeWeeksLocations.value.reduce((groups, location) => {
+    const groupedByDate = fourWeekWindowLocations.value.reduce((groups, location) => {
         const dateKey = location.formatted_date;
         if (!groups[dateKey]) groups[dateKey] = [];
         groups[dateKey].push(location);
@@ -320,10 +325,23 @@ watch(() => formValues.value['Country'], (newCountry) => {
     }
 });
 
-// Check if there are any upcoming events in the next 3 weeks
-const hasUpcomingEvents = computed(() => {
+// Check if there are any events in the four-week window
+const hasEventsInWindow = computed(() => {
     return Object.keys(groupedLocations.value).length > 0;
 });
+
+// Helper to determine if a date is in the past
+const isPastDate = (dateObj) => {
+    const todayStart = new Date(today);
+    todayStart.setHours(0, 0, 0, 0);
+    return dateObj < todayStart;
+};
+
+// Add a visual indicator for past dates
+const getDateLabelClass = (dateKey) => {
+    const firstLocation = groupedLocations.value[dateKey][0];
+    return isPastDate(firstLocation.date_obj) ? '' : '';
+};
 </script>
 
 <template>
@@ -362,8 +380,8 @@ const hasUpcomingEvents = computed(() => {
 
             <label class="block font-medium text-gray-800 mb-1">Events Location</label>
             
-            <!-- Show location dropdown if there are upcoming events -->
-            <div v-if="hasUpcomingEvents">
+            <!-- Show location dropdown if there are events in the window -->
+            <div v-if="hasEventsInWindow">
                 <select 
                     v-model="selectedLocation" 
                     @change="handleLocationSelect"
@@ -372,17 +390,26 @@ const hasUpcomingEvents = computed(() => {
                 >
                     <option value="" disabled selected>Select a location</option>
                     
-                    <optgroup v-for="(locations, date) in groupedLocations" :label="date" :key="date">
-                        <option v-for="location in locations" :key="location.id" :value="location.id">
+                    <optgroup 
+                        v-for="(locations, date) in groupedLocations" 
+                        :label="date" 
+                        :key="date"
+                        :class="getDateLabelClass(date)"
+                    >
+                        <option 
+                            v-for="location in locations" 
+                            :key="location.id" 
+                            :value="location.id"
+                        >
                             {{ location.name }} - {{ location.formatted_time }}
                         </option>
                     </optgroup>
                 </select>
             </div>
             
-            <!-- Message when no upcoming events -->
+            <!-- Message when no events in window -->
             <div v-else class="alert alert-info mb-3">
-                No upcoming events in the next 3 weeks. Please check back later.
+                No events available in the selected date range. Please check back later.
             </div>
 
             <!-- Show selected location details -->
@@ -461,7 +488,7 @@ const hasUpcomingEvents = computed(() => {
             </div>
 
             <div class="d-flex justify-content-center mt-4 mb-3">
-                <button type="submit" class="btn btn-primary w-40" :disabled="!hasUpcomingEvents">Submit</button>
+                <button type="submit" class="btn btn-primary w-40" :disabled="!hasEventsInWindow">Submit</button>
             </div>
         </form>
     </div>
