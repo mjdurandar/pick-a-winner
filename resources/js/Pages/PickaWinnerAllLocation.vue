@@ -11,18 +11,26 @@ const isEditing = ref(false);
 // ✅ Search Query
 const searchQuery = ref('');
 
-// ✅ Computed Property to Filter Attendees
+// Enhanced search filter with logging
 const filteredAttendees = computed(() => {
+    // console.log('Search query changed:', searchQuery.value);
+    // console.log('Total attendees before filtering:', props.attendees.length);
+    
     if (!searchQuery.value) {
+        // console.log('No search query - returning all attendees');
         return props.attendees;
     }
-    return props.attendees.filter(attendee =>
+    
+    const filtered = props.attendees.filter(attendee =>
         `${attendee.first_name} ${attendee.last_name}`.toLowerCase().includes(searchQuery.value.toLowerCase()) ||
         attendee.email_address.toLowerCase().includes(searchQuery.value.toLowerCase()) ||
         attendee.mobile_number.toLowerCase().includes(searchQuery.value.toLowerCase()) ||
         attendee.gender.toLowerCase().includes(searchQuery.value.toLowerCase()) ||
-        attendee.events_location.toLowerCase().includes(searchQuery.value.toLowerCase())
+        attendee.location_name?.toLowerCase().includes(searchQuery.value.toLowerCase())
     );
+    
+    // console.log('Filtered attendees count:', filtered.length);
+    return filtered;
 });
 
 const form = useForm({

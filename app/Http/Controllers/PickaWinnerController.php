@@ -90,7 +90,7 @@ class PickaWinnerController extends Controller
         ->leftJoin('locations', "$tableName.location_id", '=', 'locations.id') // Left Join locations
         ->select("$tableName.*", 'locations.name as location_name') // Select all event columns + location name
         ->get();
-    
+     
         // ✅ Check if prizes already exist for this event & location
         $existingPrizesCount = Prize::where('event_id', $eventId)
             ->whereNull('location_id') 
