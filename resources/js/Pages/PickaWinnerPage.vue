@@ -65,26 +65,13 @@ const parseCSV = (csvText) => {
     // Split by newlines and handle different line endings, then filter out empty rows
     const rows = csvText
         .split(/\r?\n/)
-        .map(row => row.split(',').map(cell => {
-            // Clean the cell value by removing extra quotes and trimming
-            return cell.trim().replace(/^["']+|["']+$/g, '');
-        }))
-        .filter(row => row.some(cell => cell !== '')); // Filter out completely empty rows
-    
+        .map(row => row.split(','))
+        .filter(row => row.some(cell => cell !== ''));
+
+    console.log('Total rows found:', rows.length - 1); // -1 for header row
+
     if (rows.length < 2) {
         Swal.fire('Error!', 'CSV file is empty or has no data rows.', 'error');
-        return;
-    }
-
-    // Validate headers
-    const headers = rows[0];
-    const requiredHeaders = ['name', 'date', 'time'];
-    const missingHeaders = requiredHeaders.filter(header => 
-        !headers.some(h => h.toLowerCase().includes(header.toLowerCase()))
-    );
-
-    if (missingHeaders.length > 0) {
-        Swal.fire('Error!', `Missing required columns: ${missingHeaders.join(', ')}`, 'error');
         return;
     }
 
@@ -117,6 +104,7 @@ const parseCSV = (csvText) => {
     rows.slice(1).forEach((row, index) => {
         // Skip empty rows or rows with all empty cells
         if (!row.some(cell => cell !== '')) {
+            console.log(`Skipping empty row ${index + 2}`);
             return;
         }
 
@@ -125,20 +113,20 @@ const parseCSV = (csvText) => {
             let name = row[0].trim();
             let dateTimeParts = row.slice(1).join(',').split(',').map(part => part.trim());
 
-            console.log('Raw parts:', dateTimeParts);
+            console.log(`Processing row ${index + 2}:`, {
+                name,
+                dateTimeParts
+            });
 
             // Find the time part (should contain "pm" or "am")
-            let timeStr = dateTimeParts.find(part => part.toLowerCase().includes('pm') || part.toLowerCase().includes('am'));
+            let timeStr = dateTimeParts.find(part => 
+                part.toLowerCase().includes('pm') || 
+                part.toLowerCase().includes('am')
+            );
             
             // The remaining parts should form the date
             let dateParts = dateTimeParts.filter(part => part !== timeStr);
             let fullDateStr = dateParts.join(' ').trim();
-
-            console.log('Parsed initial:', {
-                name,
-                fullDateStr,
-                timeStr
-            });
 
             // Convert time to 24-hour format
             let formattedTime = convertTo24Hour(timeStr);
@@ -147,58 +135,49 @@ const parseCSV = (csvText) => {
             }
 
             // Parse the date
-            try {
-                const date = new Date(fullDateStr);
-                
-                // Validate the date
-                if (isNaN(date.getTime())) {
-                    throw new Error(`Could not parse date: ${fullDateStr}`);
-                }
-
-                // Format the date in MySQL format (YYYY-MM-DD)
-                const formattedYear = date.getFullYear();
-                const formattedMonth = String(date.getMonth() + 1).padStart(2, '0');
-                const formattedDay = String(date.getDate()).padStart(2, '0');
-                const formattedDate = `${formattedYear}-${formattedMonth}-${formattedDay}`;
-
-                console.log('Final parsed data:', {
-                    name,
-                    originalDate: fullDateStr,
-                    formattedDate,
-                    originalTime: timeStr,
-                    formattedTime
-                });
-
-                const locationData = {
-                    name: name,
-                    date: formattedDate,
-                    time: formattedTime,
-                    event_id: props.event.id
-                };
-
-                // Validate data
-                if (!locationData.name || !locationData.date || !locationData.time || 
-                    locationData.name.trim() === '' || 
-                    locationData.date.trim() === '' || 
-                    locationData.time.trim() === '') {
-                    throw new Error('Missing required data');
-                }
-
-                validLocations.push(locationData);
-                console.log('Added location:', locationData);
-
-            } catch (error) {
-                throw new Error(`Invalid date format - ${error.message}`);
+            const date = new Date(fullDateStr);
+            
+            // Validate the date
+            if (isNaN(date.getTime())) {
+                throw new Error(`Could not parse date: ${fullDateStr}`);
             }
 
+            // Format the date in MySQL format (YYYY-MM-DD)
+            const formattedYear = date.getFullYear();
+            const formattedMonth = String(date.getMonth() + 1).padStart(2, '0');
+            const formattedDay = String(date.getDate()).padStart(2, '0');
+            const formattedDate = `${formattedYear}-${formattedMonth}-${formattedDay}`;
+
+            const locationData = {
+                name: name,
+                date: formattedDate,
+                time: formattedTime,
+                event_id: props.event.id
+            };
+
+            // Validate data
+            if (!locationData.name || !locationData.date || !locationData.time || 
+                locationData.name.trim() === '' || 
+                locationData.date.trim() === '' || 
+                locationData.time.trim() === '') {
+                throw new Error('Missing required data');
+            }
+
+            validLocations.push(locationData);
+            console.log(`Successfully processed row ${index + 2}:`, locationData);
+
         } catch (error) {
-            console.error('Error processing row', index + 2, ':', error.message);
+            console.error(`Error processing row ${index + 2}:`, error.message);
             console.error('Row data:', row);
             errors.push(`Row ${index + 2}: ${error.message}`);
         }
     });
 
+    console.log('Total valid locations:', validLocations.length);
+    console.log('Total errors:', errors.length);
+
     if (errors.length > 0) {
+        console.log('Errors found:', errors);
         Swal.fire({
             title: 'Import Errors',
             html: `Found ${errors.length} errors:<br>${errors.join('<br>')}`,
@@ -213,23 +192,99 @@ const parseCSV = (csvText) => {
         return;
     }
 
-    // Log the data before importing to verify
-    console.log('Locations to import:', validLocations);
-
-    // Import valid locations
+    // Import locations in batches
     importLocations(validLocations);
 };
 
 const importLocations = async (locations) => {
     try {
-        for (const location of locations) {
-            await router.post(route('location.store'), location);
-        }
+        console.log('Starting import of', locations.length, 'locations');
         
-        Swal.fire('Success!', `${locations.length} locations imported successfully.`, 'success');
-        router.reload();
+        const results = {
+            success: [],
+            failed: []
+        };
+
+        // Import locations sequentially to avoid overwhelming the server
+        for (let i = 0; i < locations.length; i++) {
+            const location = locations[i];
+            try {
+                console.log(`Importing location ${i + 1}/${locations.length}:`, location);
+                const response = await router.post(route('location.store'), location);
+                
+                // Add to success list
+                results.success.push({
+                    index: i + 1,
+                    name: location.name,
+                    date: location.date,
+                    time: location.time
+                });
+
+                // Log progress
+                console.log(`Successfully imported ${i + 1}/${locations.length}:`, {
+                    name: location.name,
+                    date: location.date,
+                    time: location.time
+                });
+
+            } catch (error) {
+                console.error(`Failed to import location ${i + 1}/${locations.length}:`, location, error);
+                results.failed.push({
+                    index: i + 1,
+                    name: location.name,
+                    error: error.message
+                });
+            }
+
+            // Add a small delay between imports to prevent overwhelming the server
+            await new Promise(resolve => setTimeout(resolve, 100));
+        }
+
+        console.log('Import completed. Results:', {
+            total: locations.length,
+            successful: results.success.length,
+            failed: results.failed.length,
+            successList: results.success,
+            failedList: results.failed
+        });
+
+        if (results.failed.length > 0) {
+            // Show error message with details
+            const errorMessage = `
+                Imported ${results.success.length} of ${locations.length} locations.<br><br>
+                Failed to import ${results.failed.length} locations:<br>
+                ${results.failed.map(f => `Row ${f.index}: ${f.name}`).join('<br>')}
+            `;
+            
+            Swal.fire({
+                title: 'Partial Import Success',
+                html: errorMessage,
+                icon: 'warning',
+                confirmButtonText: 'OK'
+            }).then(() => {
+                router.reload();
+            });
+        } else {
+            // All successful
+            Swal.fire({
+                title: 'Success!',
+                html: `Successfully imported all ${locations.length} locations.<br><br>
+                      Imported locations:<br>
+                      ${results.success.map(s => `${s.name} (${s.date})`).join('<br>')}`,
+                icon: 'success',
+                confirmButtonText: 'OK'
+            }).then(() => {
+                router.reload();
+            });
+        }
     } catch (error) {
-        Swal.fire('Error!', 'Failed to import locations. Please try again.', 'error');
+        console.error('Import error:', error);
+        Swal.fire({
+            title: 'Error!',
+            text: 'Failed to complete the import process. Please check the console for details.',
+            icon: 'error',
+            confirmButtonText: 'OK'
+        });
     }
 };
 
