@@ -24,6 +24,7 @@ const newPassword = ref('');
 const confirmPassword = ref('');
 const eventNewPassword = ref('');
 const eventConfirmPassword = ref('');
+const showCSVFormat = ref(false);
 
 // Add new form for location creation
 const locationForm = useForm({
@@ -33,6 +34,204 @@ const locationForm = useForm({
     date: '',
     time: ''
 });
+
+// Add CSV import functionality
+const handleFileUpload = (event) => {
+    const file = event.target.files[0];
+    if (!file) return;
+
+    // Check file type
+    if (!file.name.endsWith('.csv')) {
+        Swal.fire('Error!', 'Please upload a CSV file.', 'error');
+        return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = (e) => {
+        try {
+            const text = e.target.result;
+            parseCSV(text);
+        } catch (error) {
+            Swal.fire('Error!', 'Failed to read the CSV file. Please check the file format.', 'error');
+        }
+    };
+    reader.onerror = () => {
+        Swal.fire('Error!', 'Failed to read the file.', 'error');
+    };
+    reader.readAsText(file);
+};
+
+const parseCSV = (csvText) => {
+    // Split by newlines and handle different line endings, then filter out empty rows
+    const rows = csvText
+        .split(/\r?\n/)
+        .map(row => row.split(',').map(cell => {
+            // Clean the cell value by removing extra quotes and trimming
+            return cell.trim().replace(/^["']+|["']+$/g, '');
+        }))
+        .filter(row => row.some(cell => cell !== '')); // Filter out completely empty rows
+    
+    if (rows.length < 2) {
+        Swal.fire('Error!', 'CSV file is empty or has no data rows.', 'error');
+        return;
+    }
+
+    // Validate headers
+    const headers = rows[0];
+    const requiredHeaders = ['name', 'date', 'time'];
+    const missingHeaders = requiredHeaders.filter(header => 
+        !headers.some(h => h.toLowerCase().includes(header.toLowerCase()))
+    );
+
+    if (missingHeaders.length > 0) {
+        Swal.fire('Error!', `Missing required columns: ${missingHeaders.join(', ')}`, 'error');
+        return;
+    }
+
+    // Process data rows
+    const validLocations = [];
+    const errors = [];
+
+    // Function to convert 12-hour time to 24-hour format
+    const convertTo24Hour = (timeStr) => {
+        if (!timeStr) return '';
+        
+        const [time, period] = timeStr.toLowerCase().split(' ');
+        if (!time || !period) return '';
+
+        let [hours, minutes] = time.split(':');
+        if (!hours || !minutes) return '';
+
+        hours = parseInt(hours);
+        if (isNaN(hours)) return '';
+
+        if (period === 'pm' && hours !== 12) {
+            hours += 12;
+        } else if (period === 'am' && hours === 12) {
+            hours = 0;
+        }
+
+        return `${String(hours).padStart(2, '0')}:${minutes}`;
+    };
+
+    rows.slice(1).forEach((row, index) => {
+        // Skip empty rows or rows with all empty cells
+        if (!row.some(cell => cell !== '')) {
+            return;
+        }
+
+        try {
+            // Extract and clean the raw data
+            let name = row[0].trim();
+            let dateTimeParts = row.slice(1).join(',').split(',').map(part => part.trim());
+
+            console.log('Raw parts:', dateTimeParts);
+
+            // Find the time part (should contain "pm" or "am")
+            let timeStr = dateTimeParts.find(part => part.toLowerCase().includes('pm') || part.toLowerCase().includes('am'));
+            
+            // The remaining parts should form the date
+            let dateParts = dateTimeParts.filter(part => part !== timeStr);
+            let fullDateStr = dateParts.join(' ').trim();
+
+            console.log('Parsed initial:', {
+                name,
+                fullDateStr,
+                timeStr
+            });
+
+            // Convert time to 24-hour format
+            let formattedTime = convertTo24Hour(timeStr);
+            if (!formattedTime) {
+                throw new Error(`Invalid time format: ${timeStr}. Expected format: "H:MM am/pm"`);
+            }
+
+            // Parse the date
+            try {
+                const date = new Date(fullDateStr);
+                
+                // Validate the date
+                if (isNaN(date.getTime())) {
+                    throw new Error(`Could not parse date: ${fullDateStr}`);
+                }
+
+                // Format the date in MySQL format (YYYY-MM-DD)
+                const formattedYear = date.getFullYear();
+                const formattedMonth = String(date.getMonth() + 1).padStart(2, '0');
+                const formattedDay = String(date.getDate()).padStart(2, '0');
+                const formattedDate = `${formattedYear}-${formattedMonth}-${formattedDay}`;
+
+                console.log('Final parsed data:', {
+                    name,
+                    originalDate: fullDateStr,
+                    formattedDate,
+                    originalTime: timeStr,
+                    formattedTime
+                });
+
+                const locationData = {
+                    name: name,
+                    date: formattedDate,
+                    time: formattedTime,
+                    event_id: props.event.id
+                };
+
+                // Validate data
+                if (!locationData.name || !locationData.date || !locationData.time || 
+                    locationData.name.trim() === '' || 
+                    locationData.date.trim() === '' || 
+                    locationData.time.trim() === '') {
+                    throw new Error('Missing required data');
+                }
+
+                validLocations.push(locationData);
+                console.log('Added location:', locationData);
+
+            } catch (error) {
+                throw new Error(`Invalid date format - ${error.message}`);
+            }
+
+        } catch (error) {
+            console.error('Error processing row', index + 2, ':', error.message);
+            console.error('Row data:', row);
+            errors.push(`Row ${index + 2}: ${error.message}`);
+        }
+    });
+
+    if (errors.length > 0) {
+        Swal.fire({
+            title: 'Import Errors',
+            html: `Found ${errors.length} errors:<br>${errors.join('<br>')}`,
+            icon: 'warning',
+            confirmButtonText: 'OK'
+        });
+        return;
+    }
+
+    if (validLocations.length === 0) {
+        Swal.fire('Error!', 'No valid locations found to import.', 'error');
+        return;
+    }
+
+    // Log the data before importing to verify
+    console.log('Locations to import:', validLocations);
+
+    // Import valid locations
+    importLocations(validLocations);
+};
+
+const importLocations = async (locations) => {
+    try {
+        for (const location of locations) {
+            await router.post(route('location.store'), location);
+        }
+        
+        Swal.fire('Success!', `${locations.length} locations imported successfully.`, 'success');
+        router.reload();
+    } catch (error) {
+        Swal.fire('Error!', 'Failed to import locations. Please try again.', 'error');
+    }
+};
 
 // ✅ Computed Property to Filter Locations
 const filteredLocations = computed(() => {
@@ -321,12 +520,35 @@ const closePasswordModal = () => {
                     <div class="p-6 text-gray-900 text-center">
                         <div class="flex flex-col sm:flex-row justify-between items-center gap-4 mb-4">
                             <h3 class="text-lg font-semibold text-center sm:text-left">Locations Password for {{ event.event_name }}</h3>
-                            <button 
-                                class="w-full sm:w-auto bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-700"
-                                @click="openLocationModal()"
-                            >
-                                Add Location
-                            </button>
+                            <div class="flex gap-2">
+                                <!-- CSV Import Button with Help Text -->
+                                <div class="relative group">
+                                        <!-- Help Icon -->
+                                        <button 
+                                            type="button"
+                                            class="me-2 text-gray-500 hover:text-gray-700"
+                                            @click="showCSVFormat = true"
+                                        >
+                                            <i class="fa-solid fa-circle-question"></i>
+                                        </button>
+                                    <label class="bg-green-500 text-white px-4 py-2 rounded hover:bg-green-700 cursor-pointer">
+                                        <i class="fa-solid fa-file-import"></i>
+                                        <input 
+                                            type="file" 
+                                            accept=".csv"
+                                            class="hidden"
+                                            @change="handleFileUpload"
+                                        >
+                                    </label>
+                                </div>
+                                <!-- Add Location Button -->
+                                <button 
+                                    class="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-700"
+                                    @click="openLocationModal()"
+                                >
+                                    <i class="fa-solid fa-plus"></i> Add Location
+                                </button>
+                            </div>
                         </div>
                         <!-- <div class="d-flex justify-content-between items-center mb-4">
                             <button class="btn btn-primary" @click="openEventPasswordModal">
@@ -512,6 +734,43 @@ const closePasswordModal = () => {
                                 <button type="submit" class="btn btn-primary">{{ isEditing ? 'Update Location' : 'Save Location' }}</button>
                             </div>
                         </form>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- CSV Format Modal -->
+        <div v-if="showCSVFormat" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+            <div class="bg-white p-6 rounded-lg shadow-xl max-w-2xl w-full mx-4">
+                <div class="flex justify-between items-center mb-4">
+                    <h3 class="text-lg font-semibold">CSV Import Format Instructions</h3>
+                    <button @click="showCSVFormat = false" class="text-gray-500 hover:text-gray-700">
+                        <i class="fa-solid fa-times"></i>
+                    </button>
+                </div>
+                <div class="space-y-4">
+                    <p class="text-gray-600">Your CSV file should follow this format:</p>
+                    <div class="bg-gray-100 p-4 rounded">
+                        <pre class="text-sm">name,date,time
+Adelaide,September 01 2024,4:00 pm
+Melbourne,September 02 2024,6:00 pm</pre>
+                    </div>
+                    <div class="space-y-2">
+                        <p class="font-semibold">Requirements:</p>
+                        <ul class="list-disc list-inside space-y-1 text-gray-600">
+                            <li>File must be in CSV format</li>
+                            <li>Must include header row with columns: name, date, time</li>
+                            <li>Date format: Month DD YYYY (e.g., "September 01 2024")</li>
+                            <li>Time format: H:MM am/pm (e.g., "4:00 pm" or "10:30 am")</li>
+                        </ul>
+                    </div>
+                    <div class="mt-6 flex justify-end">
+                        <button 
+                            @click="showCSVFormat = false"
+                            class="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-700"
+                        >
+                            Got it
+                        </button>
                     </div>
                 </div>
             </div>
