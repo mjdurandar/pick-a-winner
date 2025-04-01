@@ -188,16 +188,22 @@ watch(() => form.event_id, () => {
     <Head title="Pick a Winner" />
 
     <PickaWinnerLayout>
-        <!-- Selection Modal -->
-        <div class="flex items-center justify-center min-h-screen p-3">
+        <!-- Selection Modal with Black Background -->
+        <div class="flex flex-col items-center justify-center min-h-screen p-3 bg-black">
+            <!-- Logo outside the box -->
+            <div class="flex justify-center mb-10">
+                <img
+                    src="https://adventureentertainment.com/wp-content/themes/adv001corp/resources/artwork/site-header__logo.svg?v=1712329405"
+                    alt="Login"
+                    class="w-100"
+                />
+            </div>
+            <div class="flex justify-center mb-10">
+                <h1 class="text-white text-4xl font-bold">Pick a Winner</h1>
+            </div>
+            
+            <!-- White Form Box -->
             <div class="bg-white p-8 rounded-lg shadow-lg w-full max-w-md">
-                <div class="flex justify-center mb-4">
-                    <img
-                        src="https://s3-ap-southeast-2.amazonaws.com/yc.cldmlk.com/jrvyz6cav5m2kaq1mqmsb7ag7r/uploads/1710312954714_AdventureEntertainment_Logo_RGB_Black.png"
-                        alt="Login"
-                        class="w-48"
-                    />
-                </div>
                 <form @submit.prevent="handleSubmit">
                     <div class="mb-4">
                         <label class="block text-gray-700 text-sm font-bold mb-2" for="event">
@@ -264,10 +270,10 @@ watch(() => form.event_id, () => {
 
                     <button
                         type="submit"
-                        class="w-full bg-blue-500 text-white py-2 px-4 rounded-md hover:bg-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
+                        class="w-full bg-cyan-500 text-white py-2 px-4 rounded-md hover:bg-cyan-600 focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:ring-offset-2"
                         :disabled="form.processing || (!form.is_all_locations && !form.location_id) || !form.event_id || !form.password"
                     >
-                        {{ form.processing ? 'Verifying...' : 'Continue' }}
+                        {{ form.processing ? 'Verifying...' : 'Enter' }}
                     </button>
                 </form>
             </div>

@@ -37,6 +37,30 @@
         return props.locations.filter(location => location.event_id === selectedEvent.value);
     });
 
+    // Group locations by date
+    const groupedLocations = computed(() => {
+        if (!filteredLocations.value || filteredLocations.value.length === 0) return {};
+        
+        return filteredLocations.value.reduce((groups, location) => {
+            const dateKey = location.date; // Use raw date for grouping key
+            if (!groups[dateKey]) {
+                groups[dateKey] = {
+                    formattedDate: formatDate(location.date),
+                    locations: []
+                };
+            }
+            
+            // Add formatted time to each location
+            const locationWithTime = {
+                ...location,
+                formattedTime: formatTime(location.time)
+            };
+            
+            groups[dateKey].locations.push(locationWithTime);
+            return groups;
+        }, {});
+    });
+
     // ✅ Helper function to truncate text
     const truncateText = (text, length) => {
         if (text.length <= length) return text;
@@ -94,7 +118,73 @@
         return event ? event.event_name : "Select an Event";
     });
 
+    // Format locations to display date and time in the desired format
+    const formattedLocations = computed(() => {
+        if (!props.locations || !Array.isArray(props.locations)) return [];
+        
+        return props.locations.map(location => {
+            return {
+                ...location,
+                formattedDate: formatDate(location.date),
+                formattedTime: formatTime(location.time)
+            };
+        });
+    });
 
+    // Function to format date to "March 07, 2025" format
+    function formatDate(dateString) {
+        if (!dateString) return '';
+        
+        try {
+            // If date is already in a format like "March 7, 2025", no need to reformat
+            if (dateString.includes(',')) {
+                return dateString;
+            }
+            
+            const date = new Date(dateString);
+            if (isNaN(date.getTime())) return dateString; // Return original if invalid
+            
+            return date.toLocaleDateString('en-US', {
+                month: 'long',
+                day: '2-digit',
+                year: 'numeric'
+            });
+        } catch (e) {
+            console.error("Error formatting date:", e);
+            return dateString;
+        }
+    }
+
+    // Function to format time to "7:00PM" format
+    function formatTime(timeString) {
+        if (!timeString) return '';
+        
+        try {
+            // If time is already in a format like "7:00 PM", no need to reformat
+            if (timeString.includes('AM') || timeString.includes('PM')) {
+                return timeString.replace(' ', ''); // Remove space between time and AM/PM
+            }
+            
+            // For 24-hour format "HH:MM"
+            if (timeString.includes(':')) {
+                const [hours, minutes] = timeString.split(':');
+                const date = new Date();
+                date.setHours(parseInt(hours));
+                date.setMinutes(parseInt(minutes));
+                
+                return date.toLocaleTimeString('en-US', {
+                    hour: 'numeric',
+                    minute: '2-digit',
+                    hour12: true
+                }).replace(' ', ''); // Remove space between time and AM/PM
+            }
+            
+            return timeString;
+        } catch (e) {
+            console.error("Error formatting time:", e);
+            return timeString;
+        }
+    }
 </script>
 
 
@@ -127,7 +217,7 @@
                                 </select>
                             </div>
 
-                            <!-- ✅ Location Selection -->
+                            <!-- ✅ Location Selection with OptGroup by Date -->
                             <div v-if="locations.length > 0" class="me-3">
                                 <label class="block text-lg font-semibold mb-2">Location:</label>
                                 <select 
@@ -135,9 +225,15 @@
                                     class="w-full p-2 border rounded"
                                     :disabled="filteredLocations.length === 0">
                                     <option value="" disabled>Select a Location</option>
-                                    <option v-for="location in filteredLocations" :key="location.id" :value="location.id">
-                                        {{ location.name }}
-                                    </option>
+                                    
+                                    <!-- Group locations by date -->
+                                    <template v-for="(dateGroup, dateKey) in groupedLocations" :key="dateKey">
+                                        <optgroup :label="dateGroup.formattedDate">
+                                            <option v-for="location in dateGroup.locations" :key="location.id" :value="location.id">
+                                                {{ location.name }} - {{ location.formattedTime }}
+                                            </option>
+                                        </optgroup>
+                                    </template>
                                 </select>
                             </div>
 
@@ -190,4 +286,3 @@
         </div>
     </AuthenticatedLayout>
 </template>
-
