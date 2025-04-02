@@ -129,7 +129,7 @@ class PickaWinnerController extends Controller
     }
 
     public function verify(Request $request)
-    {
+    {   
         $validated = $request->validate([
             'event_id' => 'required|exists:events,id',
             'location_id' => 'required_unless:is_all_locations,true|exists:locations,id',
@@ -173,6 +173,12 @@ class PickaWinnerController extends Controller
         Session::put('verified_location_id', $location->id);
         Session::put('verified_event_id', $validated['event_id']);
 
+        if (!SignupForm::where('event_id', $validated['event_id'])->exists()) {
+            return back()->withErrors([
+                'password' => 'Signup form not created yet. Please contact the admin.'
+            ]);
+        }
+        
         return redirect()->route('pickawinner.locationpage', [
             'location' => $validated['location_id'],
             'event' => $validated['event_id']

@@ -351,7 +351,7 @@ input:-webkit-autofill:active {
     <Head title="Pick a Winner Location Page" />
 
     <PickaWinnerLayout>
-        <div class="p-6 bg-black text-white">
+        <div class="p-6 text-white" style="background-color: #151515;">
             <!-- ✅ Prizes Button -->
             <div class="mt-3 p-2">
                 <div class="mx-auto max-w-7xl sm:px-6 lg:px-8">
@@ -368,11 +368,11 @@ input:-webkit-autofill:active {
                             {{ event.event_name }} <br> {{ location.name }} 
                         </h2>
                     </div>
-                    <div class="overflow-hidden bg-black border border-gray-700 shadow-sm sm:rounded-lg">
+                    <div class="overflow-hidden border border-gray-700 shadow-sm" style="background-color: #151515;">
                         <div class="p-6 text-white">
                             <div class="d-flex justify-content-end">
                                 <button 
-                                    class="bg-cyan-500 text-white px-4 py-2 rounded hover:bg-cyan"
+                                    class="bg-cyan-500 text-white px-4 py-2 hover:bg-cyan"
                                     @click="openAddPrizeModal()"
                                 >
                                     Add Prizes
@@ -413,7 +413,7 @@ input:-webkit-autofill:active {
             <!-- ✅ Attendees Table -->
             <div class="p-2 pb-5">
                 <div class="mx-auto max-w-7xl sm:px-6 lg:px-8">
-                    <div class="overflow-hidden bg-black border border-gray-700 shadow-sm sm:rounded-lg">
+                    <div class="overflow-hidden border border-gray-700 shadow-sm" style="background-color: #151515;">
                         <div class="p-6 text-white">
                             <div class="d-flex justify-content-between">
                                 <h3 class="text-lg font-semibold mb-4">Attendees at {{ location.name }}</h3>
@@ -423,7 +423,7 @@ input:-webkit-autofill:active {
                                             v-model="searchQuery"
                                             type="text"
                                             placeholder="Search attendees..."
-                                            class="w-full p-2 border rounded bg-gray-800 text-white border-gray-700"
+                                            class="w-full p-2 border bg-gray-800 text-white border-gray-700"
                                             style="color: white !important;"
                                         />
                                     </div>

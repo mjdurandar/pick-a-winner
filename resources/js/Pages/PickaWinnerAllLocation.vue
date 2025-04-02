@@ -247,7 +247,7 @@ input:-webkit-autofill:active {
     <Head title="Pick a Winner All Location Page" />
 
     <PickaWinnerLayout>
-        <div class="p-6 bg-black text-white">
+        <div class="p-6 text-white" style="background-color: #151515;">
             <!-- Prizes Section -->
             <div class="mt-3 p-2">
                 <div class="mx-auto max-w-7xl sm:px-6 lg:px-8">
@@ -264,7 +264,7 @@ input:-webkit-autofill:active {
                             {{ event.event_name }} 
                         </h2>
                     </div>
-                    <div class="overflow-hidden bg-black border border-gray-700 shadow-sm sm:rounded-lg">
+                    <div class="overflow-hidden border border-gray-700 shadow-sm" style="background-color: #151515;">
                         <div class="p-6 text-white">
                             <div class="d-flex justify-content-between">
                                 <div class="flex items-center space-x-2">
@@ -289,7 +289,7 @@ input:-webkit-autofill:active {
                                             <th class="border border-gray-700 p-2 text-white">Actions</th>
                                         </tr>
                                     </thead>
-                                    <tbody class="bg-black">
+                                    <tbody style="background-color: #151515;">
                                         <tr v-for="(prize, index) in prizes" 
                                             :key="index" 
                                             class="text-left"
@@ -321,7 +321,7 @@ input:-webkit-autofill:active {
             <!-- Attendees Table -->
             <div class="p-2 pb-5">
                 <div class="mx-auto max-w-7xl sm:px-6 lg:px-8">
-                    <div class="overflow-hidden bg-black border border-gray-700 shadow-sm sm:rounded-lg">
+                    <div class="overflow-hidden border border-gray-700 shadow-sm" style="background-color: #151515;">
                         <div class="p-6 text-white">
                             <div class="d-flex justify-content-between">
                                 <h3 class="text-lg font-semibold mb-4">Attendees at {{ event.event_name }}</h3>
@@ -349,7 +349,7 @@ input:-webkit-autofill:active {
                                             <th class="border border-gray-700 p-2 text-white">Event Location</th>
                                         </tr>
                                     </thead>
-                                    <tbody class="bg-black">
+                                    <tbody style="background-color: #151515;">
                                         <tr v-for="(attendee, index) in filteredAttendees" :key="index" class="text-left text-white">
                                             <td class="border border-gray-700 p-2">{{ attendee.first_name }} {{ attendee.last_name }}</td>
                                             <td class="border border-gray-700 p-2">{{ attendee.email_address }}</td>
@@ -359,16 +359,13 @@ input:-webkit-autofill:active {
                                         </tr>
                                         <tr v-if="filteredAttendees.length === 0">
                                             <td colspan="5" class="border border-gray-700 p-4 text-center text-gray-400">
-                                                No matching attendees found. Try adjusting your search.
+                                                No matching attendees found.
                                             </td>
                                         </tr>
                                     </tbody>
                                 </table>
                             </div>
 
-                            <div v-if="attendees.length === 0" class="text-gray-400 text-center mt-4 bg-black p-4 rounded border border-gray-700">
-                                No attendees have registered for this event.
-                            </div>
                         </div>
                     </div>
                 </div>

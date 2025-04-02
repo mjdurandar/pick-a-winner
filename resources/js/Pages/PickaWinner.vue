@@ -189,7 +189,7 @@ watch(() => form.event_id, () => {
 
     <PickaWinnerLayout>
         <!-- Selection Modal with Black Background -->
-        <div class="flex flex-col items-center justify-center min-h-screen p-3 bg-black">
+        <div class="flex flex-col items-center justify-center min-h-screen p-3" style="background-color: #151515;">
             <!-- Logo outside the box -->
             <div class="flex justify-center mb-10">
                 <img
@@ -198,12 +198,12 @@ watch(() => form.event_id, () => {
                     class="w-100"
                 />
             </div>
-            <div class="flex justify-center mb-10">
+            <!-- <div class="flex justify-center mb-10">
                 <h1 class="text-white text-4xl font-bold">Pick a Winner</h1>
-            </div>
+            </div> -->
             
             <!-- White Form Box -->
-            <div class="bg-white p-8 rounded-lg shadow-lg w-full max-w-md">
+            <div class="bg-white p-8 shadow-lg w-full max-w-md">
                 <form @submit.prevent="handleSubmit">
                     <div class="mb-4">
                         <label class="block text-gray-700 text-sm font-bold mb-2" for="event">
@@ -270,7 +270,7 @@ watch(() => form.event_id, () => {
 
                     <button
                         type="submit"
-                        class="w-full bg-cyan-500 text-white py-2 px-4 rounded-md hover:bg-cyan-600 focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:ring-offset-2"
+                        class="w-full bg-cyan-500 text-white py-2 px-4 hover:bg-cyan-600 focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:ring-offset-2"
                         :disabled="form.processing || (!form.is_all_locations && !form.location_id) || !form.event_id || !form.password"
                     >
                         {{ form.processing ? 'Verifying...' : 'Enter' }}
