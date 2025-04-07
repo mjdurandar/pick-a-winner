@@ -289,11 +289,13 @@ input:-webkit-autofill:active {
                                             <th class="border border-gray-700 p-2 text-white">Actions</th>
                                         </tr>
                                     </thead>
+
+                                    <!-- :class="{'bg-cyan-700': prize.winner_email} -->
                                     <tbody style="background-color: #151515;">
                                         <tr v-for="(prize, index) in prizes" 
                                             :key="index" 
                                             class="text-left"
-                                            :class="{'bg-cyan-700': prize.winner_email}"
+                                            
                                         >
                                             <td class="border border-gray-700 p-2">{{ prize.prize_name }}</td>
                                             <td class="border border-gray-700 p-2">{{ prize.winner }}</td>

@@ -8,18 +8,19 @@ use App\Models\Prize;
 class PrizeController extends Controller
 {
     public function addPrize(Request $request) {
-    
+
         $request->validate([
             'event_id' => 'required|exists:events,id',
-            'prize_name' => 'required|string|max:255'
         ]);
     
         // ✅ Create the new prize
         $prize = Prize::create([
             'event_id' => $request->event_id,
             'location_id' => $request->location_id,
-            'prize_name' => $request->prize_name,
-            'winner' => 'No Winner Yet',
+            'prize_name' => $request->prize_name ?? "You can edit this for the prize name",
+            'winner' => $request->winner_name ?? "No Winner Yet",
+            'winner_email' => $request->winner_email ?? "No Winner Yet",
+            'winner_mobile_number' => $request->winner_mobile_number ?? "No Winner Yet",
         ]);
     
         return redirect()->back()->with('success', 'Prize created successfully.');
@@ -37,6 +38,7 @@ class PrizeController extends Controller
     } 
     
     public function update(Request $request, Prize $prize) {
+     
         $request->validate([
             'prize_name' => 'required|string|max:255',
         ]);

@@ -35,7 +35,6 @@ const filteredAttendees = computed(() => {
     });
 });
 
-
 const form = useForm({
     id: null,
     event_id: '',
@@ -214,8 +213,36 @@ const isPicking = ref(false); // ✅ Controls animation state
 const winnerDisplay = ref(''); // ✅ Displays random names
 let animationInterval = null;
 
+// Prize input for winner
+const prizeForWinner = ref('');
+
+// Function to update the prize for a winner
+const updatePrizeForWinner = () => {
+    if (!selectedPrize.value || !prizeForWinner.value) {
+        Swal.fire('Error', 'Prize name cannot be empty!', 'error');
+        return;
+    }
+
+    const data = new FormData();
+    data.append('prize_name', prizeForWinner.value);
+    data.append('_method', 'PATCH');
+
+    router.post(route('prize.update', selectedPrize.value.id), data, {
+        onSuccess: () => {
+            let modalElement = bootstrap.Modal.getInstance(document.getElementById('prizeDetailsModal'));
+            modalElement.hide();
+            Swal.fire('Updated!', 'Prize has been assigned to the winner.', 'success');
+            prizeForWinner.value = '';
+        },
+        onError: (errors) => {
+            Swal.fire('Error!', 'There was an issue updating the prize.', 'error');
+            console.error(errors);
+        }
+    });
+};
+
 // ✅ Open Modal and Start Animation
-const openPickWinnerModal = (prize) => {
+const openPickWinnerModal = () => {
     if (!props.attendees.length) {
         Swal.fire('No Attendees', 'There are no attendees for this location.', 'warning');
         return;
@@ -225,27 +252,7 @@ const openPickWinnerModal = (prize) => {
         return;
     }
 
-    if (prize.winner_email) {
-        Swal.fire({
-            title: 'Already Has a Winner!',
-            text: `This prize already has a winner (${prize.winner}). Would you like to pick a new winner?`,
-            icon: 'warning',
-            showCancelButton: true,
-            confirmButtonText: 'Yes, Pick Again',
-            cancelButtonText: 'Cancel'
-        }).then((result) => {
-            if (result.isConfirmed) {
-                proceedToPickWinner(prize);
-            }
-        });
-    } else {
-        proceedToPickWinner(prize);
-    }
-};
-
-// ✅ Function to Start the Winner Picking Animation
-const proceedToPickWinner = (prize) => {
-    selectedPrize.value = prize;
+    selectedPrize.value = null;
     selectedWinner.value = null;
     winnerDisplay.value = 'Searching for a winner...';
     isPicking.value = true;
@@ -269,23 +276,40 @@ const proceedToPickWinner = (prize) => {
     }, 3000);
 };
 
-// ✅ Save the Winner to the Prize
+// Add a new function to open the prize details modal for a winner
+const openPrizeDetailsModal = (winner) => {
+    selectedPrize.value = winner;
+    prizeForWinner.value = winner.prize_name || '';
+    
+    let modalElement = new bootstrap.Modal(document.getElementById('prizeDetailsModal'));
+    modalElement.show();
+};
+
+// ✅ Save the Winner (without prize initially)
 const confirmWinner = () => {
-    if (!selectedPrize.value || !selectedWinner.value) {
-        Swal.fire('Error', 'No prize or winner selected.', 'error');
+    if (!selectedWinner.value) {
+        Swal.fire('Error', 'No winner selected.', 'error');
         return;
     }
 
-    // ✅ Send update request to backend
-    router.post(route('prize.assignWinner', selectedPrize.value.id), {
-        winner_name: selectedWinner.value.first_name + " " + selectedWinner.value.last_name,
-        winner_email: selectedWinner.value.email_address,
-        winner_mobile_number: selectedWinner.value.mobile_number
-    }, {
+    // Create a new entry with winner but null prize
+    const data = new FormData();
+    data.append('prize_name', null); // Prize will be set later
+    data.append('event_id', props.event.id);
+    data.append('location_id', props.location.id);
+    data.append('winner_name', selectedWinner.value.first_name + " " + selectedWinner.value.last_name);
+    data.append('winner_email', selectedWinner.value.email_address);
+    data.append('winner_mobile_number', selectedWinner.value.mobile_number);
+
+    router.post(route('prize.store'), data, {
         onSuccess: () => {
             let modalElement = bootstrap.Modal.getInstance(document.getElementById('pickWinnerModal'));
             modalElement.hide();
-            Swal.fire('Winner Selected!', `${selectedWinner.value.first_name} has been chosen.`, 'success');
+            Swal.fire('Winner Selected!', `${selectedWinner.value.first_name} has been selected!`, 'success');
+        },
+        onError: (errors) => {
+            console.error('Error saving winner:', errors);
+            Swal.fire('Error!', 'There was an issue saving the winner.', 'error');
         }
     });
 };
@@ -317,10 +341,6 @@ const eligibleAttendees = computed(() => {
         return !isWinner && matchesLocation;
     });
 });
-
-// const reload = () => {
-//     window.location.reload();
-// };
 </script>
 <style scoped>
 /* Override Bootstrap's input focus styles */
@@ -346,13 +366,24 @@ input:-webkit-autofill:active {
     -webkit-text-fill-color: white !important;
     transition: background-color 5000s ease-in-out 0s;
 }
+
+.pick-winner-btn {
+    margin: 25px auto;
+    display: block;
+    padding: 15px 30px;
+    font-size: 1.2rem;
+    font-weight: bold;
+}
+
+.winners-table {
+    margin-top: 20px;
+}
 </style>
 <template>
     <Head title="Pick a Winner Location Page" />
 
     <PickaWinnerLayout>
-        <div class="p-6 text-white" style="background-color: #151515;">
-            <!-- ✅ Prizes Button -->
+        <div class="p-2 text-white" style="background-color: #151515;">
             <div class="mt-3 p-2">
                 <div class="mx-auto max-w-7xl sm:px-6 lg:px-8">
                     <div class="d-flex flex-column flex-md-row justify-content-between items-center pb-4">
@@ -368,91 +399,43 @@ input:-webkit-autofill:active {
                             {{ event.event_name }} <br> {{ location.name }} 
                         </h2>
                     </div>
-                    <div class="overflow-hidden border border-gray-700 shadow-sm" style="background-color: #151515;">
-                        <div class="p-6 text-white">
-                            <div class="d-flex justify-content-end">
-                                <button 
-                                    class="bg-cyan-500 text-white px-4 py-2 hover:bg-cyan"
-                                    @click="openAddPrizeModal()"
-                                >
-                                    Add Prizes
-                                </button>
-                            </div>
-                            
-                            <div class="mt-3 overflow-x-auto">
+
+                    <!-- Centered Pick a Winner Button -->
+                    <div class="text-center my-5">
+                        <button class="btn btn-success btn-lg pick-winner-btn" @click="openPickWinnerModal">
+                            🎉 Pick a Winner 🎉
+                        </button>
+                    </div>
+                    
+                    <div class="overflow-hidden border-gray-700 shadow-sm" style="background-color: #151515;">
+                        <div class="text-white">
+                            <div class="mt-3 overflow-x-auto winners-table">
                                 <table class="min-w-full border-collapse border border-gray-700">
                                     <thead>
                                         <tr class="bg-cyan-500">
-                                            <th class="border border-gray-700 p-2 text-white">Prizes</th>
+                                            <!-- <th class="border border-gray-700 p-2 text-white">Prize</th> -->
                                             <th class="border border-gray-700 p-2 text-white">Name</th>
-                                            <th class="border border-gray-700 p-2 text-white">Email</th>
-                                            <th class="border border-gray-700 p-2 text-white">Mobile Number</th>
+                                            <!-- <th class="border border-gray-700 p-2 text-white">Email</th>
+                                            <th class="border border-gray-700 p-2 text-white">Mobile Number</th> -->
                                             <th class="border border-gray-700 p-2 text-white">Actions</th>
                                         </tr>
                                     </thead>
                                     <tbody>
                                         <tr v-for="(prize, index) in prizes" :key="index" class="text-left" 
                                         :class="{'bg-cyan-700': prize.winner_email}">
-                                            <td class="border border-gray-700 p-2">{{ prize.prize_name }}</td>
+                                            <!-- <td class="border border-gray-700 p-2">{{ prize.prize_name }}</td> -->
                                             <td class="border border-gray-700 p-2">{{ prize.winner }}</td>
-                                            <td class="border border-gray-700 p-2">{{ prize.winner_email || 'No Winner Yet' }}</td>
-                                            <td class="border border-gray-700 p-2">{{ prize.winner_mobile_number || 'No Winner Yet' }}</td>
-                                            <td class="border border-gray-700 p-2 flex flex-col md:flex-row gap-2 justify-center">
-                                                <a class="btn btn-success" @click="openPickWinnerModal(prize)">Pick a Winner</a>
-                                                <a class="btn btn-primary" @click="openEditModal(prize)"><i class="fa-solid fa-pen-to-square"></i></a>
+                                            <!-- <td class="border border-gray-700 p-2">{{ prize.winner_email || 'No Winner Yet' }}</td>
+                                            <td class="border border-gray-700 p-2">{{ prize.winner_mobile_number || 'No Winner Yet' }}</td> -->
+                                            <td class="border border-gray-700 p-2 text-center">
+                                                <a class="btn btn-primary me-2" @click="openPrizeDetailsModal(prize)">
+                                                    <i class="fa-solid fa-trophy"></i> Prize
+                                                </a>
                                                 <a class="btn btn-danger" @click="destroy(prize.id)"><i class="fa-solid fa-trash"></i></a>
                                             </td>
                                         </tr>
                                     </tbody>
                                 </table>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-            <!-- ✅ Attendees Table -->
-            <div class="p-2 pb-5">
-                <div class="mx-auto max-w-7xl sm:px-6 lg:px-8">
-                    <div class="overflow-hidden border border-gray-700 shadow-sm" style="background-color: #151515;">
-                        <div class="p-6 text-white">
-                            <div class="d-flex justify-content-between">
-                                <h3 class="text-lg font-semibold mb-4">Attendees at {{ location.name }}</h3>
-                                <div class="flex items-center space-x-2">
-                                    <div class="mb-3">
-                                        <input
-                                            v-model="searchQuery"
-                                            type="text"
-                                            placeholder="Search attendees..."
-                                            class="w-full p-2 border bg-gray-800 text-white border-gray-700"
-                                            style="color: white !important;"
-                                        />
-                                    </div>
-                                </div>
-                            </div>
-                            <div class="overflow-x-auto">
-                                <table class="w-full border-collapse border border-gray-700">
-                                    <thead>
-                                        <tr class="bg-cyan-500">
-                                            <th class="border border-gray-700 p-2 text-white">Name</th>
-                                            <th class="border border-gray-700 p-2 text-white">Email</th>
-                                            <th class="border border-gray-700 p-2 text-white">Gender</th>
-                                            <th class="border border-gray-700 p-2 text-white">Mobile Number</th>
-                                            <th class="border border-gray-700 p-2 text-white">Event Location</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        <tr v-for="(attendee, index) in filteredAttendees" :key="index" class="text-left text-white">
-                                            <td class="border border-gray-700 p-2">{{ attendee.first_name }} {{ attendee.last_name }}</td>
-                                            <td class="border border-gray-700 p-2">{{ attendee.email_address }}</td>
-                                            <td class="border border-gray-700 p-2">{{ attendee.gender }}</td>
-                                            <td class="border border-gray-700 p-2">{{ attendee.mobile_number }}</td>
-                                            <td class="border border-gray-700 p-2">{{ attendee.location_name }}</td>
-                                        </tr>
-                                    </tbody>
-                                </table>
-                            </div>
-                            <div v-if="attendees.length === 0" class="text-gray-400 text-center mt-4">
-                                No attendees have registered for this location.
                             </div>
                         </div>
                     </div>
@@ -498,74 +481,75 @@ input:-webkit-autofill:active {
                 </div>
             </div>
 
-            <!-- Bootstrap Modal for Create/Edit -->
-            <div class="modal fade" id="createPrizeModal" tabindex="-1" aria-labelledby="createPrizeModalLabel">
+            <!-- Prize Details Modal -->
+            <div class="modal fade" id="prizeDetailsModal" tabindex="-1" aria-labelledby="prizeDetailsModalLabel"
+                data-bs-backdrop="static" data-bs-keyboard="false">
                 <div class="modal-dialog">
                     <div class="modal-content bg-gray-900 text-white">
                         <div class="modal-header border-gray-700">
-                            <h5 class="modal-title" id="createPrizeModalLabel">{{ isEditing ? 'Edit Prize' : 'Create Prize' }}</h5>
+                            <h5 class="modal-title">🏆 Winner Details & Prize 🏆</h5>
                             <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
                         </div>
                         <div class="modal-body">
-                            <form @submit.prevent="savePrize">
-                                <div class="mb-3">
-                                    <label class="form-label">Prize</label>
-                                    <input v-model="form.prize_name" type="text" class="form-control bg-gray-800 text-white border-gray-700" 
-                                           style="color: white !important;" 
-                                           required />
-                                </div>
-
-                                <div class="modal-footer border-gray-700">
-                                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                                    <button type="submit" class="btn" style="background-color: cyan;">
-                                        {{ isEditing ? 'Update Prize' : 'Save Prize' }}
-                                    </button>
-                                </div>
-                            </form>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <!-- Add new Prize Quantity Modal -->
-            <div class="modal fade" id="prizeQuantityModal" tabindex="-1" aria-labelledby="prizeQuantityModalLabel" data-bs-backdrop="static" data-bs-keyboard="false">
-                <div class="modal-dialog">
-                    <div class="modal-content bg-gray-900 text-white">
-                        <div class="modal-header border-gray-700">
-                            <h5 class="modal-title">Create Prizes</h5>
-                        </div>
-                        <div class="modal-body">
-                            <div class="mb-3">
-                                <label class="form-label">Number of Prizes</label>
-                                <input 
-                                    type="number" 
-                                    v-model="prizeQuantity" 
-                                    min="1" 
-                                    class="form-control bg-gray-800 text-white border-gray-700" 
-                                    style="color: white !important;" 
-                                    @change="handleQuantityChange"
-                                />
+                            <div v-if="selectedPrize" class="winner-details mb-4">
+                                <h5 class="text-xl font-bold mb-3">Winner Information</h5>
+                                <p><strong>Name:</strong> {{ selectedPrize.winner }}</p>
+                                <p><strong>Email:</strong> {{ selectedPrize.winner_email }}</p>
+                                <p><strong>Mobile:</strong> {{ selectedPrize.winner_mobile_number }}</p>
                             </div>
                             
-                            <div v-for="(name, index) in prizeNames" :key="index" class="mb-3">
-                                <label class="form-label">Prize {{ index + 1 }}</label>
+                            <div class="form-group mt-4">
+                                <label for="prizeDetailInput" class="form-label">Prize Description</label>
                                 <input 
                                     type="text" 
-                                    v-model="prizeNames[index]" 
-                                    class="form-control bg-gray-800 text-white border-gray-700" 
-                                    style="color: white !important;" 
-                                    required
-                                />
+                                    class="form-control bg-gray-800 text-white" 
+                                    id="prizeDetailInput" 
+                                    v-model="prizeForWinner" 
+                                    placeholder="Enter prize details"
+                                >
+                                <small class="text-muted">Enter the prize details for this winner</small>
                             </div>
                         </div>
                         <div class="modal-footer border-gray-700">
-                            <button type="button" class="btn" style="background-color: #C0C7C9;" @click="saveMultiplePrizes">
-                                Save All Prizes
+                            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                            <button type="button" class="btn btn-success" @click="updatePrizeForWinner()">
+                                Update Prize
                             </button>
                         </div>
                     </div>
                 </div>
             </div>
+
+            <!-- Create Prize Modal (keeping it for manual prize creation if needed) -->
+            <!-- <div class="modal fade" id="createPrizeModal" tabindex="-1" aria-labelledby="createPrizeModalLabel">
+                <div class="modal-dialog">
+                    <div class="modal-content bg-gray-900 text-white">
+                        <div class="modal-header border-gray-700">
+                            <h5 class="modal-title">{{ isEditing ? 'Edit Prize' : 'Add a Prize' }}</h5>
+                            <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+                        </div>
+                        <div class="modal-body">
+                            <div class="form-group">
+                                <label for="prizeName" class="form-label">Prize Name</label>
+                                <input 
+                                    type="text" 
+                                    class="form-control bg-gray-800 text-white" 
+                                    id="prizeName" 
+                                    v-model="form.prize_name" 
+                                    placeholder="Enter prize name"
+                                >
+                            </div>
+                        </div>
+                        <div class="modal-footer border-gray-700">
+                            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                            <button type="button" class="btn btn-primary" @click="savePrize">
+                                {{ isEditing ? 'Update Prize' : 'Save Prize' }}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>           -->
+
         </div>
     </PickaWinnerLayout>
 </template>
