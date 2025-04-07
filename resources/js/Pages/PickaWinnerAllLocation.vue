@@ -79,7 +79,7 @@ const savePrize = () => {
             }
         });
     } else {
-        router.post(route('prize.store'), data, {
+        router.post(route('prize.storeAllLocation'), data, {
             onSuccess: () => {
                 let modalElement = bootstrap.Modal.getInstance(document.getElementById('createPrizeModal'));
                 modalElement.hide();

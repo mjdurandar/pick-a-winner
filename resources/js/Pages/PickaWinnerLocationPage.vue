@@ -10,6 +10,8 @@ const isEditing = ref(false);
 
 // ✅ Search Query
 const searchQuery = ref('');
+const showSettingsModal = ref(false);
+const genderFilter = ref(''); // '' = no filter, 'male', 'female'
 
 // ✅ Get today's date in 'YYYY-MM-DD' format
 const getTodayDate = () => {
@@ -335,12 +337,27 @@ const confirmCancel = () => {
 const eligibleAttendees = computed(() => {
     return props.attendees.filter(attendee => {
         const isWinner = props.prizes.some(prize => prize.winner_email === attendee.email_address);
-        // ✅ Ensure the attendee is from the selected location
         const matchesLocation = attendee.location_id === props.location.id;
 
-        return !isWinner && matchesLocation;
+        const normalizedAttendeeGender = attendee.gender?.toLowerCase() || '';
+        const normalizedFilter = genderFilter.value.toLowerCase();
+
+        const matchesGender = genderFilter.value
+            ? normalizedAttendeeGender === normalizedFilter
+            : true;
+
+        return !isWinner && matchesLocation && matchesGender;
     });
 });
+
+const openSettingsModal = () => {
+    const modalEl = document.getElementById('settingsModal');
+    if (modalEl) {
+        const modal = new bootstrap.Modal(modalEl);
+        modal.show();
+    }
+};
+
 </script>
 <style scoped>
 /* Override Bootstrap's input focus styles */
@@ -401,13 +418,18 @@ input:-webkit-autofill:active {
                     </div>
 
                     <!-- Centered Pick a Winner Button -->
-                    <div class="text-center my-5">
-                        <button class="btn btn-success btn-lg pick-winner-btn" @click="openPickWinnerModal">
+                    <div class="d-flex justify-content-center gap-3 my-5 flex-wrap">
+                        <div class="btn btn-secondary btn-lg" @click="openSettingsModal">
+                            ⚙️
+                        </div>
+                        <button class="btn btn-primary btn-lg" @click="openPickWinnerModal">
                             🎉 Pick a Winner 🎉
                         </button>
                     </div>
+
+
                     
-                    <div class="overflow-hidden border-gray-700 shadow-sm" style="background-color: #151515;">
+                    <div v-if="prizes.length > 0" class="overflow-hidden border-gray-700 shadow-sm" style="background-color: #151515;">
                         <div class="text-white">
                             <div class="mt-3 overflow-x-auto winners-table">
                                 <table class="min-w-full border-collapse border border-gray-700">
@@ -428,7 +450,7 @@ input:-webkit-autofill:active {
                                             <!-- <td class="border border-gray-700 p-2">{{ prize.winner_email || 'No Winner Yet' }}</td>
                                             <td class="border border-gray-700 p-2">{{ prize.winner_mobile_number || 'No Winner Yet' }}</td> -->
                                             <td class="border border-gray-700 p-2 text-center">
-                                                <a class="btn btn-primary me-2" @click="openPrizeDetailsModal(prize)">
+                                                <a class="btn btn-success me-2" @click="openPrizeDetailsModal(prize)">
                                                     <i class="fa-solid fa-trophy"></i> Prize
                                                 </a>
                                                 <a class="btn btn-danger" @click="destroy(prize.id)"><i class="fa-solid fa-trash"></i></a>
@@ -468,6 +490,7 @@ input:-webkit-autofill:active {
                             <template v-if="selectedWinner && !isPicking">
                                 <p class="mt-3"><strong>Name:</strong> {{ selectedWinner.first_name }} {{ selectedWinner.last_name }}</p>
                                 <p><strong>Email:</strong> {{ selectedWinner.email_address }}</p>
+                                <p><strong>Gender:</strong> {{ selectedWinner.gender }}</p>
                                 <p><strong>Phone:</strong> {{ selectedWinner.mobile_number }}</p>
                             </template>
                         </div>
@@ -549,6 +572,28 @@ input:-webkit-autofill:active {
                     </div>
                 </div>
             </div>           -->
+            <div class="modal fade" id="settingsModal" tabindex="-1">
+                <div class="modal-dialog">
+                    <div class="modal-content bg-dark text-white">
+                    <div class="modal-header">
+                        <h5 class="modal-title">🎛 Winner Settings</h5>
+                        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                    </div>
+                    <div class="modal-body">
+                        <label class="form-label">Filter by Gender:</label>
+                        <select class="form-select" v-model="genderFilter">
+                        <option value="">No Filter</option>
+                        <option value="male">Only Male</option>
+                        <option value="female">Only Female</option>
+                        <option value="Nonbinary/Other">Nonbinary/Other</option>
+                        </select>
+                    </div>
+                    <div class="modal-footer">
+                        <button class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                    </div>
+                    </div>
+                </div>
+            </div>
 
         </div>
     </PickaWinnerLayout>
