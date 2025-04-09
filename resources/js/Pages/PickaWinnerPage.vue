@@ -18,12 +18,15 @@ const copiedIndex = ref(null); // ✅ Index of copied location link
 const showPasswordModal = ref(false);
 const showEventPasswordModal = ref(false);
 const showLocationModal = ref(false);
+const showAllPasswordsModal = ref(false);
 const isEditing = ref(false);
 const selectedLocation = ref(null);
 const newPassword = ref('');
 const confirmPassword = ref('');
 const eventNewPassword = ref('');
 const eventConfirmPassword = ref('');
+const allLocationsNewPassword = ref('');
+const allLocationsConfirmPassword = ref('');
 const showCSVFormat = ref(false);
 
 // Add new form for location creation
@@ -325,6 +328,8 @@ const generatePassword = (isEvent = false) => {
     } else {
         newPassword.value = password;
         confirmPassword.value = password;
+        allLocationsNewPassword.value = password;
+        allLocationsConfirmPassword.value = password;
     }
 };
 
@@ -563,6 +568,93 @@ const closePasswordModal = () => {
     }
 };
 
+const updateAllPasswords = async () => {
+    if (!allLocationsNewPassword.value || !allLocationsConfirmPassword.value) {
+        Swal.fire({
+            icon: 'error',
+            title: 'Error',
+            text: 'Please fill in all fields'
+        });
+        return;
+    }
+
+    if (allLocationsNewPassword.value.length < 8) {
+        Swal.fire({
+            icon: 'error',
+            title: 'Password Too Short',
+            text: 'Password must be at least 8 characters long'
+        });
+        return;
+    }
+
+    if (allLocationsNewPassword.value !== allLocationsConfirmPassword.value) {
+        Swal.fire({
+            icon: 'error',
+            title: 'Error',
+            text: 'Passwords do not match'
+        });
+        return;
+    }
+
+    try {
+        await router.put(route('location.updateAllPasswords', props.event.id), {
+            password: allLocationsNewPassword.value
+        });
+
+        // Close the modal first
+        const modalElement = bootstrap.Modal.getInstance(document.getElementById('allPasswordsModal'));
+        if (modalElement) {
+            modalElement.hide();
+        }
+        
+        // Show success message
+        Swal.fire({
+            icon: 'success',
+            title: 'Success!',
+            text: 'All location passwords updated successfully',
+            timer: 1500,
+            showConfirmButton: false
+        }).then(() => {
+            // Reload the page after the success message
+            router.reload();
+        });
+    } catch (error) {
+        console.error('Update error:', error);
+        Swal.fire({
+            icon: 'error',
+            title: 'Error',
+            text: 'Failed to update passwords. Please try again.'
+        });
+    }
+};
+
+const openAllPasswordsModal = () => {
+    allLocationsNewPassword.value = '';
+    allLocationsConfirmPassword.value = '';
+    showAllPasswordsModal.value = true;
+    let modalElement = new bootstrap.Modal(document.getElementById('allPasswordsModal'));
+    modalElement.show();
+};
+
+const closeAllPasswordsModal = () => {
+    showAllPasswordsModal.value = false;
+    allLocationsNewPassword.value = '';
+    allLocationsConfirmPassword.value = '';
+    let modalElement = bootstrap.Modal.getInstance(document.getElementById('allPasswordsModal'));
+    if (modalElement) {
+        modalElement.hide();
+        // Remove the backdrop
+        const backdrop = document.querySelector('.modal-backdrop');
+        if (backdrop) {
+            backdrop.remove();
+        }
+        // Remove the modal-open class from body
+        document.body.classList.remove('modal-open');
+        document.body.style.overflow = '';
+        document.body.style.paddingRight = '';
+    }
+};
+
 </script>
 
 <template>
@@ -578,14 +670,14 @@ const closePasswordModal = () => {
                             <div class="flex gap-2">
                                 <!-- CSV Import Button with Help Text -->
                                 <div class="relative group">
-                                        <!-- Help Icon -->
-                                        <button 
-                                            type="button"
-                                            class="me-2 text-gray-500 hover:text-gray-700"
-                                            @click="showCSVFormat = true"
-                                        >
-                                            <i class="fa-solid fa-circle-question"></i>
-                                        </button>
+                                    <!-- Help Icon -->
+                                    <button 
+                                        type="button"
+                                        class="me-2 text-gray-500 hover:text-gray-700"
+                                        @click="showCSVFormat = true"
+                                    >
+                                        <i class="fa-solid fa-circle-question"></i>
+                                    </button>
                                     <label class="bg-green-500 text-white px-4 py-2 rounded hover:bg-green-700 cursor-pointer">
                                         <i class="fa-solid fa-file-import"></i>
                                         <input 
@@ -596,6 +688,13 @@ const closePasswordModal = () => {
                                         >
                                     </label>
                                 </div>
+                                <!-- Update All Passwords Button -->
+                                <button 
+                                    class="bg-purple-500 text-white px-4 py-2 rounded hover:bg-purple-700"
+                                    @click="openAllPasswordsModal"
+                                >
+                                    <i class="fa-solid fa-key"></i> 
+                                </button>
                                 <!-- Add Location Button -->
                                 <button 
                                     class="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-700"
@@ -826,6 +925,34 @@ Melbourne,September 02 2024,6:00 pm</pre>
                         >
                             Got it
                         </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Update All Passwords Modal -->
+        <div class="modal fade" id="allPasswordsModal" tabindex="-1" aria-labelledby="allPasswordsModalLabel" @hidden.bs.modal="closeAllPasswordsModal">
+            <div class="modal-dialog">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h5 class="modal-title" id="allPasswordsModalLabel">Update All Location Passwords</h5>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                    </div>
+                    <div class="modal-body">
+                        <div class="mb-3">
+                            <label class="form-label">New Password</label>
+                            <input type="text" v-model="allLocationsNewPassword" class="form-control" placeholder="Enter new password">
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">Confirm New Password</label>
+                            <input type="text" v-model="allLocationsConfirmPassword" class="form-control" placeholder="Confirm new password">
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button" class="btn btn-secondary" @click="generatePassword(false)">
+                            <i class="fa-solid fa-random"></i> Generate Password
+                        </button>
+                        <button type="button" class="btn btn-primary" @click="updateAllPasswords">Update All Passwords</button>
                     </div>
                 </div>
             </div>

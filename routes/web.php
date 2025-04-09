@@ -75,6 +75,7 @@ Route::middleware(['auth', RoleMiddleware::class . ':admin'])->group(function ()
     Route::get('/location', [LocationController::class, 'index'])->name('location.index');
     Route::get('/location/{eventId}', [LocationController::class, 'locationpage'])->name('location.locationpage');
     Route::put('/location/{location}/password', [LocationController::class, 'updatePassword'])->name('location.updatePassword');
+    Route::put('/location/update-all-passwords/{event}', [LocationController::class, 'updateAllPasswords'])->name('location.updateAllPasswords');
     Route::put('/event/{event}/password', [EventsController::class, 'updatePassword'])->name('event.updatePassword');
     Route::post('/location', [LocationController::class, 'store'])->name('location.store');
     Route::put('/location/{location}', [LocationController::class, 'update'])->name('location.update');

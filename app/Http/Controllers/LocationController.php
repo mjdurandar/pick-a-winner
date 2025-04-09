@@ -84,4 +84,21 @@ class LocationController extends Controller
         $location->delete();
         return back()->with('success', 'Location deleted successfully');
     }
+
+    public function updateAllPasswords(Request $request, $eventId)
+    {
+        $request->validate([
+            'password' => 'required|string|min:8'
+        ]);
+
+        $locations = Location::where('event_id', $eventId)->get();
+        
+        foreach ($locations as $location) {
+            $location->update([
+                'password' => $request->password
+            ]);
+        }
+
+        return back()->with('success', 'All location passwords updated successfully');
+    }
 }
