@@ -63,6 +63,7 @@ class PickaWinnerController extends Controller
             "$tableName.email_address",
             "$tableName.gender",
             "$tableName.mobile_number",
+            "$tableName.age",
             "$tableName.location_id",
             "locations.name as location_name",
             DB::raw("DATE(CONVERT_TZ($tableName.created_at, '+00:00', '+00:00')) as created_at")

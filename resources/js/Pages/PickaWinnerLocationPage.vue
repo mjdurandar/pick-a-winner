@@ -7,6 +7,8 @@ import { Head } from '@inertiajs/vue3';
 
 // Track if we are editing an event
 const isEditing = ref(false);
+const ageFilter = ref(''); // 'under21', '22to44', '45plus', ''
+const filterCondition = ref('AND'); // 'AND' or 'OR'
 
 // ✅ Search Query
 const searchQuery = ref('');
@@ -316,47 +318,83 @@ const confirmWinner = () => {
     });
 };
 
-const confirmCancel = () => {
-    Swal.fire({
-        title: 'Are you sure?',
-        text: 'The winner selection process will be canceled!',
-        icon: 'warning',
-        showCancelButton: true,
-        confirmButtonText: 'Yes, cancel it',
-        cancelButtonText: 'No',
-    }).then((result) => {
-        if (result.isConfirmed) {
-            let modalElement = bootstrap.Modal.getInstance(document.getElementById('pickWinnerModal'));
-            modalElement.hide();
-            Swal.fire('Canceled', 'The winner selection has been canceled.', 'info');
-        }
-    });
+const pickAgain = () => {
+    if (!eligibleAttendees.value.length) {
+        Swal.fire('No Eligible Attendees', 'No attendees entered today or all have already won.', 'warning');
+        return;
+    }
+
+    selectedPrize.value = null;
+    selectedWinner.value = null;
+    winnerDisplay.value = 'Searching for a winner...';
+    isPicking.value = true;
+
+    // Remove backdrop if any (manual force cleanup)
+    // const backdrop = document.querySelector('.modal-backdrop');
+    // if (backdrop) {
+    //     backdrop.remove();
+    // }
+
+    // Restart animation
+    if (animationInterval) clearInterval(animationInterval);
+
+    animationInterval = setInterval(() => {
+        const randomIndex = Math.floor(Math.random() * eligibleAttendees.value.length);
+        const randomAttendee = eligibleAttendees.value[randomIndex];
+        winnerDisplay.value = `${randomAttendee.first_name} ${randomAttendee.last_name}`;
+    }, 100);
+
+    setTimeout(() => {
+        clearInterval(animationInterval);
+        isPicking.value = false;
+
+        const finalIndex = Math.floor(Math.random() * eligibleAttendees.value.length);
+        selectedWinner.value = eligibleAttendees.value[finalIndex];
+        winnerDisplay.value = `${selectedWinner.value.first_name} ${selectedWinner.value.last_name}`;
+    }, 3000);
 };
+
 
 // ✅ Compute attendees who have NOT been picked as winners yet
 const eligibleAttendees = computed(() => {
+    console.log(props.attendees);
     return props.attendees.filter(attendee => {
         const isWinner = props.prizes.some(prize => prize.winner_email === attendee.email_address);
         const matchesLocation = attendee.location_id === props.location.id;
 
         const normalizedAttendeeGender = attendee.gender?.toLowerCase() || '';
-        const normalizedFilter = genderFilter.value.toLowerCase();
+        const normalizedGenderFilter = genderFilter.value.toLowerCase();
+        const hasGenderFilter = !!genderFilter.value;
+        const matchesGender = hasGenderFilter ? normalizedAttendeeGender === normalizedGenderFilter : true;
 
-        const matchesGender = genderFilter.value
-            ? normalizedAttendeeGender === normalizedFilter
+        const hasAgeFilter = !!ageFilter.value;
+        const matchesAge = hasAgeFilter
+            ? (attendee.age === 'Under 21' && ageFilter.value === 'under21') ||
+              (attendee.age === '22-44' && ageFilter.value === '22to44') ||
+              (attendee.age === '45+' && ageFilter.value === '45plus')
             : true;
 
-        return !isWinner && matchesLocation && matchesGender;
+        let matchesFilter = true;
+
+        if (filterCondition.value === 'AND') {
+            matchesFilter = matchesGender && matchesAge;
+        } else if (filterCondition.value === 'OR') {
+            matchesFilter = hasGenderFilter || hasAgeFilter
+                ? matchesGender || matchesAge
+                : true;
+        }
+
+        return !isWinner && matchesLocation && matchesFilter;
     });
 });
 
-const openSettingsModal = () => {
-    const modalEl = document.getElementById('settingsModal');
-    if (modalEl) {
-        const modal = new bootstrap.Modal(modalEl);
-        modal.show();
-    }
-};
+// const openSettingsModal = () => {
+//     const modalEl = document.getElementById('settingsModal');
+//     if (modalEl) {
+//         const modal = new bootstrap.Modal(modalEl);
+//         modal.show();
+//     }
+// };
 
 </script>
 <style scoped>
@@ -417,11 +455,42 @@ input:-webkit-autofill:active {
                         </h2>
                     </div>
 
+                    <!-- Filter Section -->
+                    <div class="d-flex justify-content-center flex-wrap gap-3 mb-3">
+                        <!-- Gender Filter -->
+                        <div class="form-group text-white">
+                            <label class="form-label me-2">Filter by Gender:</label>
+                            <select class="form-select" v-model="genderFilter" style="background-color: #1f2937; color: white; border-color: #374151;">
+                                <option value="">No Filter</option>
+                                <option value="male">Only Male</option>
+                                <option value="female">Only Female</option>
+                                <option value="Nonbinary/Other">Nonbinary/Other</option>
+                            </select>
+                        </div>
+
+                        <!-- Age Filter -->
+                        <div class="form-group text-white">
+                            <label class="form-label me-2">Filter by Age:</label>
+                            <select class="form-select" v-model="ageFilter" style="background-color: #1f2937; color: white; border-color: #374151;">
+                                <option value="">No Filter</option>
+                                <option value="under21">Under 21</option>
+                                <option value="22to44">22-44</option>
+                                <option value="45plus">45+</option>
+                            </select>
+                        </div>
+
+                        <!-- Filter Condition -->
+                        <div class="form-group text-white">
+                            <label class="form-label me-2">Condition:</label>
+                            <select class="form-select" v-model="filterCondition" style="background-color: #1f2937; color: white; border-color: #374151;">
+                                <option value="AND">AND</option>
+                                <option value="OR">OR</option>
+                            </select>
+                        </div>
+                    </div>
+
                     <!-- Centered Pick a Winner Button -->
                     <div class="d-flex justify-content-center gap-3 my-5 flex-wrap">
-                        <div class="btn btn-secondary btn-lg" @click="openSettingsModal">
-                            ⚙️
-                        </div>
                         <button class="btn btn-primary btn-lg" @click="openPickWinnerModal">
                             🎉 Pick a Winner 🎉
                         </button>
@@ -467,10 +536,10 @@ input:-webkit-autofill:active {
             <!-- Pick Winner Modal -->
             <div class="modal fade" id="pickWinnerModal" tabindex="-1" aria-labelledby="pickWinnerModalLabel" 
                 data-bs-backdrop="static" data-bs-keyboard="false">
-                <div class="modal-dialog">
-                    <div class="modal-content bg-gray-900 text-white">
+                <div class="modal-dialog modal-dialog-centered">
+                    <div class="modal-content bg-gray-800 text-white">
                         <div class="modal-header border-gray-700">
-                            <h5 class="modal-title">🎉 Picking a Winner 🎉</h5>
+                            <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
                         </div>
                         <div class="modal-body text-center">
                             <h3 class="text-xl font-bold text-green-500">
@@ -495,9 +564,9 @@ input:-webkit-autofill:active {
                             </template>
                         </div>
                         <div class="modal-footer border-gray-700">
-                            <button type="button" class="btn btn-secondary" v-if="!isPicking" @click="confirmCancel()">Cancel</button>
+                            <button type="button" class="btn btn-secondary" v-if="!isPicking" @click="pickAgain()">Pick Again</button>
                             <button type="button" class="btn btn-success" v-if="!isPicking" @click="confirmWinner()">
-                                Confirm Winner
+                                Congratulations!
                             </button>
                         </div>
                     </div>
@@ -572,7 +641,7 @@ input:-webkit-autofill:active {
                     </div>
                 </div>
             </div>           -->
-            <div class="modal fade" id="settingsModal" tabindex="-1">
+            <!-- <div class="modal fade" id="settingsModal" tabindex="-1">
                 <div class="modal-dialog">
                     <div class="modal-content bg-dark text-white">
                     <div class="modal-header">
@@ -593,7 +662,7 @@ input:-webkit-autofill:active {
                     </div>
                     </div>
                 </div>
-            </div>
+            </div> -->
 
         </div>
     </PickaWinnerLayout>
