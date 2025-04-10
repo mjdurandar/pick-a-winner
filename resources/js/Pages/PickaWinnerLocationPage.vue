@@ -39,6 +39,20 @@ const filteredAttendees = computed(() => {
     });
 });
 
+const formatLocationDateTime = (date, time) => {
+    if (!date || !time) return '';
+
+    const datetime = new Date(`${date}T${time}`);
+    return datetime.toLocaleString('en-US', {
+        year: 'numeric',
+        month: 'long',
+        day: 'numeric',
+        hour: 'numeric',
+        minute: '2-digit',
+        hour12: true,
+    });
+};
+
 const form = useForm({
     id: null,
     event_id: '',
@@ -451,17 +465,18 @@ input:-webkit-autofill:active {
                             >
                         </div>
                         <h2 class="text-2xl font-bold text-center text-white">
-                            {{ event.event_name }} <br> {{ location.name }} 
+                            {{ event.event_name }} <br> {{ location.name }} <br> {{ formatLocationDateTime(location.date, location.time) }}
+
                         </h2>
                     </div>
 
                     <!-- Filter Section -->
-                    <div class="d-flex justify-content-center flex-wrap gap-3 mb-3">
+                    <div class="d-flex justify-content-center flex-wrap gap-3 mt-3 mb-3">
                         <!-- Gender Filter -->
                         <div class="form-group text-white">
-                            <label class="form-label me-2">Filter by Gender:</label>
+                            <label class="form-label me-2"> Gender:</label>
                             <select class="form-select" v-model="genderFilter" style="background-color: #1f2937; color: white; border-color: #374151;">
-                                <option value="">No Filter</option>
+                                <option value="">All</option>
                                 <option value="male">Only Male</option>
                                 <option value="female">Only Female</option>
                                 <option value="Nonbinary/Other">Nonbinary/Other</option>
@@ -470,9 +485,9 @@ input:-webkit-autofill:active {
 
                         <!-- Age Filter -->
                         <div class="form-group text-white">
-                            <label class="form-label me-2">Filter by Age:</label>
+                            <label class="form-label me-2">Age:</label>
                             <select class="form-select" v-model="ageFilter" style="background-color: #1f2937; color: white; border-color: #374151;">
-                                <option value="">No Filter</option>
+                                <option value="">All</option>
                                 <option value="under21">Under 21</option>
                                 <option value="22to44">22-44</option>
                                 <option value="45plus">45+</option>
@@ -482,13 +497,13 @@ input:-webkit-autofill:active {
 
                         
                         <!-- Filter Condition -->
-                        <div class="form-group text-white">
+                        <!-- <div class="form-group text-white">
                             <label class="form-label me-2">Condition:</label>
                             <select class="form-select" v-model="filterCondition" style="background-color: #1f2937; color: white; border-color: #374151;">
                                 <option value="AND">AND</option>
                                 <option value="OR">OR</option>
                             </select>
-                        </div>
+                        </div> -->
                     </div>
 
                     <!-- Centered Pick a Winner Button -->
@@ -565,7 +580,7 @@ input:-webkit-autofill:active {
                                 <p><strong>Phone:</strong> {{ selectedWinner.mobile_number }}</p>
                             </template>
                         </div>
-                        <div class="modal-footer border-gray-700">
+                        <div class="modal-footer border-gray-700 d-flex justify-content-between">
                             <button type="button" class="btn btn-secondary" v-if="!isPicking" @click="pickAgain()">Pick Again</button>
                             <button type="button" class="btn btn-success" v-if="!isPicking" @click="confirmWinner()">
                                 Congratulations!

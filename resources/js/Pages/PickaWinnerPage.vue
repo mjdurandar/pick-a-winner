@@ -38,6 +38,20 @@ const locationForm = useForm({
     time: ''
 });
 
+const formatLocationDateTime = (date, time) => {
+    if (!date || !time) return '';
+
+    const datetime = new Date(`${date}T${time}`);
+    return datetime.toLocaleString('en-US', {
+        year: 'numeric',
+        month: 'long',
+        day: 'numeric',
+        hour: 'numeric',
+        minute: '2-digit',
+        hour12: true,
+    });
+};
+
 // Add CSV import functionality
 const handleFileUpload = (event) => {
     const file = event.target.files[0];
@@ -725,7 +739,7 @@ const closeAllPasswordsModal = () => {
                                 class="flex items-center space-x-2 w-full"
                             >
                                 <div class="bg-blue-500 text-white px-4 py-2 rounded w-full text-left truncate hover:bg-blue-700">
-                                    {{ location.name }}
+                                    {{ location.name }} <br> {{ formatLocationDateTime(location.date, location.time) }}
                                 </div>
                                 <!-- Edit Button -->
                                 <button 
