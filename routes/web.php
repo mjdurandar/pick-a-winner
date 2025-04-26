@@ -52,6 +52,16 @@ Route::middleware(['auth', RoleMiddleware::class . ':admin,host'])->group(functi
 
     //SIGN UP FORM ROUTES
     Route::get('/signup-form/index/{eventId}', [SignUpFormController::class, 'index'])->name('signup.index');
+
+    //LOCATION ROUTES
+    Route::get('/location', [LocationController::class, 'index'])->name('location.index');
+    Route::get('/location/{eventId}', [LocationController::class, 'locationpage'])->name('location.locationpage');
+    Route::put('/location/{location}/password', [LocationController::class, 'updatePassword'])->name('location.updatePassword');
+    Route::put('/location/update-all-passwords/{event}', [LocationController::class, 'updateAllPasswords'])->name('location.updateAllPasswords');
+    Route::put('/event/{event}/password', [EventsController::class, 'updatePassword'])->name('event.updatePassword');
+    Route::post('/location', [LocationController::class, 'store'])->name('location.store');
+    Route::put('/location/{location}', [LocationController::class, 'update'])->name('location.update');
+    Route::delete('/location/{location}', [LocationController::class, 'destroy'])->name('location.destroy');
 });
 
 Route::middleware(['auth', RoleMiddleware::class . ':admin'])->group(function () {  
@@ -72,14 +82,14 @@ Route::middleware(['auth', RoleMiddleware::class . ':admin'])->group(function ()
     Route::delete('/signup-form/{eventId}', [SignUpFormController::class, 'destroy'])->name('signup.destroy');
 
     //LOCATION ROUTES
-    Route::get('/location', [LocationController::class, 'index'])->name('location.index');
-    Route::get('/location/{eventId}', [LocationController::class, 'locationpage'])->name('location.locationpage');
-    Route::put('/location/{location}/password', [LocationController::class, 'updatePassword'])->name('location.updatePassword');
-    Route::put('/location/update-all-passwords/{event}', [LocationController::class, 'updateAllPasswords'])->name('location.updateAllPasswords');
-    Route::put('/event/{event}/password', [EventsController::class, 'updatePassword'])->name('event.updatePassword');
-    Route::post('/location', [LocationController::class, 'store'])->name('location.store');
-    Route::put('/location/{location}', [LocationController::class, 'update'])->name('location.update');
-    Route::delete('/location/{location}', [LocationController::class, 'destroy'])->name('location.destroy');
+    // Route::get('/location', [LocationController::class, 'index'])->name('location.index');
+    // Route::get('/location/{eventId}', [LocationController::class, 'locationpage'])->name('location.locationpage');
+    // Route::put('/location/{location}/password', [LocationController::class, 'updatePassword'])->name('location.updatePassword');
+    // Route::put('/location/update-all-passwords/{event}', [LocationController::class, 'updateAllPasswords'])->name('location.updateAllPasswords');
+    // Route::put('/event/{event}/password', [EventsController::class, 'updatePassword'])->name('event.updatePassword');
+    // Route::post('/location', [LocationController::class, 'store'])->name('location.store');
+    // Route::put('/location/{location}', [LocationController::class, 'update'])->name('location.update');
+    // Route::delete('/location/{location}', [LocationController::class, 'destroy'])->name('location.destroy');
 
     //EDIT SIGN UP FORM ROUTES
     Route::get('/signup-form/edit/{formId}', [SignUpFormController::class, 'edit'])->name('signup.edit');

@@ -62,7 +62,7 @@ const userRole = computed(() => user.value?.role);
                                     Pick a Winner
                                 </NavLink>
                                 <NavLink
-                                    v-if="userRole === 'admin'"
+                                    v-if="userRole === 'admin' || userRole === 'host'"
                                     :href="route('location.index')"
                                     :active="route().current('location.index')"
                                 >
