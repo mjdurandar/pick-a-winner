@@ -39,6 +39,7 @@ class SignUpFormController extends Controller
     // Generate a new sign up form with default questions
     public function generate(Request $request, $eventId)
     {   
+        // dd($request->all());
         // Fetch event details
         $event = DB::table('events')->where('id', $eventId)->first();
         // Format the table name: `event_name_date_created`

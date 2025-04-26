@@ -79,28 +79,43 @@ function formatTime(timeString) {
 }
 
 const showModal = ref(false); // Controls the visibility of the modal
+// Add preview toggle
+const showPreview = ref(false);
 
 const selectLocation = (locationName) => {
     selectedLocation.value = locationName; // Update the selected location
     showModal.value = false; // Close the modal
 };
+
+// Track selected values for preview
+const selectedValues = ref({});
+// Track "Other" input values
+const otherValues = ref({});
+
+// Check if "Other" is selected and handle accordingly
+const checkForOtherOption = (question) => {
+    if (selectedValues.value[question.column_name] !== 'Other') {
+        // Clear the "Other" value if something else is selected
+        otherValues.value[question.column_name] = '';
+    }
+};
     
 // ✅ Default Questions with Column Names
 const defaultQuestions = ref([
-    { text: 'Email Address', type: 'email', column_name: 'email_address', options: [] },
-    { text: 'First Name', type: 'text', column_name: 'first_name', options: [] },
-    { text: 'Last Name', type: 'text', column_name: 'last_name', options: [] },
-    { text: 'Street Address', type: 'text', column_name: 'street_address', options: [] },
-    { text: 'Address Line 2', type: 'text', column_name: 'street_address_2', options: [] },
-    { text: 'City', type: 'text', column_name: 'city', options: [] },
-    { text: 'State', type: 'text', column_name: 'state', options: [] },
-    { text: 'Zip Code', type: 'text', column_name: 'zip_code', options: [] },
-    { text: 'Country', type: 'dropdown', column_name: 'country', options: ['Australia', 'New Zealand', 'USA', 'Canada', 'Germany', 'United Kingdom', 'Europe'] },
-    { text: 'Mobile Number', type: 'number', column_name: 'mobile_number', options: []},
-    { text: 'Age', type: 'dropdown', column_name: 'age', options: ['Under 21', '22-44', '45+'] },
-    { text: 'Gender', type: 'dropdown', column_name: 'gender', options: ['Female', 'Male', 'Nonbinary/Other'] },
-    { text: 'Combined Household Income?', type: 'dropdown', column_name: 'household_income', options: ['>$150,000', '$100,000-$150,000', '$66,000-$99,000', '<$66,000', 'Prefer not to say'] },
-    { text: 'Where did you hear about this event?', type: 'dropdown', column_name: 'where_did_you_hear', options: ['FB/IG', 'Poster in store', 'Email', 'Word of mouth', 'Other'] },
+    { text: 'Email Address', type: 'email', column_name: 'email_address', options: [], hasOtherOption: false },
+    { text: 'First Name', type: 'text', column_name: 'first_name', options: [], hasOtherOption: false },
+    { text: 'Last Name', type: 'text', column_name: 'last_name', options: [], hasOtherOption: false },
+    { text: 'Street Address', type: 'text', column_name: 'street_address', options: [], hasOtherOption: false },
+    { text: 'Address Line 2', type: 'text', column_name: 'street_address_2', options: [], hasOtherOption: false },
+    { text: 'City', type: 'text', column_name: 'city', options: [], hasOtherOption: false },
+    { text: 'State', type: 'text', column_name: 'state', options: [], hasOtherOption: false },
+    { text: 'Zip Code', type: 'text', column_name: 'zip_code', options: [], hasOtherOption: false },
+    { text: 'Country', type: 'dropdown', column_name: 'country', options: ['Australia', 'New Zealand', 'USA', 'Canada', 'Germany', 'United Kingdom', 'Europe'], hasOtherOption: false },
+    { text: 'Mobile Number', type: 'number', column_name: 'mobile_number', options: [], hasOtherOption: false },
+    { text: 'Age', type: 'dropdown', column_name: 'age', options: ['Under 21', '22-44', '45+'], hasOtherOption: false },
+    { text: 'Gender', type: 'dropdown', column_name: 'gender', options: ['Female', 'Male', 'Nonbinary/Other'], hasOtherOption: false },
+    { text: 'Combined Household Income?', type: 'dropdown', column_name: 'household_income', options: ['>$150,000', '$100,000-$150,000', '$66,000-$99,000', '<$66,000', 'Prefer not to say'], hasOtherOption: false },
+    { text: 'Where did you hear about this event?', type: 'dropdown', column_name: 'where_did_you_hear', options: ['FB/IG', 'Poster in store', 'Email', 'Word of mouth'], hasOtherOption: true },
     { text: 'Favorite adventure sport?', type: 'dropdown', column_name: 'fave_sport', options: ['Snow Sports (Skiing, Snowboarding, Snowshoeing)',
                 'Climbing (Indoor, Outdoor, Bouldering, Slacklining)',
                 'Trail Sports (Trail Running, Trail Walking)',
@@ -109,12 +124,11 @@ const defaultQuestions = ref([
                 'Water Sports (Kayaking, Canoeing, Surfing, Windsurfing, Fly Fishing, Scuba Diving, Paddleboarding)',
                 'Outdoor Activities (Hiking, Camping)',
                 'Aerial Sports (Paragliding, Hang Gliding)',
-                'Extreme Sports (Bungee Jumping, BASE Jumping)',
-                'Other'] },
-    { text: 'How much would you spend on equipment?', type: 'dropdown', column_name: 'how_much_spend', options: ['Less than $500', '$500-$1,000', 'More than $1,000'] },
-    { text: 'How often do you climb? (Specify type)', type: 'dropdown', column_name: 'how_often_climb', options: ['More than once a year', 'Once a year', 'Once every 2 years', 'Never'] },
-    { text: 'How often do you climb overseas? (Specify type)', type: 'dropdown', column_name: 'how_often_climb_overseas', options: ['More than once a year', 'Once a year', 'Once every 2 years', 'Never'] },
-    { text: 'How many days per year do you climb? (Specify type)', type: 'dropdown', column_name: 'how_often_climb_per_year', options: ['1-4 days', '5-10 days', '11-19 days', '20+ days', 'Never'] },
+                'Extreme Sports (Bungee Jumping, BASE Jumping)'], hasOtherOption: true },
+    { text: 'How much would you spend on equipment?', type: 'dropdown', column_name: 'how_much_spend', options: ['Less than $500', '$500-$1,000', 'More than $1,000'], hasOtherOption: false },
+    { text: 'How often do you climb? (Specify type)', type: 'dropdown', column_name: 'how_often_climb', options: ['More than once a year', 'Once a year', 'Once every 2 years', 'Never'], hasOtherOption: false },
+    { text: 'How often do you climb overseas? (Specify type)', type: 'dropdown', column_name: 'how_often_climb_overseas', options: ['More than once a year', 'Once a year', 'Once every 2 years', 'Never'], hasOtherOption: false },
+    { text: 'How many days per year do you climb? (Specify type)', type: 'dropdown', column_name: 'how_often_climb_per_year', options: ['1-4 days', '5-10 days', '11-19 days', '20+ days', 'Never'], hasOtherOption: false },
 ]);
 
 // ✅ Reactive copy of questions (to modify in UI)
@@ -162,6 +176,7 @@ const addQuestion = () => {
         type: 'text',
         column_name: '', // 👈 Users must provide a column name
         options: ['Option 1', 'Option 2'],
+        hasOtherOption: false
     });
 };
 
@@ -228,7 +243,7 @@ const saveForm = () => {
                 descriptionText: descriptionText.value,
                 termsLink: termsLink.value,
                 policyLink: policyLink.value,
-                questions: questions.value
+                questions: questions.value, 
             }, {
                 onSuccess: () => {
                     Swal.fire('Saved!', 'Sign Up Form has been created.', 'success');
@@ -287,6 +302,13 @@ onMounted(() => {
                     >
                         View Locations
                     </button>
+                    
+                    <!-- <button 
+                        @click="showPreview = !showPreview" 
+                        class="bg-purple-500 text-white px-4 py-2 rounded ml-2"
+                    >
+                        {{ showPreview ? 'Hide Preview' : 'Show Preview' }}
+                    </button> -->
                 </div>
                 <div>
                     <div
@@ -325,9 +347,13 @@ onMounted(() => {
                         <!-- ✅ Dropdown Options -->
                         <div v-if="question.type === 'dropdown'">
                             <label class="font-medium">Dropdown Options:</label>
-                            <div v-for="(option, optIndex) in question.options" draggable="true"
-                            @dragstart="dragStartOption(question, optIndex)"  @dragover.prevent
-                            @drop="dropOption(question, optIndex)" :key="optIndex" class="flex gap-2 mb-2">
+                            <div v-for="(option, optIndex) in question.options" 
+                                 draggable="true"
+                                 @dragstart="dragStartOption(question, optIndex)" 
+                                 @dragover.prevent
+                                 @drop="dropOption(question, optIndex)" 
+                                 :key="optIndex" 
+                                 class="flex gap-2 mb-2">
                                 <input v-model="question.options[optIndex]" type="text" class="flex-1 border p-2 rounded" />
                                 <button @click="question.options.push('')" class="bg-green-500 text-white px-3 py-2 rounded">
                                     <i class="fa-solid fa-add"></i>
@@ -340,11 +366,26 @@ onMounted(() => {
                                     <i class="fa-solid fa-trash"></i>
                                 </button>
                             </div>
+                            
+                            <!-- "Other" option checkbox -->
+                            <div class="mt-3 flex items-center">
+                                <input 
+                                    type="checkbox" 
+                                    :id="`other-option-${question.column_name}`" 
+                                    v-model="question.hasOtherOption" 
+                                    class="mr-2"
+                                />
+                                <label :for="`other-option-${question.column_name}`" class="font-medium">
+                                    Include "Other" option with text input
+                                </label>
+                            </div>
                         </div>
 
                         <div v-if="question.column_name !== 'events_location' && question.column_name !== 'email_address'
                         && question.column_name !== 'mobile_number' && question.column_name !== 'first_name' && question.column_name !== 'last_name'
-                        && question.column_name !== 'age' && question.column_name !== 'gender'">
+                        && question.column_name !== 'age' && question.column_name !== 'gender' && question.column_name !== 'street_address'
+                        && question.column_name !== 'street_address_2' && question.column_name !== 'city' && question.column_name !== 'state'
+                        && question.column_name !== 'zip_code' && question.column_name !== 'country'">
                             <button @click="removeQuestion(index)" class="bg-red-500 text-white px-3 py-1 rounded mt-2">Remove Question</button>
                         </div>
                     </div>
@@ -354,6 +395,7 @@ onMounted(() => {
                     <button @click="addQuestion" class="bg-blue-500 text-white px-3 py-2 rounded">Add Question</button>
                     <button @click="saveForm" class="bg-green-500 text-white px-4 py-2 rounded">Save Form</button>
                 </div>
+                
 
             </div>
            <!-- Modal -->

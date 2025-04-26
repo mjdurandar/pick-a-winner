@@ -19,10 +19,14 @@ const termsLink = ref(props.form.terms_link);
 const policyLink = ref(props.form.privacy_link);
 
 // ✅ Convert existing questions into reactive state
-const questions = ref(JSON.parse(props.form.questions || '[]'));
+const questions = ref(JSON.parse(props.form.questions || '[]')); 
 questions.value.forEach((question) => {
     if (question.column_name === "events_location" && !question.hiddenOptions) {
         question.hiddenOptions = []; // ✅ Ensure hiddenOptions exists
+    }
+ 
+    if (question.type === 'dropdown' && question.hasOtherOption === undefined) {
+        question.hasOtherOption = false;
     }
 });
 
@@ -146,6 +150,7 @@ const addQuestion = () => {
         type: 'text',
         column_name: '', // 👈 Users must provide a column name
         options: ['Option 1', 'Option 2'],
+        hasOtherOption: false, 
     });
 };
 
@@ -362,12 +367,24 @@ const saveForm = () => {
                                     <i class="fa-solid fa-trash"></i>
                                 </button>
                             </div>
+                            <div class="mt-3 flex items-center">
+                                <input 
+                                    type="checkbox" 
+                                    :id="`other-option-${question.column_name}`" 
+                                    v-model="question.hasOtherOption" 
+                                    class="mr-2"
+                                />
+                                <label :for="`other-option-${question.column_name}`" class="font-medium">
+                                    Include "Other" option with text input
+                                </label>
+                            </div>
                         </div>
 
                         <div v-if="question.column_name !== 'events_location' && question.column_name !== 'email_address'
                         && question.column_name !== 'mobile_number' && question.column_name !== 'first_name' && question.column_name !== 'last_name'
-                        && question.column_name !== 'age' && question.column_name !== 'gender' && question.column_name !== 'street_address' && question.column_name !== 'street_address_2' && question.column_name !== 'city'
-                        && question.column_name !== 'state' && question.column_name !== 'zip_code' && question.column_name !== 'country'">
+                        && question.column_name !== 'age' && question.column_name !== 'gender' && question.column_name !== 'street_address'
+                        && question.column_name !== 'street_address_2' && question.column_name !== 'city' && question.column_name !== 'state'
+                        && question.column_name !== 'zip_code' && question.column_name !== 'country'">
                             <button @click="removeQuestion(index)" class="bg-red-500 text-white px-3 py-1 rounded mt-2">Remove</button>
                         </div>
                     </div>

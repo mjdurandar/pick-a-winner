@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed, watch } from 'vue';
+import { ref, computed, watch, onMounted } from 'vue';
 import { router } from '@inertiajs/vue3';
 import Swal from 'sweetalert2';
 
@@ -18,6 +18,7 @@ const props = defineProps({
 // Store form values
 const formValues = ref({});
 const isSubmitted = ref(false);
+const otherValues = ref({});
 const selectedLocation = ref('');
 const selectedLocationData = ref({
     id: null,
@@ -50,6 +51,13 @@ const formattedLocations = computed(() => {
         };
     });
 });
+
+const checkForOther = (question) => {
+  if (formValues.value[question.text] !== 'Other') {
+    // Clear the "Other" value if something else is selected
+    otherValues.value[question.column_name] = '';
+  }
+};
 
 // Filter to only include locations from 1 week ago up to 3 weeks from now
 const fourWeekWindowLocations = computed(() => {
@@ -163,6 +171,7 @@ const phoneFormats = {
 
 // Handle form submission
 const submitForm = () => {
+    const submissionValues = { ...formValues.value };
     // ✅ Validate if location is selected
     if (!selectedLocation.value) {
         Swal.fire('Error!', 'Please select a location.', 'error');
@@ -181,8 +190,16 @@ const submitForm = () => {
         return;
     }
 
+    // Process "Other" values
+    JSON.parse(props.form.questions).forEach(question => {
+        if (question.hasOtherOption && submissionValues[question.text] === 'Other') {
+            // Replace "Other" with the actual value entered
+            submissionValues[question.text] = otherValues.value[question.column_name] || 'Other';
+        }
+    });
+    console.log(submissionValues);
     router.post(route('signup.storeEmbedded', { eventId: props.event.id }), { 
-        ...formValues.value,
+        ...submissionValues,
         marketing_permission: marketingPermission.value,
         _token: csrfToken.value
     }, {
@@ -342,6 +359,16 @@ const getDateLabelClass = (dateKey) => {
     const firstLocation = groupedLocations.value[dateKey][0];
     return isPastDate(firstLocation.date_obj) ? '' : '';
 };
+
+onMounted(() => {
+  // Log the parsed questions to see if hasOtherOption exists
+  const questions = JSON.parse(props.form.questions);
+//   console.log('Parsed questions:', questions);
+  
+  // Check for hasOtherOption presence
+  const hasOtherQuestions = questions.filter(q => q.hasOtherOption);
+//   console.log('Questions with hasOtherOption:', hasOtherQuestions);
+});
 </script>
 
 <template>
@@ -448,12 +475,31 @@ const getDateLabelClass = (dateKey) => {
                 </template>
 
                 <!-- ✅ Dropdowns -->
-                 <template v-else-if="question.type === 'dropdown' && question.column_name !== 'country'" >
+                <template v-else-if="question.type === 'dropdown' && question.column_name !== 'country'">
                     <div class="pb-3">
-                        <select v-model="formValues[question.text]" class="form-select  w-full border rounded px-3 py-2" required>
+                        <select 
+                        v-model="formValues[question.text]" 
+                        class="form-select w-full border rounded px-3 py-2" 
+                        required
+                        @change="checkForOther(question)"
+                        >
                         <option value="">Select an option</option>
-                        <option v-for="option in getVisibleOptions(question)" :key="option" :value="option">{{ option }}</option>
-                    </select>
+                        <option v-for="option in getVisibleOptions(question)" :key="option" :value="option">
+                            {{ option }}
+                        </option>
+                        <!-- Add the "Other" option if hasOtherOption is true -->
+                        <option v-if="question.hasOtherOption" value="Other">Other</option>
+                        </select>
+                        
+                        <!-- Add the "Other" input field -->
+                        <input 
+                        v-if="question.hasOtherOption && formValues[question.text] === 'Other'" 
+                        v-model="otherValues[question.column_name]"
+                        type="text" 
+                        class="form-control mt-2 w-full border rounded px-3 py-2" 
+                        placeholder="Please specify..."
+                        required
+                        >
                     </div>
                 </template>
 
