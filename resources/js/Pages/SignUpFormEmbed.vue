@@ -151,7 +151,7 @@ const handleLocationSelect = (event) => {
     }
 };
 
-const marketingPermission = ref(false); // ✅ Track checkbox state
+// const marketingPermission = ref(true); // ✅ Track checkbox state
 
 // ✅ Get CSRF token from Laravel
 const csrfToken = computed(() => {
@@ -179,10 +179,10 @@ const submitForm = () => {
     }
 
     // ✅ Validate if the checkbox is checked
-    if (!marketingPermission.value) {
-        Swal.fire('Error!', 'You must accept the Marketing Permission terms.', 'error');
-        return;
-    }
+    // if (!marketingPermission.value) {
+    //     Swal.fire('Error!', 'You must accept the Marketing Permission terms.', 'error');
+    //     return;
+    // }
 
     // 🚨 Check mobile number before submission
     if (!isMobileNumberValid.value) {
@@ -200,7 +200,7 @@ const submitForm = () => {
     console.log(submissionValues);
     router.post(route('signup.storeEmbedded', { eventId: props.event.id }), { 
         ...submissionValues,
-        marketing_permission: marketingPermission.value,
+        // marketing_permission: marketingPermission.value,
         _token: csrfToken.value
     }, {
         onSuccess: () => {
@@ -208,7 +208,7 @@ const submitForm = () => {
             formValues.value = {}; // Clear form after submission
             selectedLocation.value = ''; // Clear location selection
             selectedLocationData.value = { id: null, name: '', date: '', time: '' }; // Clear location data
-            marketingPermission.value = false; // Reset checkbox
+            // marketingPermission.value = false; // Reset checkbox
             isSubmitted.value = true; // ✅ Show thank-you card
         },
         onError: (errors) => {
@@ -526,10 +526,11 @@ onMounted(() => {
 
             <!-- ✅ Marketing Permission Checkbox (Required) -->
             <div class="form-check mt-2">
-                <input v-model="marketingPermission" type="checkbox" class="form-check-input" id="marketingPermission" required>
+                <!-- <input v-model="marketingPermission" type="checkbox" class="form-check-input" id="marketingPermission" required> -->
                 <label class="form-check-label" for="marketingPermission">
                     <strong>Marketing Permission</strong> <br>
-                    By checking the box, you accept the competition terms and conditions and consent to receive marketing materials related to the offerings of Adventure Entertainment and our partners.
+                    <!-- By checking the box, you accept the competition terms and conditions and consent to receive marketing materials related to the offerings of Adventure Entertainment and our partners. -->
+                    By submitting this form, you agree to the competition terms and conditions and authorize us to send you marketing materials about Adventure Entertainment and our partners' offerings.
                 </label>
             </div>
 
