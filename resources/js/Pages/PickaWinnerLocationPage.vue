@@ -468,6 +468,9 @@ input:-webkit-autofill:active {
                             {{ event.event_name }} <br> {{ location.name }} <br> {{ formatLocationDateTime(location.date, location.time) }}
 
                         </h2>
+                        <div class="mt-2 bg-cyan-700 px-3 py-1 rounded">
+                            <span class="font-bold">Participants: {{ filteredAttendees.length }}</span>
+                        </div>
                     </div>
 
                     <!-- Filter Section -->
@@ -578,6 +581,7 @@ input:-webkit-autofill:active {
                                 <p><strong>Email:</strong> {{ selectedWinner.email_address }}</p>
                                 <p><strong>Gender:</strong> {{ selectedWinner.gender }}</p>
                                 <p><strong>Phone:</strong> {{ selectedWinner.mobile_number }}</p>
+                                <p><strong>Age:</strong> {{ selectedWinner.age }}</p>
                             </template>
                         </div>
                         <div class="modal-footer border-gray-700 d-flex justify-content-between">
@@ -603,8 +607,10 @@ input:-webkit-autofill:active {
                             <div v-if="selectedPrize" class="winner-details mb-4">
                                 <h5 class="text-xl font-bold mb-3">Winner Information</h5>
                                 <p><strong>Name:</strong> {{ selectedPrize.winner }}</p>
-                                <p><strong>Email:</strong> {{ selectedPrize.winner_email }}</p>
-                                <p><strong>Mobile:</strong> {{ selectedPrize.winner_mobile_number }}</p>
+                                <p><strong>Email:</strong> {{ selectedWinner.email_address }}</p>
+                                <p><strong>Gender:</strong> {{ selectedWinner.gender }}</p>
+                                <p><strong>Phone:</strong> {{ selectedWinner.mobile_number }}</p>
+                                <p><strong>Age:</strong> {{ selectedWinner.age }}</p>
                             </div>
                             
                             <div class="form-group mt-4">
