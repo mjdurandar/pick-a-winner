@@ -184,10 +184,10 @@ const goToSignUpForm = (eventId) => {
                                         Sign Up Form
                                     </button>
                                     <div>
-                                        <button @click="allLocationsPage(event)" class="btn btn-warning btn-sm me-2" v-if="userRole === 'admin'">
+                                        <button @click="allLocationsPage(event)" class="btn btn-warning btn-sm me-2" v-if="userRole === 'admin' || userRole === 'host'">
                                             <i class="fa-solid fa-users"></i>
                                         </button>
-                                        <button @click="attendeesPage(event)" class="btn btn-success btn-sm me-2" v-if="userRole === 'admin'">
+                                        <button @click="attendeesPage(event)" class="btn btn-success btn-sm me-2" v-if="userRole === 'admin' || userRole === 'host'">
                                             <i class="fa-solid fa-database"></i>
                                         </button>
                                         <button @click="openEditModal(event)" class="btn btn-primary btn-sm me-2" v-if="userRole === 'admin'">
