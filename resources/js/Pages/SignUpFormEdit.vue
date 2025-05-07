@@ -28,6 +28,10 @@ questions.value.forEach((question) => {
     if (question.type === 'dropdown' && question.hasOtherOption === undefined) {
         question.hasOtherOption = false;
     }
+
+    if (question.allowMultiple === undefined) {
+        question.allowMultiple = false;
+    }
 });
 
 // ✅ Dragging logic
@@ -150,7 +154,8 @@ const addQuestion = () => {
         type: 'text',
         column_name: '', // 👈 Users must provide a column name
         options: ['Option 1', 'Option 2'],
-        hasOtherOption: false, 
+        hasOtherOption: false,
+        allowMultiple: false, // Add allowMultiple property
     });
 };
 
@@ -341,15 +346,28 @@ const saveForm = () => {
                             <option value="email">Email</option>
                             <option value="text">Text Input</option>
                             <option value="dropdown">Dropdown</option>
+                            <option value="checkbox">Checkbox</option>
                             <option value="number">Number</option>
                         </select>
 
                         <!-- ✅ Dropdown Options -->
                         <div v-if="question.type === 'dropdown'">
+                            <div class="mb-3 flex items-center">
+                                <input 
+                                    type="checkbox" 
+                                    :id="`multiple-option-${question.column_name}`" 
+                                    v-model="question.allowMultiple" 
+                                    class="mr-2"
+                                />
+                                <label :for="`multiple-option-${question.column_name}`" class="font-medium">
+                                    Allow multiple selection
+                                </label>
+                            </div>
                             <label class="font-medium">Dropdown Options:</label>
                             <div v-for="(option, optIndex) in question.options" :key="optIndex" 
                                 draggable="true"
-                                @dragstart="dragStartOption(question, optIndex)"  @dragover.prevent
+                                @dragstart="dragStartOption(question, optIndex)"  
+                                @dragover.prevent
                                 @drop="dropOption(question, optIndex)" 
                                 class="flex gap-2 mb-2">
                                 <div class="m-auto" title="Hide this Location" v-if="question.column_name === 'events_location'">

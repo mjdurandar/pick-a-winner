@@ -52,11 +52,27 @@ const formattedLocations = computed(() => {
     });
 });
 
+// Initialize form values for multiple select
+onMounted(() => {
+    const questions = JSON.parse(props.form.questions);
+    questions.forEach(question => {
+        if (question.allowMultiple) {
+            formValues.value[question.text] = [];
+        }
+    });
+});
+
+// Update checkForOther function to handle multiple selections
 const checkForOther = (question) => {
-  if (formValues.value[question.text] !== 'Other') {
-    // Clear the "Other" value if something else is selected
-    otherValues.value[question.column_name] = '';
-  }
+    if (!question.allowMultiple) {
+        if (formValues.value[question.text] !== 'Other') {
+            otherValues.value[question.column_name] = '';
+        }
+    } else {
+        if (!formValues.value[question.text]?.includes('Other')) {
+            otherValues.value[question.column_name] = '';
+        }
+    }
 };
 
 // Filter to only include locations from 1 week ago up to 3 weeks from now
@@ -169,6 +185,25 @@ const phoneFormats = {
     'Europe': '## ### ####'
 };
 
+// Add a function to handle checkbox changes
+const handleCheckboxChange = (question, option) => {
+    if (!formValues.value[question.text]) {
+        formValues.value[question.text] = [];
+    }
+    
+    const index = formValues.value[question.text].indexOf(option);
+    if (index === -1) {
+        formValues.value[question.text].push(option);
+    } else {
+        formValues.value[question.text].splice(index, 1);
+    }
+};
+
+// Add a function to check if an option is selected
+const isOptionSelected = (question, option) => {
+    return formValues.value[question.text]?.includes(option) || false;
+};
+
 // Handle form submission
 const submitForm = () => {
     const submissionValues = { ...formValues.value };
@@ -178,29 +213,36 @@ const submitForm = () => {
         return;
     }
 
-    // ✅ Validate if the checkbox is checked
-    // if (!marketingPermission.value) {
-    //     Swal.fire('Error!', 'You must accept the Marketing Permission terms.', 'error');
-    //     return;
-    // }
-
     // 🚨 Check mobile number before submission
     if (!isMobileNumberValid.value) {
         Swal.fire('Error!', 'Please enter a valid mobile number.', 'error');
         return;
     }
 
-    // Process "Other" values
+    // Process "Other" values and multiple selections
     JSON.parse(props.form.questions).forEach(question => {
-        if (question.hasOtherOption && submissionValues[question.text] === 'Other') {
-            // Replace "Other" with the actual value entered
-            submissionValues[question.text] = otherValues.value[question.column_name] || 'Other';
+        if (question.allowMultiple) {
+            // Handle multiple selections
+            if (Array.isArray(submissionValues[question.text])) {
+                // If "Other" is selected and has a value, replace it in the array
+                const otherIndex = submissionValues[question.text].indexOf('Other');
+                if (otherIndex !== -1 && otherValues.value[question.column_name]) {
+                    submissionValues[question.text][otherIndex] = otherValues.value[question.column_name];
+                }
+                // Join the array with commas
+                submissionValues[question.text] = submissionValues[question.text].join(', ');
+            }
+        } else {
+            // Handle single selection
+            if (question.hasOtherOption && submissionValues[question.text] === 'Other') {
+                submissionValues[question.text] = otherValues.value[question.column_name] || 'Other';
+            }
         }
     });
+
     console.log(submissionValues);
     router.post(route('signup.storeEmbedded', { eventId: props.event.id }), { 
         ...submissionValues,
-        // marketing_permission: marketingPermission.value,
         _token: csrfToken.value
     }, {
         onSuccess: () => {
@@ -208,7 +250,6 @@ const submitForm = () => {
             formValues.value = {}; // Clear form after submission
             selectedLocation.value = ''; // Clear location selection
             selectedLocationData.value = { id: null, name: '', date: '', time: '' }; // Clear location data
-            // marketingPermission.value = false; // Reset checkbox
             isSubmitted.value = true; // ✅ Show thank-you card
         },
         onError: (errors) => {
@@ -477,29 +518,64 @@ onMounted(() => {
                 <!-- ✅ Dropdowns -->
                 <template v-else-if="question.type === 'dropdown' && question.column_name !== 'country'">
                     <div class="pb-3">
-                        <select 
-                        v-model="formValues[question.text]" 
-                        class="form-select w-full border rounded px-3 py-2" 
-                        required
-                        @change="checkForOther(question)"
-                        >
-                        <option value="">Select an option</option>
-                        <option v-for="option in getVisibleOptions(question)" :key="option" :value="option">
-                            {{ option }}
-                        </option>
-                        <!-- Add the "Other" option if hasOtherOption is true -->
-                        <option v-if="question.hasOtherOption" value="Other">Other</option>
-                        </select>
-                        
-                        <!-- Add the "Other" input field -->
-                        <input 
-                        v-if="question.hasOtherOption && formValues[question.text] === 'Other'" 
-                        v-model="otherValues[question.column_name]"
-                        type="text" 
-                        class="form-control mt-2 w-full border rounded px-3 py-2" 
-                        placeholder="Please specify..."
-                        required
-                        >
+                        <template v-if="question.allowMultiple">
+                            <div v-for="option in getVisibleOptions(question)" :key="option" class="mb-2">
+                                <label class="flex items-center">
+                                    <input 
+                                        type="checkbox" 
+                                        :value="option"
+                                        v-model="formValues[question.text]"
+                                        class="mr-2"
+                                    />
+                                    {{ option }}
+                                </label>
+                            </div>
+                            <!-- Add the "Other" option if hasOtherOption is true -->
+                            <div v-if="question.hasOtherOption" class="mb-2">
+                                <label class="flex items-center">
+                                    <input 
+                                        type="checkbox" 
+                                        value="Other"
+                                        v-model="formValues[question.text]"
+                                        class="mr-2"
+                                    />
+                                    Other
+                                </label>
+                                <input 
+                                    v-if="formValues[question.text]?.includes('Other')" 
+                                    v-model="otherValues[question.column_name]"
+                                    type="text" 
+                                    class="form-control mt-2 w-full border rounded px-3 py-2" 
+                                    placeholder="Please specify..."
+                                    required
+                                >
+                            </div>
+                        </template>
+                        <template v-else>
+                            <select 
+                                v-model="formValues[question.text]" 
+                                class="form-select w-full border rounded px-3 py-2" 
+                                required
+                                @change="checkForOther(question)"
+                            >
+                                <option value="">Select an option</option>
+                                <option v-for="option in getVisibleOptions(question)" :key="option" :value="option">
+                                    {{ option }}
+                                </option>
+                                <!-- Add the "Other" option if hasOtherOption is true -->
+                                <option v-if="question.hasOtherOption" value="Other">Other</option>
+                            </select>
+                            
+                            <!-- Add the "Other" input field -->
+                            <input 
+                                v-if="question.hasOtherOption && formValues[question.text] === 'Other'" 
+                                v-model="otherValues[question.column_name]"
+                                type="text" 
+                                class="form-control mt-2 w-full border rounded px-3 py-2" 
+                                placeholder="Please specify..."
+                                required
+                            >
+                        </template>
                     </div>
                 </template>
 

@@ -102,20 +102,20 @@ const checkForOtherOption = (question) => {
     
 // ✅ Default Questions with Column Names
 const defaultQuestions = ref([
-    { text: 'Email Address', type: 'email', column_name: 'email_address', options: [], hasOtherOption: false },
-    { text: 'First Name', type: 'text', column_name: 'first_name', options: [], hasOtherOption: false },
-    { text: 'Last Name', type: 'text', column_name: 'last_name', options: [], hasOtherOption: false },
-    { text: 'Street Address', type: 'text', column_name: 'street_address', options: [], hasOtherOption: false },
-    { text: 'Address Line 2', type: 'text', column_name: 'street_address_2', options: [], hasOtherOption: false },
-    { text: 'City', type: 'text', column_name: 'city', options: [], hasOtherOption: false },
-    { text: 'State', type: 'text', column_name: 'state', options: [], hasOtherOption: false },
-    { text: 'Zip Code', type: 'text', column_name: 'zip_code', options: [], hasOtherOption: false },
-    { text: 'Country', type: 'dropdown', column_name: 'country', options: ['Australia', 'New Zealand', 'USA', 'Canada', 'Germany', 'United Kingdom', 'Europe'], hasOtherOption: false },
-    { text: 'Mobile Number', type: 'number', column_name: 'mobile_number', options: [], hasOtherOption: false },
-    { text: 'Age', type: 'dropdown', column_name: 'age', options: ['Under 21', '22-44', '45+'], hasOtherOption: false },
-    { text: 'Gender', type: 'dropdown', column_name: 'gender', options: ['Female', 'Male', 'Nonbinary/Other'], hasOtherOption: false },
-    { text: 'Combined Household Income?', type: 'dropdown', column_name: 'household_income', options: ['>$150,000', '$100,000-$150,000', '$66,000-$99,000', '<$66,000', 'Prefer not to say'], hasOtherOption: false },
-    { text: 'Where did you hear about this event?', type: 'dropdown', column_name: 'where_did_you_hear', options: ['FB/IG', 'Poster in store', 'Email', 'Word of mouth'], hasOtherOption: true },
+    { text: 'Email Address', type: 'email', column_name: 'email_address', options: [], hasOtherOption: false, allowMultiple: false },
+    { text: 'First Name', type: 'text', column_name: 'first_name', options: [], hasOtherOption: false, allowMultiple: false },
+    { text: 'Last Name', type: 'text', column_name: 'last_name', options: [], hasOtherOption: false, allowMultiple: false },
+    { text: 'Street Address', type: 'text', column_name: 'street_address', options: [], hasOtherOption: false, allowMultiple: false },
+    { text: 'Address Line 2', type: 'text', column_name: 'street_address_2', options: [], hasOtherOption: false, allowMultiple: false },
+    { text: 'City', type: 'text', column_name: 'city', options: [], hasOtherOption: false, allowMultiple: false },
+    { text: 'State', type: 'text', column_name: 'state', options: [], hasOtherOption: false, allowMultiple: false },
+    { text: 'Zip Code', type: 'text', column_name: 'zip_code', options: [], hasOtherOption: false, allowMultiple: false },
+    { text: 'Country', type: 'dropdown', column_name: 'country', options: ['Australia', 'New Zealand', 'USA', 'Canada', 'Germany', 'United Kingdom', 'Europe'], hasOtherOption: false, allowMultiple: false },
+    { text: 'Mobile Number', type: 'number', column_name: 'mobile_number', options: [], hasOtherOption: false, allowMultiple: false },
+    { text: 'Age', type: 'dropdown', column_name: 'age', options: ['Under 21', '22-44', '45+'], hasOtherOption: false, allowMultiple: false },
+    { text: 'Gender', type: 'dropdown', column_name: 'gender', options: ['Female', 'Male', 'Nonbinary/Other'], hasOtherOption: false, allowMultiple: false },
+    { text: 'Combined Household Income?', type: 'dropdown', column_name: 'household_income', options: ['>$150,000', '$100,000-$150,000', '$66,000-$99,000', '<$66,000', 'Prefer not to say'], hasOtherOption: false, allowMultiple: false },
+    { text: 'Where did you hear about this event?', type: 'dropdown', column_name: 'where_did_you_hear', options: ['FB/IG', 'Poster in store', 'Email', 'Word of mouth'], hasOtherOption: true, allowMultiple: false },
     { text: 'Favorite adventure sport?', type: 'dropdown', column_name: 'fave_sport', options: ['Snow Sports (Skiing, Snowboarding, Snowshoeing)',
                 'Climbing (Indoor, Outdoor, Bouldering, Slacklining)',
                 'Trail Sports (Trail Running, Trail Walking)',
@@ -124,11 +124,11 @@ const defaultQuestions = ref([
                 'Water Sports (Kayaking, Canoeing, Surfing, Windsurfing, Fly Fishing, Scuba Diving, Paddleboarding)',
                 'Outdoor Activities (Hiking, Camping)',
                 'Aerial Sports (Paragliding, Hang Gliding)',
-                'Extreme Sports (Bungee Jumping, BASE Jumping)'], hasOtherOption: true },
-    { text: 'How much would you spend on equipment?', type: 'dropdown', column_name: 'how_much_spend', options: ['Less than $500', '$500-$1,000', 'More than $1,000'], hasOtherOption: false },
-    { text: 'How often do you climb? (Specify type)', type: 'dropdown', column_name: 'how_often_climb', options: ['More than once a year', 'Once a year', 'Once every 2 years', 'Never'], hasOtherOption: false },
-    { text: 'How often do you climb overseas? (Specify type)', type: 'dropdown', column_name: 'how_often_climb_overseas', options: ['More than once a year', 'Once a year', 'Once every 2 years', 'Never'], hasOtherOption: false },
-    { text: 'How many days per year do you climb? (Specify type)', type: 'dropdown', column_name: 'how_often_climb_per_year', options: ['1-4 days', '5-10 days', '11-19 days', '20+ days', 'Never'], hasOtherOption: false },
+                'Extreme Sports (Bungee Jumping, BASE Jumping)'], hasOtherOption: true, allowMultiple: false },
+    { text: 'How much would you spend on equipment?', type: 'dropdown', column_name: 'how_much_spend', options: ['Less than $500', '$500-$1,000', 'More than $1,000'], hasOtherOption: false, allowMultiple: false },
+    { text: 'How often do you climb? (Specify type)', type: 'dropdown', column_name: 'how_often_climb', options: ['More than once a year', 'Once a year', 'Once every 2 years', 'Never'], hasOtherOption: false, allowMultiple: false },
+    { text: 'How often do you climb overseas? (Specify type)', type: 'dropdown', column_name: 'how_often_climb_overseas', options: ['More than once a year', 'Once a year', 'Once every 2 years', 'Never'], hasOtherOption: false, allowMultiple: false },
+    { text: 'How many days per year do you climb? (Specify type)', type: 'dropdown', column_name: 'how_often_climb_per_year', options: ['1-4 days', '5-10 days', '11-19 days', '20+ days', 'Never'], hasOtherOption: false, allowMultiple: false },
 ]);
 
 // ✅ Reactive copy of questions (to modify in UI)
@@ -176,7 +176,8 @@ const addQuestion = () => {
         type: 'text',
         column_name: '', // 👈 Users must provide a column name
         options: ['Option 1', 'Option 2'],
-        hasOtherOption: false
+        hasOtherOption: false,
+        allowMultiple: false, // Add allowMultiple property
     });
 };
 
@@ -346,6 +347,17 @@ onMounted(() => {
 
                         <!-- ✅ Dropdown Options -->
                         <div v-if="question.type === 'dropdown'">
+                            <div class="mb-3 flex items-center">
+                                <input 
+                                    type="checkbox" 
+                                    :id="`multiple-option-${question.column_name}`" 
+                                    v-model="question.allowMultiple" 
+                                    class="mr-2"
+                                />
+                                <label :for="`multiple-option-${question.column_name}`" class="font-medium">
+                                    Allow multiple selection
+                                </label>
+                            </div>
                             <label class="font-medium">Dropdown Options:</label>
                             <div v-for="(option, optIndex) in question.options" 
                                  draggable="true"
