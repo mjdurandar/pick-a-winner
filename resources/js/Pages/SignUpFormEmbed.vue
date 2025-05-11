@@ -240,8 +240,7 @@ const submitForm = () => {
         }
     });
 
-    console.log(submissionValues);
-    router.post(route('signup.storeEmbedded', { eventId: props.event.id }), { 
+    router.post(route('signup.storeEmbedded', { event_uuid: props.event.event_uuid }), { 
         ...submissionValues,
         _token: csrfToken.value
     }, {
@@ -367,7 +366,7 @@ const getVisibleOptions = (question) => {
 
 // Watch for changes in the country field and update the phone number format
 watch(() => formValues.value['Country'], (newCountry) => {
-    console.log('Country changed:', newCountry); // Debugging log
+    // console.log('Country changed:', newCountry); // Debugging log
     formValues.value['mobile_number'] = '';
 
     if (!newCountry) {

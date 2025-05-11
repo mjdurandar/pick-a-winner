@@ -179,12 +179,12 @@ class SignUpFormController extends Controller
     
     
     //EMBED FUNCTIONS
-    public function embed($eventId)
+    public function embed($event_uuid)
     {
         // Fetch the form details
-        $form = SignUpForm::where('event_id', $eventId)->firstOrFail();
-        $event = Events::where('id', $eventId)->first();
-        $locations = Location::where('event_id', $eventId)->get();
+        $event = Events::where('event_uuid', $event_uuid)->firstOrFail();
+        $form = SignUpForm::where('event_id', $event->id)->firstOrFail();
+        $locations = Location::where('event_id', $event->id)->get();
         
         return inertia('SignUpFormEmbed', [
             'form' => $form,
@@ -193,9 +193,10 @@ class SignUpFormController extends Controller
         ]);
     }
 
-    public function storeEmbeddedData(Request $request, $eventId)
+    public function storeEmbeddedData(Request $request, $event_uuid)
     {   
-        $form = SignUpForm::where('event_id', $eventId)->firstOrFail();
+        $event = Events::where('event_uuid', $event_uuid)->firstOrFail();
+        $form = SignUpForm::where('event_id', $event->id)->firstOrFail();
         $tableName = $form->table_name; // Ensure correct table
         // Get Email Address from Request
         $email = $request->input('Email Address'); // Make sure this matches the form input name
@@ -219,7 +220,7 @@ class SignUpFormController extends Controller
         $validColumns = Schema::getColumnListing($tableName);
         // Transform request data: Normalize question text into column names
         $insertData = [
-            'event_id' => $eventId,
+            'event_id' => $event->id,
             'created_at' => now(),
             'updated_at' => now(),
         ];
@@ -244,6 +245,6 @@ class SignUpFormController extends Controller
         // Insert the validated data into the correct table
         DB::table($tableName)->insert($insertData);
         
-        return redirect()->route('signup.embed', ['eventId' => $eventId])->with('success');
+        return redirect()->route('signup.embed', ['event_uuid' => $event_uuid])->with('success');
     }
 }

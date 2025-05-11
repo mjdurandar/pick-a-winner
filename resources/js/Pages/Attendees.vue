@@ -28,7 +28,7 @@ const formatHeader = (header) => {
 
 // ✅ Filtered attendees based on search query
 const filteredAttendees = computed(() => {
-    console.log(props.attendees);
+    // console.log(props.attendees);
     if (!searchQuery.value) {
         return props.attendees;
     }

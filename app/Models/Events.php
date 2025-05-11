@@ -4,6 +4,7 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Support\Str;
 
 class Events extends Model
 {
@@ -18,5 +19,17 @@ class Events extends Model
         'event_coordinator',
         'event_coordinator_email',
         'event_country',
+        'event_uuid'
     ];
+
+    protected static function boot()
+    {
+        parent::boot();
+
+        static::creating(function ($event) {
+            if (empty($event->event_uuid)) {
+                $event->event_uuid = Str::uuid()->toString();
+            }
+        });
+    }
 }

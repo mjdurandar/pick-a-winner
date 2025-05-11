@@ -37,8 +37,8 @@ Route::get('/', function () {
     return Inertia::render('Auth/Login');
 })->name('login');
 
-Route::get('/adventureentertainment/form/{eventId}', [SignUpFormController::class, 'embed'])->name('signup.embed');
-Route::post('/adventureentertainment/form/{eventId}', [SignUpFormController::class, 'storeEmbeddedData'])->name('signup.storeEmbedded');
+Route::get('/form/{event_uuid}', [SignUpFormController::class, 'embed'])->name('signup.embed');
+Route::post('/form/{event_uuid}', [SignUpFormController::class, 'storeEmbeddedData'])->name('signup.storeEmbedded');
 
 //SHARED ROUTES
 Route::middleware(['auth', RoleMiddleware::class . ':admin,host'])->group(function () {

@@ -371,7 +371,7 @@ const pickAgain = () => {
 
 // ✅ Compute attendees who have NOT been picked as winners yet
 const eligibleAttendees = computed(() => {
-    console.log(props.attendees);
+    // console.log(props.attendees);
     return props.attendees.filter(attendee => {
         const isWinner = props.prizes.some(prize => prize.winner_email === attendee.email_address);
         const matchesLocation = attendee.location_id === props.location.id;

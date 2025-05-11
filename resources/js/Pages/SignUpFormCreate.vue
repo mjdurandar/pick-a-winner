@@ -256,8 +256,8 @@ const saveForm = () => {
 };
 
 onMounted(() => {
-    console.log('Locations array:', props.locations);
-    console.log('Events:', props.eventValues);
+    // console.log('Locations array:', props.locations);
+    // console.log('Events:', props.eventValues);
 });
 </script>
 

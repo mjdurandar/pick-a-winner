@@ -22,7 +22,7 @@ const selectedLocation = ref('');
 const signupForm = ref(props.form || null);
 // ✅ Generate Signup Form Link
 const signupFormUrl = computed(() => {
-    return `${window.location.origin}/adventureentertainment/form/${props.eventId}`;
+    return `${window.location.origin}/form/${props.eventValues.event_uuid}`;
 });
 
 // Format locations to display date and time in the desired format
