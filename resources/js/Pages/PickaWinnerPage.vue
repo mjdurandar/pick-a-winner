@@ -33,6 +33,7 @@ const showMailchimpModal = ref(false);
 const mailchimpLists = ref([]);
 const selectedList = ref('');
 const isImporting = ref(false);
+const tags = ref(''); // Add new ref for tags
 
 // Add new form for location creation
 const locationForm = useForm({
@@ -81,7 +82,8 @@ const handleMailchimpImport = async () => {
     try {
         const response = await axios.post(route('location.importDataToMailChimp'), {
             location_id: selectedLocation.value.id,
-            list_id: selectedList.value
+            list_id: selectedList.value,
+            tags: tags.value.split(',').map(tag => tag.trim()).filter(tag => tag) // Process tags
         });
 
         Swal.fire({
@@ -92,6 +94,7 @@ const handleMailchimpImport = async () => {
 
         showMailchimpModal.value = false;
         selectedList.value = '';
+        tags.value = ''; // Reset tags
     } catch (error) {
         console.error('Import error:', error);
         Swal.fire('Error!', error.response?.data?.error || 'Failed to import data to Mailchimp.', 'error');
@@ -1060,6 +1063,22 @@ Melbourne,September 02 2024,6:00 pm</pre>
                                 {{ list.name }} ({{ list.stats.member_count }} members)
                             </option>
                         </select>
+                    </div>
+
+                    <div class="mb-4">
+                        <label class="block text-sm font-medium text-gray-700 mb-2">
+                            Add Tags (comma-separated)
+                        </label>
+                        <input 
+                            type="text" 
+                            v-model="tags"
+                            class="w-full border rounded px-3 py-2"
+                            placeholder="e.g., 2025, FILM TOUR - WARREN MILLER, SHOW - MELBOURNE"
+                            :disabled="isImporting"
+                        />
+                        <p class="text-sm text-gray-500 mt-1">
+                            Enter tags separated by commas. Each tag will be added to the subscribers.
+                        </p>
                     </div>
 
                     <div class="flex justify-end space-x-3">

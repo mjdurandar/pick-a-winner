@@ -125,7 +125,8 @@ class LocationController extends Controller
     {
         $request->validate([
             'location_id' => 'required|exists:locations,id',
-            'list_id' => 'required|string'
+            'list_id' => 'required|string',
+            'tags' => 'nullable|array'
         ]);
 
         try {
@@ -152,6 +153,9 @@ class LocationController extends Controller
                 'errors' => []
             ];
 
+            // Process tags to ensure they are strings
+            $tags = array_map('strval', $request->tags ?? []);
+
             foreach ($subscribers as $subscriber) {
                 try {
                     $this->mailchimpService->addSubscriberToList(
@@ -169,7 +173,8 @@ class LocationController extends Controller
                             'country' => $subscriber->country,
                             'gender' => $subscriber->gender,
                             'age' => $subscriber->age,
-                        ]
+                        ],
+                        $tags
                     );
                     $results['success']++;
                 } catch (\Exception $e) {

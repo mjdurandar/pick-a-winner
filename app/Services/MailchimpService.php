@@ -44,7 +44,7 @@ class MailchimpService
         return $number;
     }
 
-    public function addSubscriberToList($listId, $subscriber)
+    public function addSubscriberToList($listId, $subscriber, $tags = [])
     {
         // Preprocess age value
         $ageValue = null;
@@ -62,6 +62,12 @@ class MailchimpService
                 }
             }
         }
+
+        // Format tags as simple strings
+        $tagsData = array_map(function($tag) {
+            return (string)$tag;
+        }, $tags);
+
         $response = Http::withBasicAuth('anystring', $this->apiKey)
             ->post("{$this->baseUrl}/lists/{$listId}/members", [
                 'email_address' => $subscriber['email_address'],
@@ -82,6 +88,7 @@ class MailchimpService
                         'country' => $subscriber['country'] ?? '',
                     ],
                 ],
+                'tags' => $tagsData
             ]);
 
         if ($response->successful()) {
