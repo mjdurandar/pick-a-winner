@@ -6,10 +6,19 @@ use Illuminate\Http\Request;
 use Inertia\Inertia;    
 use App\Models\Events;
 use App\Models\Location;
+use App\Services\MailchimpService;
 use Illuminate\Support\Str;
+use Illuminate\Support\Facades\DB;
 
 class LocationController extends Controller
 {
+    protected $mailchimpService;
+
+    public function __construct(MailchimpService $mailchimpService)
+    {
+        $this->mailchimpService = $mailchimpService;
+    }
+
     public function index()
     {
         $events = Events::latest()->get();
@@ -100,5 +109,82 @@ class LocationController extends Controller
         }
 
         return back()->with('success', 'All location passwords updated successfully');
+    }
+
+    public function getMailchimpLists()
+    {
+        try {
+            $lists = $this->mailchimpService->getLists();
+            return response()->json(['lists' => $lists]);
+        } catch (\Exception $e) {
+            return response()->json(['error' => $e->getMessage()], 500);
+        }
+    }
+
+    public function importDataToMailChimp(Request $request)
+    {
+        $request->validate([
+            'location_id' => 'required|exists:locations,id',
+            'list_id' => 'required|string'
+        ]);
+
+        try {
+            // Get the location
+            $location = Location::findOrFail($request->location_id);
+            
+            // Get the signup form for the event
+            $signupForm = DB::table('sign_up_forms')
+                ->where('event_id', $location->event_id)
+                ->first();
+
+            if (!$signupForm) {
+                return response()->json(['error' => 'No signup form found for this event'], 404);
+            }
+
+            // Get all subscribers for this location
+            $subscribers = DB::table($signupForm->table_name)
+                ->where('location_id', $location->id)
+                ->get();
+
+            $results = [
+                'success' => 0,
+                'failed' => 0,
+                'errors' => []
+            ];
+
+            foreach ($subscribers as $subscriber) {
+                try {
+                    $this->mailchimpService->addSubscriberToList(
+                        $request->list_id,
+                        [
+                            'email_address' => $subscriber->email_address,
+                            'first_name' => $subscriber->first_name,
+                            'last_name' => $subscriber->last_name,
+                            'mobile_number' => $subscriber->mobile_number,
+                            'street_address' => $subscriber->street_address,
+                            'street_address_2' => $subscriber->street_address_2,
+                            'city' => $subscriber->city,
+                            'state' => $subscriber->state,
+                            'zip_code' => $subscriber->zip_code,
+                            'country' => $subscriber->country,
+                            'gender' => $subscriber->gender,
+                            'age' => $subscriber->age,
+                        ]
+                    );
+                    $results['success']++;
+                } catch (\Exception $e) {
+                    $results['failed']++;
+                    $results['errors'][] = "Failed to import {$subscriber->email_address}: {$e->getMessage()}";
+                }
+            }
+
+            return response()->json([
+                'message' => "Import completed. Successfully imported {$results['success']} subscribers. Failed: {$results['failed']}",
+                'details' => $results
+            ]);
+
+        } catch (\Exception $e) {
+            return response()->json(['error' => $e->getMessage()], 500);
+        }
     }
 }

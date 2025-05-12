@@ -49,7 +49,7 @@ class HandleInertiaRequests extends Middleware
             'register', 
             'forgot-password', 
             'reset-password/*', 
-            'adventureentertainment/form/*',
+            'form/*',
             'pickawinner',
             'pickawinner/*',
             'api/events/*/locations',

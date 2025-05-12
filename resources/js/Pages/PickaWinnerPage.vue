@@ -5,6 +5,7 @@ import { Head } from '@inertiajs/vue3';
 import { router } from '@inertiajs/vue3';
 import Swal from 'sweetalert2';
 import { useForm } from '@inertiajs/vue3';
+import axios from 'axios';
 
 // ✅ Define Props to Receive Locations from Backend
 const props = defineProps({
@@ -28,6 +29,10 @@ const eventConfirmPassword = ref('');
 const allLocationsNewPassword = ref('');
 const allLocationsConfirmPassword = ref('');
 const showCSVFormat = ref(false);
+const showMailchimpModal = ref(false);
+const mailchimpLists = ref([]);
+const selectedList = ref('');
+const isImporting = ref(false);
 
 // Add new form for location creation
 const locationForm = useForm({
@@ -50,6 +55,49 @@ const formatLocationDateTime = (date, time) => {
         minute: '2-digit',
         hour12: true,
     });
+};
+
+const importDataToMailChimp = async (location) => {
+    selectedLocation.value = location;
+    showMailchimpModal.value = true;
+    
+    try {
+        const response = await axios.get(route('location.mailchimpLists'));
+        mailchimpLists.value = response.data.lists;
+    } catch (error) {
+        console.error('Failed to fetch Mailchimp lists:', error);
+        Swal.fire('Error!', 'Failed to fetch Mailchimp lists. Please try again.', 'error');
+    }
+};
+
+const handleMailchimpImport = async () => {
+    if (!selectedList.value) {
+        Swal.fire('Error!', 'Please select a Mailchimp audience.', 'error');
+        return;
+    }
+
+    isImporting.value = true;
+
+    try {
+        const response = await axios.post(route('location.importDataToMailChimp'), {
+            location_id: selectedLocation.value.id,
+            list_id: selectedList.value
+        });
+
+        Swal.fire({
+            title: 'Success!',
+            html: response.data.message,
+            icon: 'success'
+        });
+
+        showMailchimpModal.value = false;
+        selectedList.value = '';
+    } catch (error) {
+        console.error('Import error:', error);
+        Swal.fire('Error!', error.response?.data?.error || 'Failed to import data to Mailchimp.', 'error');
+    } finally {
+        isImporting.value = false;
+    }
 };
 
 // Add CSV import functionality
@@ -765,14 +813,21 @@ const closeAllPasswordsModal = () => {
                                 >
                                     <i class="fa-solid fa-key"></i>
                                 </button>
-                                <!-- Copy Password Button -->
                                 <button 
+                                    @click="importDataToMailChimp(location)"
+                                    class="bg-yellow-300 text-gray-600 px-3 py-2 rounded hover:bg-gray-400 transition"
+                                    title="Import Data to MailChimp"
+                                >
+                                    <i class="fa-solid fa-envelope"></i>
+                                </button>
+                                <!-- Copy Password Button -->
+                                <!-- <button 
                                     @click="copyPassword(location, index)"
                                     class="bg-gray-300 text-gray-600 px-3 py-2 rounded hover:bg-gray-400 transition"
                                     title="Copy Password"
                                 >   
                                     <i :class="copiedIndex === index ? 'fa-solid fa-check text-green-600' : 'fa-solid fa-copy'"></i>
-                                </button>
+                                </button> -->
                             </div>
                         </div>
 
@@ -967,6 +1022,67 @@ Melbourne,September 02 2024,6:00 pm</pre>
                             <i class="fa-solid fa-random"></i> Generate Password
                         </button>
                         <button type="button" class="btn btn-primary" @click="updateAllPasswords">Update All Passwords</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Mailchimp Import Modal -->
+        <div v-if="showMailchimpModal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+            <div class="bg-white p-6 rounded-lg shadow-xl max-w-2xl w-full mx-4">
+                <div class="flex justify-between items-center mb-4">
+                    <h3 class="text-lg font-semibold">Import to Mailchimp</h3>
+                    <button @click="showMailchimpModal = false" class="text-gray-500 hover:text-gray-700">
+                        <i class="fa-solid fa-times"></i>
+                    </button>
+                </div>
+                
+                <div class="space-y-4">
+                    <p class="text-gray-600">
+                        Import subscribers from <strong>{{ selectedLocation?.name }}</strong> to Mailchimp
+                    </p>
+
+                    <div class="mb-4">
+                        <label class="block text-sm font-medium text-gray-700 mb-2">
+                            Select Mailchimp Audience
+                        </label>
+                        <select 
+                            v-model="selectedList"
+                            class="w-full border rounded px-3 py-2"
+                            :disabled="isImporting"
+                        >
+                            <option value="">Select an audience...</option>
+                            <option 
+                                v-for="list in mailchimpLists" 
+                                :key="list.id" 
+                                :value="list.id"
+                            >
+                                {{ list.name }} ({{ list.stats.member_count }} members)
+                            </option>
+                        </select>
+                    </div>
+
+                    <div class="flex justify-end space-x-3">
+                        <button 
+                            @click="showMailchimpModal = false"
+                            class="px-4 py-2 border rounded text-gray-600 hover:bg-gray-50"
+                            :disabled="isImporting"
+                        >
+                            Cancel
+                        </button>
+                        <button 
+                            @click="handleMailchimpImport"
+                            class="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600"
+                            :disabled="isImporting || !selectedList"
+                        >
+                            <span v-if="isImporting">
+                                <i class="fa-solid fa-spinner fa-spin mr-2"></i>
+                                Importing...
+                            </span>
+                            <span v-else>
+                                Import to Mailchimp
+                            </span>
+                        </button>
                     </div>
                 </div>
             </div>
