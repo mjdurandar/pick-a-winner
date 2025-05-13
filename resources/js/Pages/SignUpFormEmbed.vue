@@ -419,7 +419,7 @@ onMounted(() => {
             <div class="w-100">
                 <img :src="'/storage/' + event.event_banner" alt="Event Banner" 
                      class="img-fluid w-100" 
-                     style=" height: 350px;">
+                     style="object-fit: contain; max-height: 500px;">
             </div>
 
             <!-- ✅ Thank You Card (Shown after submission) -->
@@ -430,11 +430,11 @@ onMounted(() => {
 
             <!-- ✅ Event Details (Shown before submission) -->
             <div class="p-4" v-if="!isSubmitted">
-                <h2 class="mt-2 mb-3 fw-bold" style="font-size: 20px;">{{ form.heading }}</h2>
-                <p class="mb-3">{{ form.event_description }}</p>
+                <h2 class="mt-2 mb-3 fw-bold" style="font-size: 19px;">{{ form.heading }}</h2>
+                <p class="mb-3" style="font-size: 14px;">{{ form.event_description }}</p>
                 <p class="mb-2">
-                    <a :href="form.terms_link" target="_blank" class="text-decoration-none" style="color: #0000EE;">Terms and Conditions</a> |
-                    <a :href="form.privacy_link" target="_blank" class="text-decoration-none" style="color: #0000EE;">Privacy Policy</a>
+                    <a :href="form.terms_link" target="_blank" class="text-decoration-none" style="color: #0000EE; font-size: 14px;">Terms and Conditions</a> |
+                    <a :href="form.privacy_link" target="_blank" class="text-decoration-none" style="color: #0000EE; font-size: 14px;">Privacy Policy</a>
                 </p>
             </div>
         </div>
