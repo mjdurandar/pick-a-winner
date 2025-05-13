@@ -1,6 +1,6 @@
 <script setup>
 import Swal from 'sweetalert2';
-import { ref, computed, onMounted, onUnmounted, watch } from 'vue';
+import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue';
 import { useForm, router } from '@inertiajs/vue3';
 import PickaWinnerLayout from '@/Layouts/PickaWinnerLayout.vue';
 import { Head } from '@inertiajs/vue3';
@@ -173,8 +173,23 @@ const fetchAttendees = () => {
     });
 };
 
+const initializeModals = () => {
+    // Initialize all modals with proper configuration
+    const modals = document.querySelectorAll('.modal');
+    modals.forEach(modal => {
+        new bootstrap.Modal(modal, {
+            backdrop: 'static',
+            keyboard: false,
+            focus: true
+        });
+    });
+};
+
 onMounted(() => {
-    pollingInterval = setInterval(fetchAttendees, 5000); // ✅ Fetch attendees every 5 seconds
+    pollingInterval = setInterval(fetchAttendees, 5000);
+    
+    // Initialize modals
+    initializeModals();
     
     // Check if there are no prizes and show the modal
     if (props.prizes.length === 0) {
@@ -185,7 +200,16 @@ onMounted(() => {
 });
 
 onUnmounted(() => {
-    clearInterval(pollingInterval); // ✅ Stop polling when component is destroyed
+    clearInterval(pollingInterval);
+    
+    // Clean up any open modals
+    const modals = document.querySelectorAll('.modal');
+    modals.forEach(modal => {
+        const modalInstance = bootstrap.Modal.getInstance(modal);
+        if (modalInstance) {
+            modalInstance.hide();
+        }
+    });
 });
 
 const openEditModal = (prize) => {
@@ -247,10 +271,8 @@ const updatePrizeForWinner = () => {
 
     router.post(route('prize.update', selectedPrize.value.id), data, {
         onSuccess: () => {
-            let modalElement = bootstrap.Modal.getInstance(document.getElementById('prizeDetailsModal'));
-            modalElement.hide();
+            handleModalClose();
             Swal.fire('Updated!', 'Prize has been assigned to the winner.', 'success');
-            prizeForWinner.value = '';
         },
         onError: (errors) => {
             Swal.fire('Error!', 'There was an issue updating the prize.', 'error');
@@ -301,6 +323,13 @@ const openPrizeDetailsModal = (winner) => {
     
     let modalElement = new bootstrap.Modal(document.getElementById('prizeDetailsModal'));
     modalElement.show();
+    
+    // Focus on the prize input after modal is shown
+    nextTick(() => {
+        if (prizeInput.value) {
+            prizeInput.value.focus();
+        }
+    });
 };
 
 // ✅ Save the Winner (without prize initially)
@@ -410,7 +439,42 @@ const eligibleAttendees = computed(() => {
 //     }
 // };
 
+// Add these to your script setup section:
+const prizeInput = ref(null);
+
+// Add this new method to handle modal closing
+const handleModalClose = () => {
+    // Clear focus before closing
+    if (document.activeElement instanceof HTMLElement) {
+        document.activeElement.blur();
+    }
+    
+    // Reset form values
+    prizeForWinner.value = '';
+    selectedPrize.value = null;
+    
+    // Hide modal
+    const modalElement = document.getElementById('prizeDetailsModal');
+    if (modalElement) {
+        const modalInstance = bootstrap.Modal.getInstance(modalElement);
+        if (modalInstance) {
+            modalInstance.hide();
+        }
+    }
+};
+
 </script>
+<style>
+/* Global modal styles - not scoped to ensure it affects all modals */
+.modal-backdrop {
+    background-color: rgba(0, 0, 0, 0.5) !important;
+    backdrop-filter: blur(2px);
+}
+
+.modal-content {
+    box-shadow: 0 5px 15px rgba(0, 0, 0, 0.5);
+}
+</style>
 <style scoped>
 /* Override Bootstrap's input focus styles */
 .form-control:focus {
@@ -596,21 +660,21 @@ input:-webkit-autofill:active {
 
             <!-- Prize Details Modal -->
             <div class="modal fade" id="prizeDetailsModal" tabindex="-1" aria-labelledby="prizeDetailsModalLabel"
-                data-bs-backdrop="static" data-bs-keyboard="false">
-                <div class="modal-dialog">
+                data-bs-backdrop="static" data-bs-keyboard="false" role="dialog" aria-modal="true">
+                <div class="modal-dialog" role="document">
                     <div class="modal-content bg-gray-900 text-white">
                         <div class="modal-header border-gray-700">
-                            <h5 class="modal-title">🏆 Winner Details & Prize 🏆</h5>
-                            <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+                            <h5 class="modal-title" id="prizeDetailsModalLabel">🏆 Winner Details & Prize 🏆</h5>
+                            <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close" @click="handleModalClose"></button>
                         </div>
                         <div class="modal-body">
                             <div v-if="selectedPrize" class="winner-details mb-4">
                                 <h5 class="text-xl font-bold mb-3">Winner Information</h5>
                                 <p><strong>Name:</strong> {{ selectedPrize.winner }}</p>
-                                <p><strong>Email:</strong> {{ selectedWinner.email_address }}</p>
-                                <p><strong>Gender:</strong> {{ selectedWinner.gender }}</p>
-                                <p><strong>Phone:</strong> {{ selectedWinner.mobile_number }}</p>
-                                <p><strong>Age:</strong> {{ selectedWinner.age }}</p>
+                                <p><strong>Email:</strong> {{ selectedWinner?.email_address }}</p>
+                                <p><strong>Gender:</strong> {{ selectedWinner?.gender }}</p>
+                                <p><strong>Phone:</strong> {{ selectedWinner?.mobile_number }}</p>
+                                <p><strong>Age:</strong> {{ selectedWinner?.age }}</p>
                             </div>
                             
                             <div class="form-group mt-4">
@@ -621,13 +685,14 @@ input:-webkit-autofill:active {
                                     id="prizeDetailInput" 
                                     v-model="prizeForWinner" 
                                     placeholder="Enter prize details"
+                                    ref="prizeInput"
                                 >
                                 <small class="text-muted">Enter the prize details for this winner</small>
                             </div>
                         </div>
                         <div class="modal-footer border-gray-700">
-                            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                            <button type="button" class="btn btn-success" @click="updatePrizeForWinner()">
+                            <button type="button" class="btn btn-secondary" @click="handleModalClose">Cancel</button>
+                            <button type="button" class="btn btn-success" @click="updatePrizeForWinner">
                                 Update Prize
                             </button>
                         </div>
