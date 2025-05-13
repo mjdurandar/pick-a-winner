@@ -319,7 +319,7 @@ const openPickWinnerModal = () => {
 // Add a new function to open the prize details modal for a winner
 const openPrizeDetailsModal = (winner) => {
     selectedPrize.value = winner;
-    prizeForWinner.value = winner.prize_name || '';
+    prizeForWinner.value = ''; // Reset the prize input
     
     let modalElement = new bootstrap.Modal(document.getElementById('prizeDetailsModal'));
     modalElement.show();
@@ -590,6 +590,7 @@ input:-webkit-autofill:active {
                                         <tr class="bg-cyan-500">
                                             <!-- <th class="border border-gray-700 p-2 text-white">Prize</th> -->
                                             <th class="border border-gray-700 p-2 text-white">Name</th>
+                                            <th class="border border-gray-700 p-2 text-white">Prize</th>
                                             <!-- <th class="border border-gray-700 p-2 text-white">Email</th>
                                             <th class="border border-gray-700 p-2 text-white">Mobile Number</th> -->
                                             <th class="border border-gray-700 p-2 text-white">Actions</th>
@@ -600,6 +601,7 @@ input:-webkit-autofill:active {
                                         :class="{'bg-cyan-700': prize.winner_email}">
                                             <!-- <td class="border border-gray-700 p-2">{{ prize.prize_name }}</td> -->
                                             <td class="border border-gray-700 p-2">{{ prize.winner }}</td>
+                                            <td class="border border-gray-700 p-2">{{ prize.prize_name === 'Prize Name' ? '' : (prize.prize_name || 'Not assigned') }}</td>
                                             <!-- <td class="border border-gray-700 p-2">{{ prize.winner_email || 'No Winner Yet' }}</td>
                                             <td class="border border-gray-700 p-2">{{ prize.winner_mobile_number || 'No Winner Yet' }}</td> -->
                                             <td class="border border-gray-700 p-2 text-center">
@@ -671,10 +673,6 @@ input:-webkit-autofill:active {
                             <div v-if="selectedPrize" class="winner-details mb-4">
                                 <h5 class="text-xl font-bold mb-3">Winner Information</h5>
                                 <p><strong>Name:</strong> {{ selectedPrize.winner }}</p>
-                                <p><strong>Email:</strong> {{ selectedWinner?.email_address }}</p>
-                                <p><strong>Gender:</strong> {{ selectedWinner?.gender }}</p>
-                                <p><strong>Phone:</strong> {{ selectedWinner?.mobile_number }}</p>
-                                <p><strong>Age:</strong> {{ selectedWinner?.age }}</p>
                             </div>
                             
                             <div class="form-group mt-4">
@@ -684,7 +682,7 @@ input:-webkit-autofill:active {
                                     class="form-control bg-gray-800 text-white" 
                                     id="prizeDetailInput" 
                                     v-model="prizeForWinner" 
-                                    placeholder="Enter prize details"
+                                    placeholder="Enter the prize name for this winner"
                                     ref="prizeInput"
                                 >
                                 <small class="text-muted">Enter the prize details for this winner</small>
