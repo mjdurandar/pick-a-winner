@@ -316,9 +316,19 @@ const openPickWinnerModal = () => {
     }, 3000);
 };
 
-// Add a new function to open the prize details modal for a winner
+// Add this computed property to find the attendee data
+const findAttendeeByEmail = (email) => {
+    return props.attendees.find(attendee => attendee.email_address === email);
+};
+
+// Update the openPrizeDetailsModal function
 const openPrizeDetailsModal = (winner) => {
-    selectedPrize.value = winner;
+    const attendeeData = findAttendeeByEmail(winner.winner_email);
+    selectedPrize.value = {
+        ...winner,
+        winner_gender: attendeeData?.gender || '',
+        winner_age: attendeeData?.age || ''
+    };
     prizeForWinner.value = ''; // Reset the prize input
     
     let modalElement = new bootstrap.Modal(document.getElementById('prizeDetailsModal'));
@@ -347,6 +357,8 @@ const confirmWinner = () => {
     data.append('winner_name', selectedWinner.value.first_name + " " + selectedWinner.value.last_name);
     data.append('winner_email', selectedWinner.value.email_address);
     data.append('winner_mobile_number', selectedWinner.value.mobile_number);
+    data.append('winner_gender', selectedWinner.value.gender);
+    data.append('winner_age', selectedWinner.value.age);
 
     router.post(route('prize.store'), data, {
         onSuccess: () => {
@@ -673,6 +685,10 @@ input:-webkit-autofill:active {
                             <div v-if="selectedPrize" class="winner-details mb-4">
                                 <h5 class="text-xl font-bold mb-3">Winner Information</h5>
                                 <p><strong>Name:</strong> {{ selectedPrize.winner }}</p>
+                                <p><strong>Email:</strong> {{ selectedPrize.winner_email }}</p>
+                                <p><strong>Phone:</strong> {{ selectedPrize.winner_mobile_number }}</p>
+                                <p><strong>Gender:</strong> {{ selectedPrize.winner_gender || selectedPrize.gender }}</p>
+                                <p><strong>Age:</strong> {{ selectedPrize.winner_age || selectedPrize.age }}</p>
                             </div>
                             
                             <div class="form-group mt-4">
