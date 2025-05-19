@@ -94,6 +94,7 @@ Route::middleware(['auth', RoleMiddleware::class . ':admin'])->group(function ()
     // Route::post('/location', [LocationController::class, 'store'])->name('location.store');
     // Route::put('/location/{location}', [LocationController::class, 'update'])->name('location.update');
     // Route::delete('/location/{location}', [LocationController::class, 'destroy'])->name('location.destroy');
+    //TEST CHANGES
 
     //EDIT SIGN UP FORM ROUTES
     Route::get('/signup-form/edit/{formId}', [SignUpFormController::class, 'edit'])->name('signup.edit');
