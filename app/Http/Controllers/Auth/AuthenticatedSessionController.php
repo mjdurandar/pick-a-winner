@@ -33,10 +33,20 @@ class AuthenticatedSessionController extends Controller
 
         $request->session()->regenerate();
 
-        if (Auth::user()->role === 'host') {
-            return redirect()->intended(route('events.index', absolute: false));
-        }else{
-            return redirect()->intended(route('dashboard', absolute: false));
+        $user = Auth::user();
+        
+        // Clear any intended URL to prevent redirect loops
+        if (session()->has('url.intended')) {
+            session()->forget('url.intended');
+        }
+
+        if ($user->role === 'host') {
+            return redirect(route('events.index'));
+        } else if ($user->role === 'admin') {
+            return redirect(route('dashboard'));
+        } else {
+            // For any other role, redirect to events page
+            return redirect(route('events.index'));
         }
     }
 
