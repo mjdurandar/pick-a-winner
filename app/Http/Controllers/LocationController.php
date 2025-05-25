@@ -153,33 +153,46 @@ class LocationController extends Controller
                 'errors' => []
             ];
 
-            // Process tags to ensure they are strings
-            $tags = array_map('strval', $request->tags ?? []);
+            // Process tags to ensure they are strings and properly formatted
+            $tags = array_map(function($tag) {
+                return strval(trim($tag)); // Convert to string and trim whitespace
+            }, $request->tags ?? []);
 
-            foreach ($subscribers as $subscriber) {
-                try {
-                    $this->mailchimpService->addSubscriberToList(
-                        $request->list_id,
-                        [
-                            'email_address' => $subscriber->email_address,
-                            'first_name' => $subscriber->first_name,
-                            'last_name' => $subscriber->last_name,
-                            'mobile_number' => $subscriber->mobile_number,
-                            'street_address' => $subscriber->street_address,
-                            'street_address_2' => $subscriber->street_address_2,
-                            'city' => $subscriber->city,
-                            'state' => $subscriber->state,
-                            'zip_code' => $subscriber->zip_code,
-                            'country' => $subscriber->country,
-                            'gender' => $subscriber->gender,
-                            'age' => $subscriber->age,
-                        ],
-                        $tags
-                    );
-                    $results['success']++;
-                } catch (\Exception $e) {
-                    $results['failed']++;
-                    $results['errors'][] = "Failed to import {$subscriber->email_address}: {$e->getMessage()}";
+            // Process subscribers in batches of 50
+            $batchSize = 50;
+            $totalBatches = ceil($subscribers->count() / $batchSize);
+
+            for ($i = 0; $i < $totalBatches; $i++) {
+                $batchSubscribers = $subscribers->slice($i * $batchSize, $batchSize);
+                
+                foreach ($batchSubscribers as $subscriber) {
+                    try {
+                        $this->mailchimpService->addSubscriberToList(
+                            $request->list_id,
+                            [
+                                'email_address' => $subscriber->email_address,
+                                'first_name' => $subscriber->first_name,
+                                'last_name' => $subscriber->last_name,
+                                'mobile_number' => $subscriber->mobile_number,
+                                'street_address' => $subscriber->street_address,
+                                'street_address_2' => $subscriber->street_address_2,
+                                'city' => $subscriber->city,
+                                'state' => $subscriber->state,
+                                'zip_code' => $subscriber->zip_code,
+                                'country' => $subscriber->country,
+                                'gender' => $subscriber->gender,
+                                'age' => $subscriber->age,
+                            ],
+                            $tags
+                        );
+                        $results['success']++;
+                    } catch (\Exception $e) {
+                        $results['failed']++;
+                        $results['errors'][] = "Failed to import {$subscriber->email_address}: {$e->getMessage()}";
+                    }
+
+                    // Add a small delay between each subscriber to prevent rate limiting
+                    usleep(100000); // 100ms delay
                 }
             }
 

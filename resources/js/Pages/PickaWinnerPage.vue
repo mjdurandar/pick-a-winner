@@ -80,10 +80,16 @@ const handleMailchimpImport = async () => {
     isImporting.value = true;
 
     try {
+        // Process tags: split by comma and trim whitespace
+        const processedTags = tags.value
+            .split(',')
+            .map(tag => tag.trim())
+            .filter(tag => tag); // Only remove empty tags
+
         const response = await axios.post(route('location.importDataToMailChimp'), {
             location_id: selectedLocation.value.id,
             list_id: selectedList.value,
-            tags: tags.value.split(',').map(tag => tag.trim()).filter(tag => tag) // Process tags
+            tags: processedTags
         });
 
         Swal.fire({
