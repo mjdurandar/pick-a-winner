@@ -45,7 +45,7 @@ const userRole = computed(() => user.value?.role);
                                     :href="route('dashboard')"
                                     :active="route().current('dashboard')"
                                 >
-                                    Dashboard
+                                    Dashboard (Production Testing)
                                 </NavLink>
                                 <NavLink
                                     v-if="userRole === 'admin' || userRole === 'host'"
