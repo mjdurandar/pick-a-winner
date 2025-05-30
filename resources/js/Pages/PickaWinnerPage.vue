@@ -80,27 +80,96 @@ const handleMailchimpImport = async () => {
     isImporting.value = true;
 
     try {
-        // Process tags: split by comma and trim whitespace
+        // First, get all subscribers
+        const subscribersResponse = await axios.get(route('location.getSubscribers'), {
+            params: {
+                location_id: selectedLocation.value.id
+            }
+        });
+
+        const allSubscribers = subscribersResponse.data.subscribers;
+        const totalSubscribers = subscribersResponse.data.total;
+
+        if (totalSubscribers === 0) {
+            Swal.fire('Error!', 'No subscribers found for this location.', 'error');
+            isImporting.value = false;
+            return;
+        }
+
+        // Process tags
         const processedTags = tags.value
             .split(',')
             .map(tag => tag.trim())
-            .filter(tag => tag); // Only remove empty tags
+            .filter(tag => tag);
 
-        const response = await axios.post(route('location.importDataToMailChimp'), {
-            location_id: selectedLocation.value.id,
-            list_id: selectedList.value,
-            tags: processedTags
+        // Process in chunks of 10
+        const chunkSize = 10;
+        const totalChunks = Math.ceil(allSubscribers.length / chunkSize);
+        let successCount = 0;
+        let failureCount = 0;
+        let errors = [];
+
+        // Create and show progress modal
+        const progressModal = Swal.fire({
+            title: 'Importing Subscribers',
+            html: `Processing 0 of ${totalSubscribers} subscribers...`,
+            allowOutsideClick: false,
+            allowEscapeKey: false,
+            showConfirmButton: false,
+            didOpen: () => {
+                Swal.showLoading();
+            }
         });
 
+        // Process each chunk
+        for (let i = 0; i < totalChunks; i++) {
+            const start = i * chunkSize;
+            const end = Math.min(start + chunkSize, allSubscribers.length);
+            const chunk = allSubscribers.slice(start, end);
+
+            try {
+                const response = await axios.post(route('location.importDataToMailChimp'), {
+                    subscribers: chunk,
+                    list_id: selectedList.value,
+                    tags: processedTags
+                });
+
+                successCount += response.data.details.success;
+                failureCount += response.data.details.failed;
+                errors = errors.concat(response.data.details.errors);
+
+                // Update progress
+                const processed = Math.min((i + 1) * chunkSize, totalSubscribers);
+                await Swal.update({
+                    html: `Processing ${processed} of ${totalSubscribers} subscribers...
+                           <br>Success: ${successCount}, Failed: ${failureCount}`
+                });
+
+            } catch (error) {
+                console.error('Chunk import error:', error);
+                errors.push(`Chunk ${i + 1} failed: ${error.message}`);
+            }
+
+            // Add delay between chunks
+            await new Promise(resolve => setTimeout(resolve, 1000));
+        }
+
+        // Close progress modal
+        await progressModal;
+
+        // Show final results
         Swal.fire({
-            title: 'Success!',
-            html: response.data.message,
-            icon: 'success'
+            title: 'Import Completed',
+            html: `Successfully imported ${successCount} out of ${totalSubscribers} subscribers.
+                   <br>Failed: ${failureCount}
+                   ${errors.length > 0 ? '<br><br>Errors:<br>' + errors.slice(0, 5).join('<br>') + 
+                   (errors.length > 5 ? '<br>...' : '') : ''}`,
+            icon: errors.length > 0 ? 'warning' : 'success'
         });
 
         showMailchimpModal.value = false;
         selectedList.value = '';
-        tags.value = ''; // Reset tags
+        tags.value = '';
     } catch (error) {
         console.error('Import error:', error);
         Swal.fire('Error!', error.response?.data?.error || 'Failed to import data to Mailchimp.', 'error');

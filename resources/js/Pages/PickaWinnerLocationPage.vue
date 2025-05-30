@@ -9,6 +9,7 @@ import { Head } from '@inertiajs/vue3';
 const isEditing = ref(false);
 const ageFilter = ref(''); // 'under21', '22to44', '45plus', ''
 const filterCondition = ref('AND'); // 'AND' or 'OR'
+const isSubmitting = ref(false); // Track submission state
 
 // ✅ Search Query
 const searchQuery = ref('');
@@ -349,6 +350,12 @@ const confirmWinner = () => {
         return;
     }
 
+    if (isSubmitting.value) {
+        return; // Prevent double submission
+    }
+
+    isSubmitting.value = true;
+
     // Create a new entry with winner but null prize
     const data = new FormData();
     data.append('prize_name', null); // Prize will be set later
@@ -365,10 +372,12 @@ const confirmWinner = () => {
             let modalElement = bootstrap.Modal.getInstance(document.getElementById('pickWinnerModal'));
             modalElement.hide();
             Swal.fire('Winner Selected!', `${selectedWinner.value.first_name} has been selected!`, 'success');
+            isSubmitting.value = false;
         },
         onError: (errors) => {
             console.error('Error saving winner:', errors);
             Swal.fire('Error!', 'There was an issue saving the winner.', 'error');
+            isSubmitting.value = false;
         }
     });
 };
@@ -664,8 +673,15 @@ input:-webkit-autofill:active {
                         </div>
                         <div class="modal-footer border-gray-700 d-flex justify-content-between">
                             <button type="button" class="btn btn-secondary" v-if="!isPicking" @click="pickAgain()">Pick Again</button>
-                            <button type="button" class="btn btn-success" v-if="!isPicking" @click="confirmWinner()">
-                                Congratulations!
+                            <button 
+                                type="button" 
+                                class="btn btn-success" 
+                                v-if="!isPicking" 
+                                @click="confirmWinner()"
+                                :disabled="isSubmitting"
+                            >
+                                <span v-if="isSubmitting" class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>
+                                {{ isSubmitting ? 'Saving...' : 'Congratulations!' }}
                             </button>
                         </div>
                     </div>

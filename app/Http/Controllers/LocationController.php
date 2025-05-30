@@ -122,23 +122,15 @@ class LocationController extends Controller
         }
     }
 
-    public function importDataToMailChimp(Request $request)
+    public function getSubscribers(Request $request)
     {
-        // Increase PHP execution time limit for this request
-        set_time_limit(300); // Set to 5 minutes
-        ini_set('memory_limit', '256M'); // Increase memory limit if needed
-
         $request->validate([
-            'location_id' => 'required|exists:locations,id',
-            'list_id' => 'required|string',
-            'tags' => 'nullable|array'
+            'location_id' => 'required|exists:locations,id'
         ]);
 
         try {
-            // Get the location
             $location = Location::findOrFail($request->location_id);
             
-            // Get the signup form for the event
             $signupForm = DB::table('sign_up_forms')
                 ->where('event_id', $location->event_id)
                 ->first();
@@ -147,91 +139,88 @@ class LocationController extends Controller
                 return response()->json(['error' => 'No signup form found for this event'], 404);
             }
 
-            // Get all subscribers for this location
             $subscribers = DB::table($signupForm->table_name)
                 ->where('location_id', $location->id)
                 ->get();
 
-            if ($subscribers->isEmpty()) {
-                return response()->json(['error' => 'No subscribers found for this location'], 404);
-            }
+            return response()->json([
+                'total' => $subscribers->count(),
+                'subscribers' => $subscribers
+            ]);
 
+        } catch (\Exception $e) {
+            Log::error('Error fetching subscribers: ' . $e->getMessage());
+            return response()->json(['error' => 'Failed to fetch subscribers'], 500);
+        }
+    }
+
+    public function importDataToMailChimp(Request $request)
+    {
+        set_time_limit(60); // Set to 1 minute since we're processing smaller chunks
+
+        $request->validate([
+            'subscribers' => 'required|array',
+            'list_id' => 'required|string',
+            'tags' => 'nullable|array'
+        ]);
+
+        try {
             $results = [
                 'success' => 0,
                 'failed' => 0,
-                'errors' => [],
-                'total' => $subscribers->count()
+                'errors' => []
             ];
 
-            // Process tags to ensure they are strings and properly formatted
+            // Process tags
             $tags = array_map(function($tag) {
-                return strval(trim($tag)); // Convert to string and trim whitespace
+                return strval(trim($tag));
             }, $request->tags ?? []);
 
-            // Reduce batch size and increase delay between batches
-            $batchSize = 25; // Smaller batch size
-            $totalBatches = ceil($subscribers->count() / $batchSize);
-
-            for ($i = 0; $i < $totalBatches; $i++) {
-                $batchSubscribers = $subscribers->slice($i * $batchSize, $batchSize);
-                
-                foreach ($batchSubscribers as $subscriber) {
-                    try {
-                        // Add error handling for subscriber data
-                        if (empty($subscriber->email_address)) {
-                            $results['failed']++;
-                            $results['errors'][] = "Skipped subscriber: Missing email address";
-                            continue;
-                        }
-
-                        $this->mailchimpService->addSubscriberToList(
-                            $request->list_id,
-                            [
-                                'email_address' => $subscriber->email_address,
-                                'first_name' => $subscriber->first_name ?? '',
-                                'last_name' => $subscriber->last_name ?? '',
-                                'mobile_number' => $subscriber->mobile_number ?? '',
-                                'street_address' => $subscriber->street_address ?? '',
-                                'street_address_2' => $subscriber->street_address_2 ?? '',
-                                'city' => $subscriber->city ?? '',
-                                'state' => $subscriber->state ?? '',
-                                'zip_code' => $subscriber->zip_code ?? '',
-                                'country' => $subscriber->country ?? '',
-                                'gender' => $subscriber->gender ?? '',
-                                'age' => $subscriber->age ?? '',
-                            ],
-                            $tags
-                        );
-                        $results['success']++;
-
-                        // Add a small delay between each subscriber
-                        usleep(200000); // 200ms delay
-                    } catch (\Exception $e) {
+            foreach ($request->subscribers as $subscriber) {
+                try {
+                    if (empty($subscriber['email_address'])) {
                         $results['failed']++;
-                        $results['errors'][] = "Failed to import {$subscriber->email_address}: " . substr($e->getMessage(), 0, 200);
+                        $results['errors'][] = "Skipped subscriber: Missing email address";
+                        continue;
                     }
-                }
 
-                // Add a longer delay between batches
-                sleep(1); // 1 second delay between batches
+                    $this->mailchimpService->addSubscriberToList(
+                        $request->list_id,
+                        [
+                            'email_address' => $subscriber['email_address'],
+                            'first_name' => $subscriber['first_name'] ?? '',
+                            'last_name' => $subscriber['last_name'] ?? '',
+                            'mobile_number' => $subscriber['mobile_number'] ?? '',
+                            'street_address' => $subscriber['street_address'] ?? '',
+                            'street_address_2' => $subscriber['street_address_2'] ?? '',
+                            'city' => $subscriber['city'] ?? '',
+                            'state' => $subscriber['state'] ?? '',
+                            'zip_code' => $subscriber['zip_code'] ?? '',
+                            'country' => $subscriber['country'] ?? '',
+                            'gender' => $subscriber['gender'] ?? '',
+                            'age' => $subscriber['age'] ?? '',
+                        ],
+                        $tags
+                    );
+                    $results['success']++;
+
+                    // Small delay between each subscriber
+                    usleep(200000); // 200ms delay
+                } catch (\Exception $e) {
+                    $results['failed']++;
+                    $results['errors'][] = "Failed to import {$subscriber['email_address']}: " . substr($e->getMessage(), 0, 200);
+                }
             }
 
-            $message = sprintf(
-                "Import completed. Successfully imported %d out of %d subscribers. Failed: %d",
-                $results['success'],
-                $results['total'],
-                $results['failed']
-            );
-
             return response()->json([
-                'message' => $message,
+                'message' => "Chunk processed. Success: {$results['success']}, Failed: {$results['failed']}",
                 'details' => $results
             ]);
 
         } catch (\Exception $e) {
-            \Log::error('Mailchimp import error: ' . $e->getMessage());
+            Log::error('Mailchimp import error: ' . $e->getMessage());
             return response()->json([
-                'error' => 'An error occurred during import. Please try again or contact support if the problem persists.',
+                'error' => 'An error occurred during import.',
                 'details' => $e->getMessage()
             ], 500);
         }
