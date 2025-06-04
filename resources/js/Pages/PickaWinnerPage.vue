@@ -71,7 +71,48 @@ const importDataToMailChimp = async (location) => {
     }
 };
 
+const generateImportLog = (data, importedSubscribers = []) => {
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+    const locationName = selectedLocation.value?.name || 'Unknown Location';
+    
+    let logContent = `Mailchimp Import Log
+===================
+Date: ${new Date().toLocaleString()}
+Location: ${locationName}
+Mailchimp List: ${selectedList.value}
+Tags: ${tags.value}
+
+Import Summary:
+--------------
+Total Subscribers: ${data.totalSubscribers}
+Successfully Imported: ${data.successCount}
+Failed: ${data.failureCount}
+
+${data.errors.length > 0 ? `Errors:\n-------\n${data.errors.join('\n')}` : 'No errors occurred.'}
+`;
+
+    // Add imported subscriber data
+    if (importedSubscribers.length > 0) {
+        logContent += `\nImported Subscribers:\n--------------------\n`;
+        importedSubscribers.forEach((sub, idx) => {
+            logContent += `#${idx + 1}: ${JSON.stringify(sub, null, 2)}\n`;
+        });
+    }
+
+    // Create blob and download
+    const blob = new Blob([logContent], { type: 'text/plain' });
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `mailchimp-import-${locationName}-${timestamp}.txt`;
+    document.body.appendChild(a);
+    a.click();
+    window.URL.revokeObjectURL(url);
+    document.body.removeChild(a);
+};
+
 const handleMailchimpImport = async () => {
+    console.log('handleMailchimpImport called');
     if (!selectedList.value) {
         Swal.fire('Error!', 'Please select a Mailchimp audience.', 'error');
         return;
@@ -81,36 +122,38 @@ const handleMailchimpImport = async () => {
 
     try {
         // First, get all subscribers
+        console.log('Getting subscribers');
         const subscribersResponse = await axios.get(route('location.getSubscribers'), {
             params: {
                 location_id: selectedLocation.value.id
             }
         });
-
+        console.log('Subscribers response', subscribersResponse);   
         const allSubscribers = subscribersResponse.data.subscribers;
         const totalSubscribers = subscribersResponse.data.total;
-
+        console.log('Total subscribers', totalSubscribers);
         if (totalSubscribers === 0) {
             Swal.fire('Error!', 'No subscribers found for this location.', 'error');
             isImporting.value = false;
             return;
         }
-
+        console.log('Processing tags');
         // Process tags
         const processedTags = tags.value
             .split(',')
             .map(tag => tag.trim())
             .filter(tag => tag);
-
-        // Process in chunks of 10
-        const chunkSize = 10;
+        console.log('Processed tags', processedTags);
+        // Adjust chunk size based on total subscribers
+        const chunkSize = totalSubscribers <= 10 ? totalSubscribers : 10;
         const totalChunks = Math.ceil(allSubscribers.length / chunkSize);
         let successCount = 0;
         let failureCount = 0;
         let errors = [];
-
+        let importedSubscribers = [];
+        console.log('Creating progress modal');
         // Create and show progress modal
-        const progressModal = await Swal.fire({
+        Swal.fire({
             title: 'Importing Subscribers',
             html: `Processing 0 of ${totalSubscribers} subscribers...`,
             allowOutsideClick: false,
@@ -120,20 +163,26 @@ const handleMailchimpImport = async () => {
                 Swal.showLoading();
             }
         });
-
+        console.log('Progress modal created');
         // Process each chunk
         for (let i = 0; i < totalChunks; i++) {
             const start = i * chunkSize;
             const end = Math.min(start + chunkSize, allSubscribers.length);
             const chunk = allSubscribers.slice(start, end);
-
+            console.log('Processing chunk', chunk);
             try {
-                const response = await axios.post(route('location.importDataToMailChimp'), {
+                console.log('Posting to Mailchimp', chunk);
+                // Hardcode the POST URL for debugging
+                const response = await axios.post('/location/import-data-to-mailchimp', {
                     subscribers: chunk,
                     list_id: selectedList.value,
                     tags: processedTags
                 });
-
+                console.log('Mailchimp response', response);
+                // Add successfully imported subscribers to the log
+                if (response.data.details.success > 0) {
+                    importedSubscribers = importedSubscribers.concat(chunk);
+                }
                 successCount += response.data.details.success;
                 failureCount += response.data.details.failed;
                 errors = errors.concat(response.data.details.errors);
@@ -141,32 +190,40 @@ const handleMailchimpImport = async () => {
                 // Update progress
                 const processed = Math.min((i + 1) * chunkSize, totalSubscribers);
                 await Swal.update({
-                    html: `Processing ${processed} of ${totalSubscribers} subscribers...
-                           <br>Success: ${successCount}, Failed: ${failureCount}`
+                    html: `Processing ${processed} of ${totalSubscribers} subscribers...<br>Success: ${successCount}, Failed: ${failureCount}`
                 });
-
+                console.log('Processed', processed);
             } catch (error) {
                 console.error('Chunk import error:', error);
                 errors.push(`Chunk ${i + 1} failed: ${error.message}`);
             }
-
-            // Add delay between chunks
-            await new Promise(resolve => setTimeout(resolve, 1000));
         }
 
         // Close progress modal
         await Swal.close();
-
-        // Show final results
-        await Swal.fire({
+        console.log('Progress modal closed');
+        // Generate and download log file (with imported subscribers)
+        generateImportLog({
+            totalSubscribers,
+            successCount,
+            failureCount,
+            errors
+        }, importedSubscribers);
+        console.log('Log file generated');
+        // Show final results with optimized error display
+        let errorHtml = '';
+        if (errors.length > 0) {
+            errorHtml = '<br><br>Errors:<ul style="text-align:left;">' +
+                errors.slice(0, 5).map(e => `<li>${e}</li>`).join('') +
+                (errors.length > 5 ? '<li>...and more</li>' : '') +
+                '</ul>';
+        }
+        Swal.fire({
             title: 'Import Completed',
-            html: `Successfully imported ${successCount} out of ${totalSubscribers} subscribers.
-                   <br>Failed: ${failureCount}
-                   ${errors.length > 0 ? '<br><br>Errors:<br>' + errors.slice(0, 5).join('<br>') + 
-                   (errors.length > 5 ? '<br>...' : '') : ''}`,
+            html: `Successfully imported ${successCount} out of ${totalSubscribers} subscribers.<br>Failed: ${failureCount}${errorHtml}<br><br>A log file has been downloaded with complete details.`,
             icon: errors.length > 0 ? 'warning' : 'success'
         });
-
+        console.log('Final results shown'); 
         // Close the Mailchimp modal and reset form
         showMailchimpModal.value = false;
         selectedList.value = '';

@@ -123,19 +123,20 @@ class LocationController extends Controller
     }
 
     public function getSubscribers(Request $request)
-    {
+    {   
         $request->validate([
             'location_id' => 'required|exists:locations,id'
         ]);
-
+        Log::info('getSubscribers called', ['data' => $request->all()]);
         try {
             $location = Location::findOrFail($request->location_id);
-            
+            Log::info('location found', ['location' => $location]);
             $signupForm = DB::table('sign_up_forms')
                 ->where('event_id', $location->event_id)
                 ->first();
 
             if (!$signupForm) {
+                Log::info('no signup form found', ['location' => $location]);
                 return response()->json(['error' => 'No signup form found for this event'], 404);
             }
 
@@ -143,6 +144,7 @@ class LocationController extends Controller
                 ->where('location_id', $location->id)
                 ->get();
 
+            Log::info('subscribers found', ['subscribers' => $subscribers]);
             return response()->json([
                 'total' => $subscribers->count(),
                 'subscribers' => $subscribers
@@ -155,7 +157,8 @@ class LocationController extends Controller
     }
 
     public function importDataToMailChimp(Request $request)
-    {
+    {   
+        Log::info('importDataToMailChimp called', ['data' => $request->all()]);
         set_time_limit(60); // Set to 1 minute since we're processing smaller chunks
 
         $request->validate([
@@ -184,6 +187,7 @@ class LocationController extends Controller
                         continue;
                     }
 
+                    Log::info('Mailchimp add start', ['email' => $subscriber['email_address']]);
                     $this->mailchimpService->addSubscriberToList(
                         $request->list_id,
                         [
@@ -202,10 +206,11 @@ class LocationController extends Controller
                         ],
                         $tags
                     );
+                    Log::info('Mailchimp add end', ['email' => $subscriber['email_address']]);
                     $results['success']++;
 
                     // Small delay between each subscriber
-                    usleep(200000); // 200ms delay
+                    // usleep(200000); // 200ms delay (REMOVED)
                 } catch (\Exception $e) {
                     $results['failed']++;
                     $results['errors'][] = "Failed to import {$subscriber['email_address']}: " . substr($e->getMessage(), 0, 200);
