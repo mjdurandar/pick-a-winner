@@ -110,7 +110,7 @@ const handleMailchimpImport = async () => {
         let errors = [];
 
         // Create and show progress modal
-        const progressModal = Swal.fire({
+        const progressModal = await Swal.fire({
             title: 'Importing Subscribers',
             html: `Processing 0 of ${totalSubscribers} subscribers...`,
             allowOutsideClick: false,
@@ -155,10 +155,10 @@ const handleMailchimpImport = async () => {
         }
 
         // Close progress modal
-        await progressModal;
+        await Swal.close();
 
         // Show final results
-        Swal.fire({
+        await Swal.fire({
             title: 'Import Completed',
             html: `Successfully imported ${successCount} out of ${totalSubscribers} subscribers.
                    <br>Failed: ${failureCount}
@@ -167,13 +167,14 @@ const handleMailchimpImport = async () => {
             icon: errors.length > 0 ? 'warning' : 'success'
         });
 
+        // Close the Mailchimp modal and reset form
         showMailchimpModal.value = false;
         selectedList.value = '';
         tags.value = '';
+        isImporting.value = false;
     } catch (error) {
         console.error('Import error:', error);
-        Swal.fire('Error!', error.response?.data?.error || 'Failed to import data to Mailchimp.', 'error');
-    } finally {
+        await Swal.fire('Error!', error.response?.data?.error || 'Failed to import data to Mailchimp.', 'error');
         isImporting.value = false;
     }
 };
