@@ -63,10 +63,8 @@ class MailchimpService
             }
         }
 
-        // Format tags as simple strings
-        $tagsData = array_map(function($tag) {
-            return (string)$tag;
-        }, $tags);
+        // Use tags directly without any modification
+        $tagsData = array_values(array_unique($tags));
 
         $response = Http::withBasicAuth('anystring', $this->apiKey)
             ->post("{$this->baseUrl}/lists/{$listId}/members", [

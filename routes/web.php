@@ -9,6 +9,7 @@ use App\Http\Controllers\PickaWinnerController;
 use App\Http\Controllers\SignUpFormController;
 use App\Http\Controllers\PrizeController;
 use App\Http\Controllers\LocationController;
+use App\Http\Controllers\MailchimpAutoSyncController;
 use Illuminate\Support\Facades\Route;
 use Inertia\Inertia;
 use App\Http\Middleware\RoleMiddleware;
@@ -110,5 +111,9 @@ Route::middleware(['auth', RoleMiddleware::class . ':admin'])->group(function ()
     Route::patch('/profile', [ProfileController::class, 'update'])->name('profile.update');
     Route::delete('/profile', [ProfileController::class, 'destroy'])->name('profile.destroy');
 });
+
+// Mailchimp Auto-sync Settings Routes
+Route::get('/mailchimp/auto-sync/settings', [MailchimpAutoSyncController::class, 'getSettings'])->name('mailchimp.autosync.settings');
+Route::post('/mailchimp/auto-sync/settings', [MailchimpAutoSyncController::class, 'updateSettings'])->name('mailchimp.autosync.update');
 
 require __DIR__.'/auth.php';

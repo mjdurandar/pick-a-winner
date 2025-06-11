@@ -13,6 +13,12 @@ use App\Models\Location;
 
 class SignUpFormController extends Controller
 {
+    protected $autoMailchimpService;
+
+    public function __construct(\App\Services\AutoMailchimpService $autoMailchimpService)
+    {
+        $this->autoMailchimpService = $autoMailchimpService;
+    }
     // Show the signup form page
     public function index($eventId)
     {   
@@ -243,7 +249,20 @@ class SignUpFormController extends Controller
         }
    
         // Insert the validated data into the correct table
-        DB::table($tableName)->insert($insertData);
+        $id = DB::table($tableName)->insertGetId($insertData);
+        
+        // Get the inserted record for Mailchimp sync
+        $subscriber = DB::table($tableName)->where('id', $id)->first();
+        
+        // Try to auto-sync the new subscriber
+        if (isset($insertData['location_id'])) {
+            \Illuminate\Support\Facades\Log::info('New subscriber added, attempting auto-sync', [
+                'email' => $subscriber->email_address ?? 'no email',
+                'location_id' => $insertData['location_id']
+            ]);
+            
+            $this->autoMailchimpService->syncSubscriber($subscriber, $insertData['location_id']);
+        }
         
         return redirect()->route('signup.embed', ['event_uuid' => $event_uuid])->with('success');
     }

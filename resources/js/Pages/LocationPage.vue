@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed } from 'vue';
+import { ref, computed, onMounted } from 'vue';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout.vue';
 import { Head } from '@inertiajs/vue3';
 import { router } from '@inertiajs/vue3';
@@ -34,6 +34,16 @@ const mailchimpLists = ref([]);
 const selectedList = ref('');
 const isImporting = ref(false);
 const tags = ref(''); // Add new ref for tags
+const showMailchimpSettingsModal = ref(false);
+const mailchimpSettings = ref({
+    auto_sync: false,
+    delay_minutes: 0,
+    default_list_id: '',
+    default_tags: '',
+    enabled_locations: [],
+    film_tour: 'WM'  // Default to WM, can be changed in settings
+});
+const availableLists = ref([]);
 
 // Add new form for location creation
 const locationForm = useForm({
@@ -58,6 +68,20 @@ const formatLocationDateTime = (date, time) => {
     });
 };
 
+const generateLocationTags = (locationName) => {
+    const tags = [];
+    const filmTour = mailchimpSettings.value.film_tour || 'WM';
+    const year = new Date().getFullYear() + 1; // Use next year by default
+    
+    // Add SHOW tag
+    tags.push(`SHOW - ${locationName.toUpperCase()}`);
+    
+    // Add SOURCE tag with configured film tour code
+    tags.push(`SOURCE - ${filmTour} ${locationName.toUpperCase()} COMP ${year}`);
+    
+    return tags;
+};
+
 const importDataToMailChimp = async (location) => {
     selectedLocation.value = location;
     showMailchimpModal.value = true;
@@ -65,6 +89,10 @@ const importDataToMailChimp = async (location) => {
     try {
         const response = await axios.get(route('location.mailchimpLists'));
         mailchimpLists.value = response.data.lists;
+        
+        // Auto-generate tags based on location
+        const locationTags = generateLocationTags(location.name);
+        tags.value = locationTags.join(', ');
     } catch (error) {
         console.error('Failed to fetch Mailchimp lists:', error);
         Swal.fire('Error!', 'Failed to fetch Mailchimp lists. Please try again.', 'error');
@@ -138,12 +166,31 @@ const handleMailchimpImport = async () => {
             return;
         }
         console.log('Processing tags');
-        // Process tags
-        const processedTags = tags.value
-            .split(',')
-            .map(tag => tag.trim())
-            .filter(tag => tag);
-        console.log('Processed tags', processedTags);
+
+        // Generate location-specific tags
+        const filmTour = mailchimpSettings.value.film_tour || 'WM';
+        const year = new Date().getFullYear() + 1;
+        const locationName = selectedLocation.value.name;
+        const locationFirstWord = locationName.split(' ')[0].toUpperCase(); // Get first word only
+        
+        // Create the SOURCE tag in the exact format
+        const sourceTag = `SOURCE - ${filmTour} ${locationFirstWord} COMP ${year}`;
+        const showTag = `SHOW - ${locationName.toUpperCase()}`; // Keep full name for SHOW tag
+        
+        // Combine with any manual tags
+        let allTags = [sourceTag, showTag];
+        
+        // Add any manual tags if they exist
+        if (tags.value) {
+            const manualTags = tags.value
+                .split(',')
+                .map(tag => tag.trim())
+                .filter(tag => tag);
+            allTags = [...allTags, ...manualTags];
+        }
+        
+        console.log('Final tags for import:', allTags);
+
         // Adjust chunk size based on total subscribers
         const chunkSize = totalSubscribers <= 10 ? totalSubscribers : 10;
         const totalChunks = Math.ceil(allSubscribers.length / chunkSize);
@@ -151,7 +198,7 @@ const handleMailchimpImport = async () => {
         let failureCount = 0;
         let errors = [];
         let importedSubscribers = [];
-        console.log('Creating progress modal');
+
         // Create and show progress modal
         Swal.fire({
             title: 'Importing Subscribers',
@@ -163,20 +210,19 @@ const handleMailchimpImport = async () => {
                 Swal.showLoading();
             }
         });
-        console.log('Progress modal created');
+
         // Process each chunk
         for (let i = 0; i < totalChunks; i++) {
             const start = i * chunkSize;
             const end = Math.min(start + chunkSize, allSubscribers.length);
             const chunk = allSubscribers.slice(start, end);
-            console.log('Processing chunk', chunk);
+            
             try {
-                console.log('Posting to Mailchimp', chunk);
-                // Hardcode the POST URL for debugging
+                console.log('Posting to Mailchimp with tags:', allTags);
                 const response = await axios.post('/location/import-data-to-mailchimp', {
                     subscribers: chunk,
                     list_id: selectedList.value,
-                    tags: processedTags
+                    tags: allTags
                 });
                 console.log('Mailchimp response', response);
                 // Add successfully imported subscribers to the log
@@ -853,6 +899,49 @@ const closeAllPasswordsModal = () => {
     }
 };
 
+const openMailchimpSettingsModal = async () => {
+    try {
+        const response = await axios.get(route('mailchimp.autosync.settings'));
+        const { settings, available_lists } = response.data;
+        
+        mailchimpSettings.value = {
+            ...settings,
+            film_tour: settings.film_tour || 'WM',
+            default_tags: Array.isArray(settings.default_tags) ? settings.default_tags.join(', ') : ''
+        };
+        availableLists.value = available_lists;
+        showMailchimpSettingsModal.value = true;
+    } catch (error) {
+        console.error('Failed to fetch Mailchimp settings:', error);
+        Swal.fire('Error', 'Failed to load Mailchimp settings', 'error');
+    }
+};
+
+const saveMailchimpSettings = async () => {
+    try {
+        const settings = {
+            ...mailchimpSettings.value,
+            film_tour: mailchimpSettings.value.film_tour || 'WM',
+            default_tags: mailchimpSettings.value.default_tags.split(',').map(tag => tag.trim()).filter(tag => tag),
+            enabled_locations: Array.isArray(mailchimpSettings.value.enabled_locations) 
+                ? mailchimpSettings.value.enabled_locations 
+                : []
+        };
+
+        console.log('Saving settings:', settings); // Debug log
+
+        await axios.post(route('mailchimp.autosync.update'), settings);
+        
+        // Close modal by updating the reactive state
+        showMailchimpSettingsModal.value = false;
+        
+        Swal.fire('Success', 'Mailchimp auto-sync settings updated successfully', 'success');
+    } catch (error) {
+        console.error('Failed to save Mailchimp settings:', error);
+        Swal.fire('Error', 'Failed to save Mailchimp settings', 'error');
+    }
+};
+
 </script>
 
 <template>
@@ -869,13 +958,13 @@ const closeAllPasswordsModal = () => {
                                 <!-- CSV Import Button with Help Text -->
                                 <div class="relative group">
                                     <!-- Help Icon -->
-                                    <button 
+                                    <!-- <button 
                                         type="button"
                                         class="me-2 text-gray-500 hover:text-gray-700"
                                         @click="showCSVFormat = true"
                                     >
                                         <i class="fa-solid fa-circle-question"></i>
-                                    </button>
+                                    </button> -->
                                     <label style="background-color: #16C3D9; color: white; border-radius: 5px; padding: 10px 20px; cursor: pointer;">
                                         <i class="fa-solid fa-file-import"></i>
                                         <input 
@@ -886,6 +975,14 @@ const closeAllPasswordsModal = () => {
                                         >
                                     </label>
                                 </div>
+                                <!-- Mailchimp Settings Button -->
+                                <button 
+                                    style="background-color: #16C3D9; color: white; border-radius: 5px; padding: 10px 20px; cursor: pointer;"
+                                    @click="openMailchimpSettingsModal"
+                                    title="Mailchimp Auto-Sync Settings"
+                                >
+                                    <i class="fa-solid fa-gear"></i>
+                                </button>
                                 <!-- Update All Passwords Button -->
                                 <button 
                                     style="background-color: #16C3D9; color: white; border-radius: 5px; padding: 10px 20px; cursor: pointer;"
@@ -1244,5 +1341,101 @@ Melbourne,September 02 2024,6:00 pm</pre>
                 </div>
             </div>
         </div>
+
+        <!-- Mailchimp Settings Modal -->
+        <div class="modal fade" :class="{ 'show': showMailchimpSettingsModal }" :style="{ display: showMailchimpSettingsModal ? 'block' : 'none' }" id="mailchimpSettingsModal" tabindex="-1" aria-labelledby="mailchimpSettingsModalLabel" aria-modal="true">
+            <div class="modal-dialog modal-lg">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h5 class="modal-title" id="mailchimpSettingsModalLabel">Mailchimp Auto-Sync Settings</h5>
+                        <button type="button" class="btn-close" @click="showMailchimpSettingsModal = false" aria-label="Close"></button>
+                    </div>
+                    <div class="modal-body">
+                        <div class="mb-4">
+                            <label class="form-label">Auto-Sync</label>
+                            <div class="form-check">
+                                <input 
+                                    type="checkbox" 
+                                    v-model="mailchimpSettings.auto_sync"
+                                    class="form-check-input"
+                                    id="autoSyncCheck"
+                                >
+                                <label class="form-check-label" for="autoSyncCheck">Enable automatic synchronization</label>
+                            </div>
+                        </div>
+
+                        <div class="mb-4">
+                            <label class="form-label">Delay (minutes)</label>
+                            <input 
+                                type="number" 
+                                v-model="mailchimpSettings.delay_minutes"
+                                class="form-control"
+                            >
+                        </div>
+
+                        <div class="mb-4">
+                            <label class="form-label">Default Mailchimp Audience</label>
+                            <select 
+                                v-model="mailchimpSettings.default_list_id"
+                                class="form-select"
+                            >
+                                <option value="">Select an audience...</option>
+                                <option 
+                                    v-for="list in availableLists" 
+                                    :key="list.id" 
+                                    :value="list.id"
+                                >
+                                    {{ list.name }} ({{ list.stats.member_count }} members)
+                                </option>
+                            </select>
+                        </div>
+
+                                                    <div class="mb-4">
+                                <label class="form-label">Film Tour Code</label>
+                                <input 
+                                    type="text" 
+                                    v-model="mailchimpSettings.film_tour"
+                                    class="form-control"
+                                    placeholder="e.g., WM, BF, etc."
+                                    required
+                                >
+                                <div class="form-text">
+                                    Enter the film tour code (e.g., WM for Warren Miller, RUNNATION). This will be used in the SOURCE tag.
+                                </div>
+                            </div>
+
+                            <div class="mb-4">
+                                <label class="form-label">Default Tags</label>
+                            <input 
+                                type="text" 
+                                v-model="mailchimpSettings.default_tags"
+                                class="form-control"
+                                placeholder="e.g., 2025, FILM TOUR - WARREN MILLER, SHOW - MELBOURNE"
+                            >
+                            <div class="form-text">
+                                Enter tags separated by commas. Each tag will be added to the subscribers.
+                            </div>
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button 
+                            type="button"
+                            class="btn btn-secondary" 
+                            @click="showMailchimpSettingsModal = false"
+                        >
+                            Cancel
+                        </button>
+                        <button 
+                            type="button"
+                            class="btn btn-primary"
+                            @click="saveMailchimpSettings"
+                        >
+                            Save Settings
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div v-if="showMailchimpSettingsModal" class="modal-backdrop fade show"></div>
     </AuthenticatedLayout>
 </template>

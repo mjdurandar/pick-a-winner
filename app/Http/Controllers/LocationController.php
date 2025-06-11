@@ -7,6 +7,7 @@ use Inertia\Inertia;
 use App\Models\Events;
 use App\Models\Location;
 use App\Services\MailchimpService;
+use App\Services\AutoMailchimpService;
 use Illuminate\Support\Str;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -14,10 +15,12 @@ use Illuminate\Support\Facades\Log;
 class LocationController extends Controller
 {
     protected $mailchimpService;
+    protected $autoMailchimpService;
 
-    public function __construct(MailchimpService $mailchimpService)
+    public function __construct(MailchimpService $mailchimpService, AutoMailchimpService $autoMailchimpService)
     {
         $this->mailchimpService = $mailchimpService;
+        $this->autoMailchimpService = $autoMailchimpService;
     }
 
     public function index()
@@ -144,6 +147,21 @@ class LocationController extends Controller
                 ->where('location_id', $location->id)
                 ->get();
 
+            Log::info('Found subscribers for location', [
+                'location_id' => $location->id,
+                'count' => $subscribers->count(),
+                'table' => $signupForm->table_name
+            ]);
+
+            // Try to auto-sync each subscriber
+            foreach ($subscribers as $subscriber) {
+                Log::info('Processing subscriber for sync', [
+                    'email' => $subscriber->email_address ?? 'no email',
+                    'location_id' => $location->id
+                ]);
+                $this->autoMailchimpService->syncSubscriber($subscriber, $location->id);
+            }
+
             Log::info('subscribers found', ['subscribers' => $subscribers]);
             return response()->json([
                 'total' => $subscribers->count(),
@@ -164,7 +182,7 @@ class LocationController extends Controller
         $request->validate([
             'subscribers' => 'required|array',
             'list_id' => 'required|string',
-            'tags' => 'nullable|array'
+            'tags' => 'required|array'
         ]);
 
         try {
@@ -174,10 +192,9 @@ class LocationController extends Controller
                 'errors' => []
             ];
 
-            // Process tags
-            $tags = array_map(function($tag) {
-                return strval(trim($tag));
-            }, $request->tags ?? []);
+            // Use the tags directly from the request, don't modify them
+            $tags = $request->tags;
+            Log::info('Using tags for import:', ['tags' => $tags]);
 
             foreach ($request->subscribers as $subscriber) {
                 try {
@@ -187,7 +204,11 @@ class LocationController extends Controller
                         continue;
                     }
 
-                    Log::info('Mailchimp add start', ['email' => $subscriber['email_address']]);
+                    Log::info('Mailchimp add start', [
+                        'email' => $subscriber['email_address'],
+                        'tags' => $tags
+                    ]);
+                    
                     $this->mailchimpService->addSubscriberToList(
                         $request->list_id,
                         [
@@ -206,14 +227,20 @@ class LocationController extends Controller
                         ],
                         $tags
                     );
-                    Log::info('Mailchimp add end', ['email' => $subscriber['email_address']]);
+                    Log::info('Mailchimp add end', [
+                        'email' => $subscriber['email_address'],
+                        'tags' => $tags
+                    ]);
                     $results['success']++;
 
-                    // Small delay between each subscriber
-                    // usleep(200000); // 200ms delay (REMOVED)
                 } catch (\Exception $e) {
                     $results['failed']++;
                     $results['errors'][] = "Failed to import {$subscriber['email_address']}: " . substr($e->getMessage(), 0, 200);
+                    Log::error('Failed to import subscriber', [
+                        'email' => $subscriber['email_address'],
+                        'error' => $e->getMessage(),
+                        'tags' => $tags
+                    ]);
                 }
             }
 

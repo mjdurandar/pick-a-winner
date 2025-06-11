@@ -20,6 +20,7 @@ const formValues = ref({});
 const isSubmitted = ref(false);
 const otherValues = ref({});
 const selectedLocation = ref('');
+const isSubmitting = ref(false);
 const selectedLocationData = ref({
     id: null,
     name: '',
@@ -205,8 +206,9 @@ const isOptionSelected = (question, option) => {
 };
 
 // Handle form submission
-const submitForm = () => {
-    const submissionValues = { ...formValues.value };
+const submitForm = async () => {
+    if (isSubmitting.value) return; // Prevent multiple submissions
+    
     // ✅ Validate if location is selected
     if (!selectedLocation.value) {
         Swal.fire('Error!', 'Please select a location.', 'error');
@@ -218,6 +220,10 @@ const submitForm = () => {
         Swal.fire('Error!', 'Please enter a valid mobile number.', 'error');
         return;
     }
+
+    isSubmitting.value = true; // Set loading state
+
+    const submissionValues = { ...formValues.value };
 
     // Process "Other" values and multiple selections
     JSON.parse(props.form.questions).forEach(question => {
@@ -245,6 +251,7 @@ const submitForm = () => {
         _token: csrfToken.value
     }, {
         onSuccess: () => {
+            isSubmitting.value = false; // Reset loading state
             Swal.fire('Success!', 'Your sign-up has been submitted.', 'success');
             formValues.value = {}; // Clear form after submission
             selectedLocation.value = ''; // Clear location selection
@@ -252,6 +259,7 @@ const submitForm = () => {
             isSubmitted.value = true; // ✅ Show thank-you card
         },
         onError: (errors) => {
+            isSubmitting.value = false; // Reset loading state
             if(errors.email){
                 Swal.fire('Error!', errors.email, 'error');
             }
@@ -610,7 +618,17 @@ onMounted(() => {
             </div>
 
             <div class="d-flex justify-content-center mt-4 mb-3">
-                <button type="submit" class="btn btn-primary w-40" :disabled="!hasEventsInWindow">Submit</button>
+                <button 
+                    type="submit" 
+                    class="btn btn-primary w-40" 
+                    :disabled="!hasEventsInWindow || isSubmitting"
+                >
+                    <span v-if="isSubmitting">
+                        <i class="fa-solid fa-spinner fa-spin me-2"></i>
+                        Submitting...
+                    </span>
+                    <span v-else>Submit</span>
+                </button>
             </div>
         </form>
     </div>
