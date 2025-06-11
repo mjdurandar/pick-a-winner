@@ -240,7 +240,7 @@
                             <!-- ✅ Filter Button -->
                             <div class="ms-1">
                                 <label class="block text-lg font-semibold mb-2">‎</label>
-                                <button class="btn btn-primary p-2" @click="filterData">Select</button>
+                                <button class="btn p-2" style="background-color: #16C3D9; color: white;" @click="filterData">Select</button>
                             </div>
                         </div>
                     </div>

@@ -162,7 +162,7 @@ const goToSignUpForm = (eventId) => {
         <template #header>
             <div class="d-flex justify-content-between align-items-center">
                 <h2 class="text-xl font-semibold leading-tight text-gray-800">Events</h2>
-                <button @click="openCreateModal" class="btn btn-primary" v-if="userRole === 'admin'">
+                <button @click="openCreateModal" class="btn" style="background-color: black; color: white;" v-if="userRole === 'admin'">
                     Create Event
                 </button>
             </div>
@@ -180,20 +180,20 @@ const goToSignUpForm = (eventId) => {
                                 <p class="text-muted">📅 {{ event.event_date }}</p>
                                 <p class="text-muted">👤 {{ event.event_coordinator }}</p>
                                 <div class="d-flex justify-content-between mt-3">
-                                    <button @click="goToSignUpForm(event.id)" class="btn btn-primary btn-sm me-2" v-if="userRole === 'admin' || userRole === 'host'">
+                                    <button @click="goToSignUpForm(event.id)" class="btn btn-sm me-2" style="background-color: #16C3D9; color: white;" v-if="userRole === 'admin' || userRole === 'host'">
                                         Sign Up Form
                                     </button>
                                     <div>
-                                        <button @click="allLocationsPage(event)" class="btn btn-warning btn-sm me-2" v-if="userRole === 'admin' || userRole === 'host'">
+                                        <button @click="allLocationsPage(event)" class="btn btn-sm me-2" style="background-color: #16C3D9; color: white;" v-if="userRole === 'admin' || userRole === 'host'">
                                             <i class="fa-solid fa-users"></i>
                                         </button>
-                                        <button @click="attendeesPage(event)" class="btn btn-success btn-sm me-2" v-if="userRole === 'admin' || userRole === 'host'">
+                                        <button @click="attendeesPage(event)" class="btn btn-sm me-2" style="background-color: #16C3D9; color: white;" v-if="userRole === 'admin' || userRole === 'host'">
                                             <i class="fa-solid fa-database"></i>
                                         </button>
-                                        <button @click="openEditModal(event)" class="btn btn-primary btn-sm me-2" v-if="userRole === 'admin'">
+                                        <button @click="openEditModal(event)" class="btn btn-sm me-2" style="background-color: #16C3D9; color: white;" v-if="userRole === 'admin'">
                                             <i class="fa-solid fa-pen-to-square"></i>
                                         </button>
-                                        <button @click="deleteEvent(event.id)" class="btn btn-danger btn-sm" v-if="userRole === 'admin'">
+                                        <button @click="deleteEvent(event.id)" class="btn btn-sm" style="background-color: #16C3D9; color: white;" v-if="userRole === 'admin'">
                                             <i class="fa-solid fa-trash"></i>
                                         </button>
                                     </div>

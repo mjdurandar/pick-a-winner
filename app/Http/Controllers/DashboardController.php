@@ -67,8 +67,4 @@ class DashboardController extends Controller
             'attendeesChartData' => $attendeesChartData // ✅ Pass data to frontend
         ]);
     }
-    
-    
-    
-    
 }

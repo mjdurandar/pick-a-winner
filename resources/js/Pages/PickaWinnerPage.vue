@@ -876,7 +876,7 @@ const closeAllPasswordsModal = () => {
                                     >
                                         <i class="fa-solid fa-circle-question"></i>
                                     </button>
-                                    <label class="bg-green-500 text-white px-4 py-2 rounded hover:bg-green-700 cursor-pointer">
+                                    <label style="background-color: #16C3D9; color: white; border-radius: 5px; padding: 10px 20px; cursor: pointer;">
                                         <i class="fa-solid fa-file-import"></i>
                                         <input 
                                             type="file" 
@@ -888,14 +888,14 @@ const closeAllPasswordsModal = () => {
                                 </div>
                                 <!-- Update All Passwords Button -->
                                 <button 
-                                    class="bg-purple-500 text-white px-4 py-2 rounded hover:bg-purple-700"
+                                    style="background-color: #16C3D9; color: white; border-radius: 5px; padding: 10px 20px; cursor: pointer;"
                                     @click="openAllPasswordsModal"
                                 >
                                     <i class="fa-solid fa-key"></i> 
                                 </button>
                                 <!-- Add Location Button -->
                                 <button 
-                                    class="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-700"
+                                    class="bg-black text-white px-4 py-2 rounded hover:bg-black-700"
                                     @click="openLocationModal()"
                                 >
                                     <i class="fa-solid fa-plus"></i> Add Location
@@ -922,13 +922,15 @@ const closeAllPasswordsModal = () => {
                                 :key="index" 
                                 class="flex items-center space-x-2 w-full"
                             >
-                                <div class="bg-blue-500 text-white px-4 py-2 rounded w-full text-left truncate hover:bg-blue-700">
+                                <div class=" px-4 py-2 rounded w-full text-left truncate" 
+                                style="background-color: white; border: 2px solid black; font-weight: bold; color: black; border-radius: 5px; padding: 10px 20px; cursor: pointer;">
                                     {{ location.name }} <br> {{ formatLocationDateTime(location.date, location.time) }}
                                 </div>
                                 <!-- Edit Button -->
                                 <button 
                                     @click="openLocationModal(location)"
-                                    class="bg-yellow-500 text-white px-3 py-2 rounded hover:bg-yellow-600 transition"
+                                    class="text-white px-3 py-2 rounded"
+                                    style="background-color: #16C3D9; color: white; border-radius: 5px; padding: 10px 20px; cursor: pointer;"
                                     title="Edit Location"
                                 >
                                     <i class="fa-solid fa-pen-to-square"></i>
@@ -936,7 +938,8 @@ const closeAllPasswordsModal = () => {
                                 <!-- Delete Button -->
                                 <button 
                                     @click="deleteLocation(location)"
-                                    class="bg-red-500 text-white px-3 py-2 rounded hover:bg-red-600 transition"
+                                    class="text-white px-3 py-2 rounded"
+                                    style="background-color: #16C3D9; color: white; border-radius: 5px; padding: 10px 20px; cursor: pointer;"
                                     title="Delete Location"
                                 >
                                     <i class="fa-solid fa-trash"></i>
@@ -944,14 +947,16 @@ const closeAllPasswordsModal = () => {
                                 <!-- Password Button -->
                                 <button 
                                     @click="openPasswordModal(location)"
-                                    class="bg-green-300 text-gray-600 px-3 py-2 rounded hover:bg-gray-400 transition"
+                                    class="text-white px-3 py-2 rounded"
+                                    style="background-color: #16C3D9; color: white; border-radius: 5px; padding: 10px 20px; cursor: pointer;"
                                     title="View Password"
                                 >
                                     <i class="fa-solid fa-key"></i>
                                 </button>
                                 <button 
                                     @click="importDataToMailChimp(location)"
-                                    class="bg-yellow-300 text-gray-600 px-3 py-2 rounded hover:bg-gray-400 transition"
+                                    class="text-white px-3 py-2 rounded"
+                                    style="background-color: #16C3D9; color: white; border-radius: 5px; padding: 10px 20px; cursor: pointer;"
                                     title="Import Data to MailChimp"
                                 >
                                     <i class="fa-solid fa-envelope"></i>

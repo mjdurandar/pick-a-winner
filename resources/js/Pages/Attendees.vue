@@ -3,6 +3,7 @@ import { ref, computed } from 'vue';
 import Swal from 'sweetalert2';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout.vue';
 import { Head, router } from '@inertiajs/vue3';
+import { debounce } from 'lodash';
 
 const props = defineProps({
     event: Object,
@@ -10,8 +11,21 @@ const props = defineProps({
 });
 
 const searchQuery = ref("");
+const debouncedSearchValue = ref('');
 const currentPage = ref(1);
 const itemsPerPage = 20;
+
+// Debounce the search to prevent excessive filtering
+const updateDebouncedSearch = debounce((value) => {
+    debouncedSearchValue.value = value.toLowerCase();
+}, 300);
+
+// Watch for search query changes
+const handleSearchInput = (event) => {
+    searchQuery.value = event.target.value;
+    updateDebouncedSearch(event.target.value);
+    currentPage.value = 1; // Reset to first page on search
+};
 
 // ✅ Extract column names (exclude unwanted columns)
 const columnHeaders = computed(() => {
@@ -26,22 +40,25 @@ const formatHeader = (header) => {
     return header.replace(/_/g, " ").replace(/\b\w/g, (char) => char.toUpperCase());
 };
 
-// ✅ Filtered attendees based on search query
+// ✅ Optimized filtered attendees based on search query
 const filteredAttendees = computed(() => {
-    // console.log(props.attendees);
-    if (!searchQuery.value) {
+    if (!debouncedSearchValue.value) {
         return props.attendees;
     }
-    return props.attendees.filter(attendee =>
-        Object.entries(attendee)
-            .filter(([key]) => !["created_at", "updated_at", "id", "event_id", "events_location", "mobile_number_format"].includes(key))
+
+    const excludedColumns = ["created_at", "updated_at", "id", "event_id", "events_location", "mobile_number_format"];
+    
+    return props.attendees.filter(attendee => {
+        return Object.entries(attendee)
+            .filter(([key]) => !excludedColumns.includes(key))
             .some(([key, value]) => {
+                if (!value) return false;
                 if (key === "gender") {
-                    return value.toLowerCase().trim() === searchQuery.value.toLowerCase().trim(); // ✅ Exact match for gender
+                    return value.toLowerCase().trim() === debouncedSearchValue.value.trim();
                 }
-                return value && value.toString().toLowerCase().includes(searchQuery.value.toLowerCase());
-            })
-    );
+                return value.toString().toLowerCase().includes(debouncedSearchValue.value);
+            });
+    });
 });
 
 // ✅ Paginate filtered attendees
@@ -127,10 +144,11 @@ const deleteAttendee = (attendeeId, eventId) => {
                         <div class="flex justify-between mb-3">
                             <!-- ✅ Search Bar -->
                             <input
-                                v-model="searchQuery"
+                                :value="searchQuery"
                                 type="text"
                                 placeholder="Search attendees..."
                                 class="w-full md:w-1/3 p-2 border rounded"
+                                @input="handleSearchInput"
                             />
                             <!-- ✅ Export Button -->
                             <button 

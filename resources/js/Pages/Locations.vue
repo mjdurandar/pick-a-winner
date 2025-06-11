@@ -37,7 +37,7 @@ const goToLocationPage = (eventId) => {
                                 <p class="text-muted">📅 {{ event.event_date }}</p>
                                 <p class="text-muted">👤 {{ event.event_coordinator }}</p>
                                 <div class="d-flex justify-content-start mt-3">
-                                    <button @click="goToLocationPage(event.id)" class="btn btn-primary btn-sm me-2">
+                                    <button @click="goToLocationPage(event.id)" class="btn btn-sm me-2" style="background-color: #16C3D9; color: white; cursor: pointer;">
                                         Locations
                                     </button>
                                 </div>

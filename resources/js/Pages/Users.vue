@@ -116,10 +116,10 @@ const deleteUser = (id) => {
                                         <td class="border border-gray-300 p-2">{{ user.email }}</td>
                                         <td class="border border-gray-300 p-2">{{ user.role }}</td>
                                         <td class="border border-gray-300 p-2 text-center">
-                                            <button class="btn btn-primary m-1" @click="openEditModal(user)">
+                                            <button class="btn m-1" style="background-color: #16C3D9; color: white; cursor: pointer;" @click="openEditModal(user)">
                                                 <i class="fa-solid fa-pen-to-square"></i>
                                             </button>
-                                            <button class="btn btn-danger m-1" @click="deleteUser(user.id)">
+                                            <button class="btn m-1" style="background-color: #16C3D9; color: white; cursor: pointer;" @click="deleteUser(user.id)">
                                                 <i class="fa-solid fa-trash"></i>
                                             </button>
                                         </td>

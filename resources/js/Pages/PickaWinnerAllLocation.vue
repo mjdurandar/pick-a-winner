@@ -4,34 +4,65 @@ import { ref, computed, onMounted } from 'vue';
 import { useForm, router } from '@inertiajs/vue3';
 import PickaWinnerLayout from '@/Layouts/PickaWinnerLayout.vue';
 import { Head } from '@inertiajs/vue3';
+import { debounce } from 'lodash';
 
 // Track if we are editing an event
 const isEditing = ref(false);
 
-// ✅ Search Query
+// ✅ Search Query and Pagination
 const searchQuery = ref('');
+const currentPage = ref(1);
+const itemsPerPage = 20;
+const debouncedSearchValue = ref('');
 
-// Enhanced search filter with logging
+// Debounce the search to prevent excessive filtering
+const updateDebouncedSearch = debounce((value) => {
+    debouncedSearchValue.value = value.toLowerCase();
+}, 300);
+
+// Watch for search query changes
+const handleSearchInput = (event) => {
+    searchQuery.value = event.target.value;
+    updateDebouncedSearch(event.target.value);
+    currentPage.value = 1; // Reset to first page on search
+};
+
+// Optimized search filter
 const filteredAttendees = computed(() => {
-    // console.log('Search query changed:', searchQuery.value);
-    // console.log('Total attendees before filtering:', props.attendees.length);
-    
-    if (!searchQuery.value) {
-        // console.log('No search query - returning all attendees');
+    if (!debouncedSearchValue.value) {
         return props.attendees;
     }
     
-    const filtered = props.attendees.filter(attendee =>
-        `${attendee.first_name} ${attendee.last_name}`.toLowerCase().includes(searchQuery.value.toLowerCase()) ||
-        attendee.email_address.toLowerCase().includes(searchQuery.value.toLowerCase()) ||
-        attendee.mobile_number.toLowerCase().includes(searchQuery.value.toLowerCase()) ||
-        attendee.gender.toLowerCase().includes(searchQuery.value.toLowerCase()) ||
-        attendee.location_name?.toLowerCase().includes(searchQuery.value.toLowerCase())
-    );
-    
-    // console.log('Filtered attendees count:', filtered.length);
-    return filtered;
+    return props.attendees.filter(attendee => {
+        const searchFields = [
+            `${attendee.first_name} ${attendee.last_name}`,
+            attendee.email_address,
+            attendee.mobile_number,
+            attendee.gender,
+            attendee.location_name
+        ].map(field => (field || '').toLowerCase());
+
+        return searchFields.some(field => field.includes(debouncedSearchValue.value));
+    });
 });
+
+// ✅ Paginated attendees
+const paginatedAttendees = computed(() => {
+    const start = (currentPage.value - 1) * itemsPerPage;
+    return filteredAttendees.value.slice(start, start + itemsPerPage);
+});
+
+// ✅ Total pages
+const totalPages = computed(() => {
+    return Math.ceil(filteredAttendees.value.length / itemsPerPage);
+});
+
+// ✅ Navigate pages
+const goToPage = (page) => {
+    if (page >= 1 && page <= totalPages.value) {
+        currentPage.value = page;
+    }
+};
 
 const form = useForm({
     id: null,
@@ -247,7 +278,7 @@ input:-webkit-autofill:active {
     <Head title="Pick a Winner All Location Page" />
 
     <PickaWinnerLayout>
-        <div class="p-6 text-white" style="background-color: #151515;">
+        <div class="min-h-screen p-6 text-white bg-[#151515]">
             <!-- Prizes Section -->
             <div class="mt-3 p-2">
                 <div class="mx-auto max-w-7xl sm:px-6 lg:px-8">
@@ -335,6 +366,7 @@ input:-webkit-autofill:active {
                                             placeholder="Search attendees..."
                                             class="w-full p-2 border rounded bg-gray-800 text-white border-gray-700"
                                             style="color: white !important;"
+                                            @input="handleSearchInput"
                                         />
                                     </div>
                                 </div>
@@ -352,20 +384,41 @@ input:-webkit-autofill:active {
                                         </tr>
                                     </thead>
                                     <tbody style="background-color: #151515;">
-                                        <tr v-for="(attendee, index) in filteredAttendees" :key="index" class="text-left text-white">
+                                        <tr v-for="(attendee, index) in paginatedAttendees" :key="index" class="text-left text-white">
                                             <td class="border border-gray-700 p-2">{{ attendee.first_name }} {{ attendee.last_name }}</td>
                                             <td class="border border-gray-700 p-2">{{ attendee.email_address }}</td>
                                             <td class="border border-gray-700 p-2">{{ attendee.gender }}</td>
                                             <td class="border border-gray-700 p-2">{{ attendee.mobile_number }}</td>
                                             <td class="border border-gray-700 p-2">{{ attendee.location_name }}</td>
                                         </tr>
-                                        <tr v-if="filteredAttendees.length === 0">
+                                        <tr v-if="paginatedAttendees.length === 0">
                                             <td colspan="5" class="border border-gray-700 p-4 text-center text-gray-400">
                                                 No matching attendees found.
                                             </td>
                                         </tr>
                                     </tbody>
                                 </table>
+                            </div>
+
+                            <!-- ✅ Pagination Controls -->
+                            <div class="flex justify-between items-center mt-4">
+                                <button 
+                                    @click="goToPage(currentPage - 1)" 
+                                    :disabled="currentPage === 1" 
+                                    class="px-4 py-2 bg-gray-700 text-white rounded hover:bg-gray-600 disabled:opacity-50 disabled:cursor-not-allowed"
+                                >
+                                    Previous
+                                </button>
+                                
+                                <span class="text-white">Page {{ currentPage }} of {{ totalPages }}</span>
+                                
+                                <button 
+                                    @click="goToPage(currentPage + 1)" 
+                                    :disabled="currentPage === totalPages" 
+                                    class="px-4 py-2 bg-gray-700 text-white rounded hover:bg-gray-600 disabled:opacity-50 disabled:cursor-not-allowed"
+                                >
+                                    Next
+                                </button>
                             </div>
 
                         </div>
