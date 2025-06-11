@@ -33,7 +33,7 @@ class LocationController extends Controller
         $event = Events::findOrFail($eventId);
         $locations = Location::where('event_id', $eventId)->get();
 
-        return Inertia::render('PickaWinnerPage', [
+        return Inertia::render('LocationPage', [
             'event' => $event,
             'locations' => $locations
         ]);
