@@ -153,16 +153,11 @@ class LocationController extends Controller
                 'table' => $signupForm->table_name
             ]);
 
-            // Try to auto-sync each subscriber
-            foreach ($subscribers as $subscriber) {
-                Log::info('Processing subscriber for sync', [
-                    'email' => $subscriber->email_address ?? 'no email',
-                    'location_id' => $location->id
-                ]);
-                $this->autoMailchimpService->syncSubscriber($subscriber, $location->id);
+            // Process all subscribers in a single batch
+            if ($subscribers->count() > 0) {
+                $this->autoMailchimpService->syncSubscribers($subscribers->all(), $location->id);
             }
 
-            Log::info('subscribers found', ['subscribers' => $subscribers]);
             return response()->json([
                 'total' => $subscribers->count(),
                 'subscribers' => $subscribers

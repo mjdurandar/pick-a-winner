@@ -4,11 +4,14 @@ namespace App\Services;
 
 use Illuminate\Support\Facades\Log;
 use App\Services\MailchimpService;
+use App\Jobs\SyncMailchimpSubscribersBatch;
+use App\Models\Location;
 
 class AutoMailchimpService
 {
     protected $mailchimpService;
     protected $config;
+    protected const BATCH_SIZE = 100; // Process 100 subscribers at a time
 
     public function __construct(MailchimpService $mailchimpService)
     {
@@ -23,14 +26,14 @@ class AutoMailchimpService
             $this->config = json_decode(file_get_contents($configPath), true);
             
             // Get all location IDs from the database
-            $locationIds = \App\Models\Location::pluck('id')->toArray();
+            $locationIds = Location::pluck('id')->toArray();
             
             // Update enabled_locations to include all locations
             $this->config['enabled_locations'] = $locationIds;
             $this->saveConfig();
         } else {
             // Get all location IDs for initial config
-            $locationIds = \App\Models\Location::pluck('id')->toArray();
+            $locationIds = Location::pluck('id')->toArray();
             
             $this->config = [
                 'auto_sync' => false,
@@ -52,7 +55,7 @@ class AutoMailchimpService
     public function updateConfig($settings)
     {
         // Get all location IDs
-        $locationIds = \App\Models\Location::pluck('id')->toArray();
+        $locationIds = Location::pluck('id')->toArray();
         
         // Merge settings but ensure enabled_locations includes all locations
         $this->config = array_merge($this->config, $settings);
@@ -76,14 +79,13 @@ class AutoMailchimpService
         return in_array($locationId, $this->config['enabled_locations'] ?? []);
     }
 
-    public function syncSubscriber($subscriber, $locationId)
+    public function syncSubscribers($subscribers, $locationId)
     {
-        Log::info('Attempting to sync subscriber', [
-            'email' => $subscriber->email_address ?? 'no email',
+        Log::info('Attempting to sync subscribers batch', [
+            'count' => count($subscribers),
             'location_id' => $locationId,
             'auto_sync_enabled' => $this->isAutoSyncEnabled(),
-            'location_enabled' => $this->isLocationEnabled($locationId),
-            'config' => $this->config
+            'location_enabled' => $this->isLocationEnabled($locationId)
         ]);
 
         if (!$this->isAutoSyncEnabled()) {
@@ -98,9 +100,13 @@ class AutoMailchimpService
 
         try {
             $listId = $this->config['default_list_id'];
+            if (empty($listId)) {
+                Log::warning('Auto-sync failed: No default Mailchimp list configured');
+                return;
+            }
             
             // Get location name for tags
-            $location = \App\Models\Location::find($locationId);
+            $location = Location::find($locationId);
             if (!$location) {
                 Log::warning('Location not found for auto-sync', ['location_id' => $locationId]);
                 return;
@@ -113,7 +119,7 @@ class AutoMailchimpService
             
             // Create the SOURCE and SHOW tags
             $sourceTag = "SOURCE - {$filmTour} " . strtoupper($locationFirstWord) . " COMP 2025";
-            $showTag = "SHOW - " . strtoupper($locationFirstWord); // Keep full name for SHOW tag
+            $showTag = "SHOW - " . strtoupper($locationFirstWord);
             
             // Combine with default tags
             $tags = array_merge(
@@ -121,95 +127,40 @@ class AutoMailchimpService
                 $this->config['default_tags'] ?? []
             );
 
-            if (empty($listId)) {
-                Log::warning('Auto-sync failed: No default Mailchimp list configured');
-                return;
-            }
-
             // Get delay minutes from config
             $delayMinutes = intval($this->config['delay_minutes'] ?? 0);
             Log::info('Sync delay configuration', ['delay_minutes' => $delayMinutes]);
 
-            // Prepare subscriber data
-            $subscriberData = [
-                'email_address' => $subscriber->email_address ?? '',
-                'first_name' => $subscriber->first_name ?? '',
-                'last_name' => $subscriber->last_name ?? '',
-                'mobile_number' => $subscriber->mobile_number ?? '',
-                'street_address' => $subscriber->street_address ?? '',
-                'street_address_2' => $subscriber->street_address_2 ?? '',
-                'city' => $subscriber->city ?? '',
-                'state' => $subscriber->state ?? '',
-                'zip_code' => $subscriber->zip_code ?? '',
-                'country' => $subscriber->country ?? '',
-                'gender' => $subscriber->gender ?? '',
-                'age' => $subscriber->age ?? '',
-            ];
-
-            if ($delayMinutes > 0) {
-                Log::info('Scheduling delayed sync', [
-                    'email' => $subscriber->email_address,
-                    'delay_minutes' => $delayMinutes
-                ]);
-
-                // Use Laravel's dispatch helper with delay
-                dispatch(function() use ($listId, $subscriberData, $tags) {
-                    try {
-                        Log::info('Executing delayed sync', [
-                            'email' => $subscriberData['email_address']
-                        ]);
-                        
-                        $this->mailchimpService->addSubscriberToList(
-                            $listId,
-                            $subscriberData,
-                            $tags
-                        );
-
-                        Log::info('Delayed sync completed successfully', [
-                            'email' => $subscriberData['email_address']
-                        ]);
-                    } catch (\Exception $e) {
-                        Log::error('Delayed sync failed', [
-                            'email' => $subscriberData['email_address'],
-                            'error' => $e->getMessage()
-                        ]);
-                    }
-                })->delay(now()->addMinutes($delayMinutes));
-
-                Log::info('Delayed sync scheduled', [
-                    'email' => $subscriber->email_address,
-                    'scheduled_time' => now()->addMinutes($delayMinutes)
-                ]);
-            } else {
-                // Sync immediately
-                Log::info('Executing immediate sync', [
-                    'email' => $subscriber->email_address
-                ]);
-
-                $this->mailchimpService->addSubscriberToList(
-                    $listId,
-                    $subscriberData,
-                    $tags
-                );
-
-                Log::info('Immediate sync completed', [
-                    'email' => $subscriber->email_address
-                ]);
+            // Process subscribers in batches
+            $chunks = array_chunk($subscribers, self::BATCH_SIZE);
+            foreach ($chunks as $chunk) {
+                $job = new SyncMailchimpSubscribersBatch($chunk, $listId, $tags, $location->name);
+                
+                if ($delayMinutes > 0) {
+                    $job->delay(now()->addMinutes($delayMinutes));
+                }
+                
+                dispatch($job);
             }
 
-            Log::info('Auto-sync process completed', [
-                'email' => $subscriber->email_address,
-                'location_id' => $locationId,
-                'delay_minutes' => $delayMinutes,
-                'tags' => $tags
+            Log::info('Batched sync jobs dispatched', [
+                'total_subscribers' => count($subscribers),
+                'number_of_batches' => count($chunks),
+                'batch_size' => self::BATCH_SIZE,
+                'delay_minutes' => $delayMinutes
             ]);
 
         } catch (\Exception $e) {
-            Log::error('Auto-sync failed for subscriber', [
-                'email' => $subscriber->email_address ?? 'no email',
+            Log::error('Auto-sync failed for subscriber batch', [
                 'location_id' => $locationId,
                 'error' => $e->getMessage()
             ]);
         }
+    }
+
+    // Legacy method for backward compatibility
+    public function syncSubscriber($subscriber, $locationId)
+    {
+        $this->syncSubscribers([$subscriber], $locationId);
     }
 } 
