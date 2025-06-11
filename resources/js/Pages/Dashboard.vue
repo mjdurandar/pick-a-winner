@@ -74,7 +74,7 @@
             {
                 label: 'Attendees Per Location',
                 data: props.attendeesChartData.map(item => item.count), // Attendee count per location
-                backgroundColor: '#4CAF50'
+                backgroundColor: '#16C3D9'
             }
         ]
     }));
@@ -186,7 +186,6 @@
         }
     }
 </script>
-
 
 <template>
     <Head title="Dashboard" />

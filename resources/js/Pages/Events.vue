@@ -163,7 +163,7 @@ const goToSignUpForm = (eventId) => {
             <div class="d-flex justify-content-between align-items-center">
                 <h2 class="text-xl font-semibold leading-tight text-gray-800">Events</h2>
                 <button @click="openCreateModal" class="btn" style="background-color: black; color: white;" v-if="userRole === 'admin'">
-                    Create Event
+                    <i class="fa-solid fa-plus"></i> Create Event
                 </button>
             </div>
         </template>
