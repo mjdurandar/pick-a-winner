@@ -44,6 +44,9 @@ const mailchimpSettings = ref({
     film_tour: 'WM'  // Default to WM, can be changed in settings
 });
 const availableLists = ref([]);
+const showSyncLogsModal = ref(false);
+const syncLogs = ref([]);
+const selectedLocationForLogs = ref(null);
 
 // Add new form for location creation
 const locationForm = useForm({
@@ -942,6 +945,66 @@ const saveMailchimpSettings = async () => {
     }
 };
 
+const viewSyncLogs = async (location) => {
+    selectedLocationForLogs.value = location;
+    showSyncLogsModal.value = true;
+    
+    try {
+        const response = await axios.get('/api/location/sync-logs', {
+            params: { location_id: location.id }
+        });
+        syncLogs.value = response.data.logs;
+    } catch (error) {
+        console.error('Failed to fetch sync logs:', error);
+        Swal.fire('Error', 'Failed to fetch sync logs', 'error');
+    }
+};
+
+const downloadLogDetails = (log) => {
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+    const locationName = selectedLocationForLogs.value?.name || 'Unknown Location';
+    
+    let logContent = `Mailchimp Sync Log
+===================
+Date: ${log.date}
+Location: ${locationName}
+Status: ${log.status}
+Total Jobs: ${log.total_jobs}
+Processed Jobs: ${log.processed_jobs}
+Failed Jobs: ${log.failed_jobs}
+
+Details:
+--------
+`;
+
+    if (log.details?.results) {
+        const results = log.details.results;
+        logContent += `
+Success: ${results.success}
+Failed: ${results.failed}
+
+Processed Subscribers:
+--------------------
+${results.processed.map(p => `${p.email}: ${p.status}${p.reason ? ' - ' + p.reason : ''}`).join('\n')}
+
+Errors:
+-------
+${results.errors.map(e => `${e.email}: ${e.error}`).join('\n')}
+`;
+    }
+
+    // Create and download the file
+    const blob = new Blob([logContent], { type: 'text/plain' });
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `mailchimp-sync-log-${locationName}-${timestamp}.txt`;
+    document.body.appendChild(a);
+    a.click();
+    window.URL.revokeObjectURL(url);
+    document.body.removeChild(a);
+};
+
 </script>
 
 <template>
@@ -1051,21 +1114,13 @@ const saveMailchimpSettings = async () => {
                                     <i class="fa-solid fa-key"></i>
                                 </button>
                                 <button 
-                                    @click="importDataToMailChimp(location)"
+                                    @click="viewSyncLogs(location)"
                                     class="text-white px-3 py-2 rounded"
                                     style="background-color: #16C3D9; color: white; border-radius: 5px; padding: 10px 20px; cursor: pointer;"
-                                    title="Import Data to MailChimp"
+                                    title="View Sync Logs"
                                 >
-                                    <i class="fa-solid fa-envelope"></i>
+                                    <i class="fa-solid fa-file-lines"></i>
                                 </button>
-                                <!-- Copy Password Button -->
-                                <!-- <button 
-                                    @click="copyPassword(location, index)"
-                                    class="bg-gray-300 text-gray-600 px-3 py-2 rounded hover:bg-gray-400 transition"
-                                    title="Copy Password"
-                                >   
-                                    <i :class="copiedIndex === index ? 'fa-solid fa-check text-green-600' : 'fa-solid fa-copy'"></i>
-                                </button> -->
                             </div>
                         </div>
 
@@ -1437,5 +1492,53 @@ Melbourne,September 02 2024,6:00 pm</pre>
             </div>
         </div>
         <div v-if="showMailchimpSettingsModal" class="modal-backdrop fade show"></div>
+
+        <!-- Sync Logs Modal -->
+        <div v-if="showSyncLogsModal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+            <div class="bg-white p-6 rounded-lg shadow-xl max-w-4xl w-full mx-4">
+                <div class="flex justify-between items-center mb-4">
+                    <h3 class="text-lg font-semibold">Mailchimp Sync Logs - {{ selectedLocationForLogs?.name }}</h3>
+                    <button @click="showSyncLogsModal = false" class="text-gray-500 hover:text-gray-700">
+                        <i class="fa-solid fa-times"></i>
+                    </button>
+                </div>
+                
+                <div class="space-y-4">
+                    <div v-if="syncLogs.length === 0" class="text-center text-gray-600 py-4">
+                        No sync logs found for this location.
+                    </div>
+                    
+                    <div v-else class="space-y-4">
+                        <div v-for="(log, index) in syncLogs" :key="index" 
+                            class="border rounded p-4 hover:bg-gray-50">
+                            <div class="flex justify-between items-start">
+                                <div>
+                                    <div class="font-semibold">{{ log.date }}</div>
+                                    <div class="text-sm text-gray-600">
+                                        Status: <span :class="{
+                                            'text-green-600': log.status === 'Completed',
+                                            'text-red-600': log.status === 'Failed',
+                                            'text-yellow-600': log.status === 'In Progress',
+                                            'text-gray-600': log.status === 'Cancelled'
+                                        }">{{ log.status }}</span>
+                                    </div>
+                                    <div class="text-sm text-gray-600">
+                                        Jobs: {{ log.processed_jobs }}/{{ log.total_jobs }} 
+                                        ({{ log.failed_jobs }} failed)
+                                    </div>
+                                </div>
+                                <button 
+                                    @click="downloadLogDetails(log)"
+                                    class="text-blue-600 hover:text-blue-800"
+                                    title="Download Log Details"
+                                >
+                                    <i class="fa-solid fa-download"></i>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
     </AuthenticatedLayout>
 </template>

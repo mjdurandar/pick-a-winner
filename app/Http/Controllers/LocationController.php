@@ -252,4 +252,45 @@ class LocationController extends Controller
             ], 500);
         }
     }
+
+    public function getSyncLogs(Request $request)
+    {
+        $request->validate([
+            'location_id' => 'required|exists:locations,id'
+        ]);
+
+        try {
+            $location = Location::findOrFail($request->location_id);
+            
+            // Get sync logs from jobs table
+            $logs = DB::table('job_batches')
+                ->where('name', 'like', "mailchimp_sync_{$location->id}_%")
+                ->orderBy('created_at', 'desc')
+                ->get();
+
+            $formattedLogs = [];
+            foreach ($logs as $log) {
+                $formattedLogs[] = [
+                    'date' => date('Y-m-d H:i:s', $log->created_at),
+                    'total_jobs' => $log->total_jobs,
+                    'processed_jobs' => $log->total_jobs - $log->pending_jobs,
+                    'failed_jobs' => $log->failed_jobs,
+                    'status' => $log->cancelled_at ? 'Cancelled' : 
+                              ($log->finished_at ? 'Completed' : 
+                              ($log->failed_jobs == $log->total_jobs ? 'Failed' : 
+                              ($log->pending_jobs > 0 ? 'In Progress' : 'Unknown'))),
+                    'details' => json_decode($log->options ?? '{}', true)
+                ];
+            }
+
+            return response()->json([
+                'logs' => $formattedLogs,
+                'location' => $location->name
+            ]);
+
+        } catch (\Exception $e) {
+            Log::error('Error fetching sync logs: ' . $e->getMessage());
+            return response()->json(['error' => 'Failed to fetch sync logs'], 500);
+        }
+    }
 }

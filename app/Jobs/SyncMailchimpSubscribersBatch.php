@@ -9,6 +9,7 @@ use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
 use App\Services\MailchimpService;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\DB;
 
 class SyncMailchimpSubscribersBatch implements ShouldQueue
 {
@@ -18,16 +19,20 @@ class SyncMailchimpSubscribersBatch implements ShouldQueue
     protected $listId;
     protected $tags;
     protected $locationName;
+    protected $locationId;
+    protected $batchId;
 
     /**
      * Create a new job instance.
      */
-    public function __construct(array $subscribers, string $listId, array $tags, string $locationName)
+    public function __construct(array $subscribers, string $listId, array $tags, string $locationName, int $locationId, string $batchId)
     {
         $this->subscribers = $subscribers;
         $this->listId = $listId;
         $this->tags = $tags;
         $this->locationName = $locationName;
+        $this->locationId = $locationId;
+        $this->batchId = $batchId;
     }
 
     /**
@@ -38,20 +43,25 @@ class SyncMailchimpSubscribersBatch implements ShouldQueue
         Log::info('Starting batch sync for location', [
             'location' => $this->locationName,
             'subscriber_count' => count($this->subscribers),
-            'tags' => $this->tags
+            'tags' => $this->tags,
+            'batch_id' => $this->batchId
         ]);
 
         $results = [
             'success' => 0,
             'failed' => 0,
-            'errors' => []
+            'errors' => [],
+            'processed' => []
         ];
 
         foreach ($this->subscribers as $subscriber) {
             try {
                 if (empty($subscriber->email_address)) {
                     $results['failed']++;
-                    $results['errors'][] = "Skipped subscriber: Missing email address";
+                    $results['errors'][] = [
+                        'email' => 'unknown',
+                        'error' => 'Missing email address'
+                    ];
                     continue;
                 }
 
@@ -73,21 +83,44 @@ class SyncMailchimpSubscribersBatch implements ShouldQueue
                     ],
                     $this->tags
                 );
+
                 $results['success']++;
+                $results['processed'][] = [
+                    'email' => $subscriber->email_address,
+                    'status' => 'success'
+                ];
+
             } catch (\Exception $e) {
                 $results['failed']++;
-                $results['errors'][] = "Failed to import {$subscriber->email_address}: " . substr($e->getMessage(), 0, 200);
-                Log::error('Failed to import subscriber in batch', [
+                $results['errors'][] = [
+                    'email' => $subscriber->email_address ?? 'unknown',
+                    'error' => $e->getMessage()
+                ];
+                $results['processed'][] = [
                     'email' => $subscriber->email_address,
-                    'error' => $e->getMessage(),
-                    'location' => $this->locationName
-                ]);
+                    'status' => 'failed',
+                    'reason' => $e->getMessage()
+                ];
             }
         }
 
+        // Update batch information
+        DB::table('job_batches')
+            ->where('id', $this->batchId)
+            ->update([
+                'options' => json_encode([
+                    'results' => $results,
+                    'location_id' => $this->locationId,
+                    'location_name' => $this->locationName,
+                    'list_id' => $this->listId,
+                    'tags' => $this->tags
+                ])
+            ]);
+
         Log::info('Completed batch sync for location', [
             'location' => $this->locationName,
-            'results' => $results
+            'results' => $results,
+            'batch_id' => $this->batchId
         ]);
     }
 } 

@@ -68,6 +68,8 @@ Route::middleware(['auth', RoleMiddleware::class . ':admin,host'])->group(functi
     Route::post('/location/import-data-to-mailchimp', [LocationController::class, 'importDataToMailChimp'])->name('location.importDataToMailChimp');
     Route::get('/api/location/mailchimp/lists', [LocationController::class, 'getMailchimpLists'])->name('location.mailchimpLists');
     Route::get('/api/location/subscribers', [LocationController::class, 'getSubscribers'])->name('location.getSubscribers');
+
+    Route::get('/location/sync-logs', [LocationController::class, 'getSyncLogs'])->name('location.getSyncLogs');
 });
 
 Route::middleware(['auth', RoleMiddleware::class . ':admin'])->group(function () {  
@@ -87,16 +89,6 @@ Route::middleware(['auth', RoleMiddleware::class . ':admin'])->group(function ()
 
     Route::delete('/signup-form/{eventId}', [SignUpFormController::class, 'destroy'])->name('signup.destroy');
 
-    //LOCATION ROUTES
-    // Route::get('/location', [LocationController::class, 'index'])->name('location.index');
-    // Route::get('/location/{eventId}', [LocationController::class, 'locationpage'])->name('location.locationpage');
-    // Route::put('/location/{location}/password', [LocationController::class, 'updatePassword'])->name('location.updatePassword');
-    // Route::put('/location/update-all-passwords/{event}', [LocationController::class, 'updateAllPasswords'])->name('location.updateAllPasswords');
-    // Route::put('/event/{event}/password', [EventsController::class, 'updatePassword'])->name('event.updatePassword');
-    // Route::post('/location', [LocationController::class, 'store'])->name('location.store');
-    // Route::put('/location/{location}', [LocationController::class, 'update'])->name('location.update');
-    // Route::delete('/location/{location}', [LocationController::class, 'destroy'])->name('location.destroy');
-
     //EDIT SIGN UP FORM ROUTES
     Route::get('/signup-form/edit/{formId}', [SignUpFormController::class, 'edit'])->name('signup.edit');
     //UPDATE SIGN UP FORM ROUTES
@@ -115,5 +107,13 @@ Route::middleware(['auth', RoleMiddleware::class . ':admin'])->group(function ()
 // Mailchimp Auto-sync Settings Routes
 Route::get('/mailchimp/auto-sync/settings', [MailchimpAutoSyncController::class, 'getSettings'])->name('mailchimp.autosync.settings');
 Route::post('/mailchimp/auto-sync/settings', [MailchimpAutoSyncController::class, 'updateSettings'])->name('mailchimp.autosync.update');
+
+// API Routes
+Route::prefix('api')->middleware(['auth', 'verified'])->group(function () {
+    Route::get('/events/{event}/locations', [PickaWinnerController::class, 'getLocations']);
+    Route::get('/location/mailchimp/lists', [LocationController::class, 'getMailchimpLists'])->name('location.mailchimpLists');
+    Route::get('/location/subscribers', [LocationController::class, 'getSubscribers'])->name('location.getSubscribers');
+    Route::get('/location/sync-logs', [LocationController::class, 'getSyncLogs'])->name('location.getSyncLogs');
+});
 
 require __DIR__.'/auth.php';

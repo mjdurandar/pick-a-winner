@@ -6,6 +6,7 @@ use Illuminate\Support\Facades\Log;
 use App\Services\MailchimpService;
 use App\Jobs\SyncMailchimpSubscribersBatch;
 use App\Models\Location;
+use Illuminate\Support\Facades\DB;
 
 class AutoMailchimpService
 {
@@ -115,7 +116,7 @@ class AutoMailchimpService
             // Generate location-specific tags
             $filmTour = $this->config['film_tour'] ?? 'WM';
             $locationName = $location->name;
-            $locationFirstWord = explode(' ', $locationName)[0]; // Get first word only
+            $locationFirstWord = explode(' ', $locationName)[0];
             
             // Create the SOURCE and SHOW tags
             $sourceTag = "SOURCE - {$filmTour} " . strtoupper($locationFirstWord) . " COMP 2025";
@@ -131,10 +132,38 @@ class AutoMailchimpService
             $delayMinutes = intval($this->config['delay_minutes'] ?? 0);
             Log::info('Sync delay configuration', ['delay_minutes' => $delayMinutes]);
 
+            // Generate a unique batch ID
+            $batchId = "mailchimp_sync_{$locationId}_" . time();
+
+            // Create initial batch record
+            DB::table('job_batches')->insert([
+                'id' => $batchId,
+                'name' => $batchId,
+                'total_jobs' => ceil(count($subscribers) / self::BATCH_SIZE),
+                'pending_jobs' => ceil(count($subscribers) / self::BATCH_SIZE),
+                'failed_jobs' => 0,
+                'failed_job_ids' => '[]',
+                'options' => json_encode([
+                    'location_id' => $locationId,
+                    'location_name' => $locationName,
+                    'total_subscribers' => count($subscribers)
+                ]),
+                'created_at' => time(),
+                'cancelled_at' => null,
+                'finished_at' => null
+            ]);
+
             // Process subscribers in batches
             $chunks = array_chunk($subscribers, self::BATCH_SIZE);
             foreach ($chunks as $chunk) {
-                $job = new SyncMailchimpSubscribersBatch($chunk, $listId, $tags, $location->name);
+                $job = new SyncMailchimpSubscribersBatch(
+                    $chunk, 
+                    $listId, 
+                    $tags, 
+                    $location->name,
+                    $locationId,
+                    $batchId
+                );
                 
                 if ($delayMinutes > 0) {
                     $job->delay(now()->addMinutes($delayMinutes));
@@ -147,7 +176,8 @@ class AutoMailchimpService
                 'total_subscribers' => count($subscribers),
                 'number_of_batches' => count($chunks),
                 'batch_size' => self::BATCH_SIZE,
-                'delay_minutes' => $delayMinutes
+                'delay_minutes' => $delayMinutes,
+                'batch_id' => $batchId
             ]);
 
         } catch (\Exception $e) {
