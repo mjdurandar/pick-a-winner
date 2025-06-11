@@ -68,8 +68,6 @@ Route::middleware(['auth', RoleMiddleware::class . ':admin,host'])->group(functi
     Route::post('/location/import-data-to-mailchimp', [LocationController::class, 'importDataToMailChimp'])->name('location.importDataToMailChimp');
     Route::get('/api/location/mailchimp/lists', [LocationController::class, 'getMailchimpLists'])->name('location.mailchimpLists');
     Route::get('/api/location/subscribers', [LocationController::class, 'getSubscribers'])->name('location.getSubscribers');
-
-    Route::get('/location/sync-logs', [LocationController::class, 'getSyncLogs'])->name('location.getSyncLogs');
 });
 
 Route::middleware(['auth', RoleMiddleware::class . ':admin'])->group(function () {  
@@ -113,7 +111,9 @@ Route::prefix('api')->middleware(['auth', 'verified'])->group(function () {
     Route::get('/events/{event}/locations', [PickaWinnerController::class, 'getLocations']);
     Route::get('/location/mailchimp/lists', [LocationController::class, 'getMailchimpLists'])->name('location.mailchimpLists');
     Route::get('/location/subscribers', [LocationController::class, 'getSubscribers'])->name('location.getSubscribers');
-    Route::get('/location/sync-logs', [LocationController::class, 'getSyncLogs'])->name('location.getSyncLogs');
 });
+
+Route::get('/location/mailchimp-logs/download', [LocationController::class, 'downloadMailchimpLogs'])
+    ->name('location.downloadMailchimpLogs');
 
 require __DIR__.'/auth.php';

@@ -4,19 +4,19 @@ namespace App\Services;
 
 use Illuminate\Support\Facades\Log;
 use App\Services\MailchimpService;
-use App\Jobs\SyncMailchimpSubscribersBatch;
 use App\Models\Location;
-use Illuminate\Support\Facades\DB;
+use App\Services\MailchimpLogService;
 
 class AutoMailchimpService
 {
     protected $mailchimpService;
     protected $config;
-    protected const BATCH_SIZE = 100; // Process 100 subscribers at a time
+    protected $logService;
 
-    public function __construct(MailchimpService $mailchimpService)
+    public function __construct(MailchimpService $mailchimpService, MailchimpLogService $logService)
     {
         $this->mailchimpService = $mailchimpService;
+        $this->logService = $logService;
         $this->loadConfig();
     }
 
@@ -38,10 +38,10 @@ class AutoMailchimpService
             
             $this->config = [
                 'auto_sync' => false,
-                'delay_minutes' => 0,
                 'default_list_id' => '',
                 'default_tags' => [],
-                'enabled_locations' => $locationIds
+                'enabled_locations' => $locationIds,
+                'film_tour' => 'WM'
             ];
             $this->saveConfig();
         }
@@ -82,7 +82,7 @@ class AutoMailchimpService
 
     public function syncSubscribers($subscribers, $locationId)
     {
-        Log::info('Attempting to sync subscribers batch', [
+        Log::info('Attempting to sync subscribers', [
             'count' => count($subscribers),
             'location_id' => $locationId,
             'auto_sync_enabled' => $this->isAutoSyncEnabled(),
@@ -128,60 +128,57 @@ class AutoMailchimpService
                 $this->config['default_tags'] ?? []
             );
 
-            // Get delay minutes from config
-            $delayMinutes = intval($this->config['delay_minutes'] ?? 0);
-            Log::info('Sync delay configuration', ['delay_minutes' => $delayMinutes]);
+            // Process each subscriber immediately
+            foreach ($subscribers as $subscriber) {
+                try {
+                    $this->mailchimpService->addSubscriberToList(
+                        $listId,
+                        [
+                            'email_address' => $subscriber->email_address ?? '',
+                            'first_name' => $subscriber->first_name ?? '',
+                            'last_name' => $subscriber->last_name ?? '',
+                            'mobile_number' => $subscriber->mobile_number ?? '',
+                            'street_address' => $subscriber->street_address ?? '',
+                            'street_address_2' => $subscriber->street_address_2 ?? '',
+                            'city' => $subscriber->city ?? '',
+                            'state' => $subscriber->state ?? '',
+                            'zip_code' => $subscriber->zip_code ?? '',
+                            'country' => $subscriber->country ?? '',
+                            'gender' => $subscriber->gender ?? '',
+                            'age' => $subscriber->age ?? '',
+                        ],
+                        $tags
+                    );
 
-            // Generate a unique batch ID
-            $batchId = "mailchimp_sync_{$locationId}_" . time();
+                    // Log successful import
+                    $this->logService->logImport($locationName, [
+                        'success' => true,
+                        'email' => $subscriber->email_address ?? 'no email',
+                        'tags' => $tags
+                    ]);
 
-            // Create initial batch record
-            DB::table('job_batches')->insert([
-                'id' => $batchId,
-                'name' => $batchId,
-                'total_jobs' => ceil(count($subscribers) / self::BATCH_SIZE),
-                'pending_jobs' => ceil(count($subscribers) / self::BATCH_SIZE),
-                'failed_jobs' => 0,
-                'failed_job_ids' => '[]',
-                'options' => json_encode([
-                    'location_id' => $locationId,
-                    'location_name' => $locationName,
-                    'total_subscribers' => count($subscribers)
-                ]),
-                'created_at' => time(),
-                'cancelled_at' => null,
-                'finished_at' => null
-            ]);
+                    Log::info('Successfully synced subscriber', [
+                        'email' => $subscriber->email_address ?? 'no email',
+                        'location' => $locationName
+                    ]);
+                } catch (\Exception $e) {
+                    // Log failed import
+                    $this->logService->logImport($locationName, [
+                        'success' => false,
+                        'email' => $subscriber->email_address ?? 'no email',
+                        'error' => $e->getMessage(),
+                        'tags' => $tags
+                    ]);
 
-            // Process subscribers in batches
-            $chunks = array_chunk($subscribers, self::BATCH_SIZE);
-            foreach ($chunks as $chunk) {
-                $job = new SyncMailchimpSubscribersBatch(
-                    $chunk, 
-                    $listId, 
-                    $tags, 
-                    $location->name,
-                    $locationId,
-                    $batchId
-                );
-                
-                if ($delayMinutes > 0) {
-                    $job->delay(now()->addMinutes($delayMinutes));
+                    Log::error('Failed to sync subscriber', [
+                        'email' => $subscriber->email_address ?? 'no email',
+                        'error' => $e->getMessage()
+                    ]);
                 }
-                
-                dispatch($job);
             }
 
-            Log::info('Batched sync jobs dispatched', [
-                'total_subscribers' => count($subscribers),
-                'number_of_batches' => count($chunks),
-                'batch_size' => self::BATCH_SIZE,
-                'delay_minutes' => $delayMinutes,
-                'batch_id' => $batchId
-            ]);
-
         } catch (\Exception $e) {
-            Log::error('Auto-sync failed for subscriber batch', [
+            Log::error('Auto-sync failed', [
                 'location_id' => $locationId,
                 'error' => $e->getMessage()
             ]);

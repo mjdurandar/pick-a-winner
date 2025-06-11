@@ -11,6 +11,7 @@ use App\Services\AutoMailchimpService;
 use Illuminate\Support\Str;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use App\Services\MailchimpLogService;
 
 class LocationController extends Controller
 {
@@ -169,9 +170,31 @@ class LocationController extends Controller
         }
     }
 
-    public function importDataToMailChimp(Request $request)
+    public function getSyncLogs(Request $request, MailchimpLogService $logService)
+    {
+        $locationId = $request->input('location_id');
+        $location = Location::findOrFail($locationId);
+        
+        // Get the complete log content
+        $content = $logService->getLogContent($locationId, $location->name);
+        
+        if (!$content) {
+            return response()->json(['logs' => []]);
+        }
+
+        return response()->json([
+            'logs' => [
+                [
+                    'date' => now()->format('Y-m-d H:i:s'),
+                    'content' => $content
+                ]
+            ]
+        ]);
+    }
+
+    public function importDataToMailchimp(Request $request)
     {   
-        Log::info('importDataToMailChimp called', ['data' => $request->all()]);
+        Log::info('importDataToMailchimp called', ['data' => $request->all()]);
         set_time_limit(60); // Set to 1 minute since we're processing smaller chunks
 
         $request->validate([
@@ -187,7 +210,6 @@ class LocationController extends Controller
                 'errors' => []
             ];
 
-            // Use the tags directly from the request, don't modify them
             $tags = $request->tags;
             Log::info('Using tags for import:', ['tags' => $tags]);
 
@@ -253,44 +275,57 @@ class LocationController extends Controller
         }
     }
 
-    public function getSyncLogs(Request $request)
+    public function saveImportLog(Request $request, MailchimpLogService $logService)
     {
-        $request->validate([
-            'location_id' => 'required|exists:locations,id'
+        $logData = $request->validate([
+            'location_id' => 'required|integer',
+            'location_name' => 'required|string',
+            'list_id' => 'required|string',
+            'tags' => 'required|string',
+            'totalSubscribers' => 'required|integer',
+            'successCount' => 'required|integer',
+            'failureCount' => 'required|integer',
+            'errors' => 'array',
+            'importedSubscribers' => 'array'
         ]);
 
-        try {
-            $location = Location::findOrFail($request->location_id);
-            
-            // Get sync logs from jobs table
-            $logs = DB::table('job_batches')
-                ->where('name', 'like', "mailchimp_sync_{$location->id}_%")
-                ->orderBy('created_at', 'desc')
-                ->get();
+        $filename = $logService->appendToLog(
+            $logData['location_id'],
+            $logData['location_name'],
+            $logData
+        );
 
-            $formattedLogs = [];
-            foreach ($logs as $log) {
-                $formattedLogs[] = [
-                    'date' => date('Y-m-d H:i:s', $log->created_at),
-                    'total_jobs' => $log->total_jobs,
-                    'processed_jobs' => $log->total_jobs - $log->pending_jobs,
-                    'failed_jobs' => $log->failed_jobs,
-                    'status' => $log->cancelled_at ? 'Cancelled' : 
-                              ($log->finished_at ? 'Completed' : 
-                              ($log->failed_jobs == $log->total_jobs ? 'Failed' : 
-                              ($log->pending_jobs > 0 ? 'In Progress' : 'Unknown'))),
-                    'details' => json_decode($log->options ?? '{}', true)
-                ];
-            }
+        return response()->json(['status' => 'success', 'filename' => $filename]);
+    }
 
-            return response()->json([
-                'logs' => $formattedLogs,
-                'location' => $location->name
-            ]);
+    public function downloadImportLog(Request $request, MailchimpLogService $logService)
+    {
+        $locationId = $request->input('location_id');
+        $locationName = $request->input('location_name');
 
-        } catch (\Exception $e) {
-            Log::error('Error fetching sync logs: ' . $e->getMessage());
-            return response()->json(['error' => 'Failed to fetch sync logs'], 500);
+        $content = $logService->getLogContent($locationId, $locationName);
+        
+        if (!$content) {
+            return response()->json(['error' => 'Log file not found'], 404);
         }
+
+        $headers = [
+            'Content-type' => 'text/plain',
+            'Content-Disposition' => 'attachment; filename="mailchimp-import-' . strtolower(preg_replace('/[^a-z0-9]/i', '-', $locationName)) . '.log"',
+        ];
+
+        return response($content, 200, $headers);
+    }
+
+    public function downloadMailchimpLogs(MailchimpLogService $logService)
+    {
+        $content = $logService->getLogContent();
+        
+        $headers = [
+            'Content-type' => 'text/plain',
+            'Content-Disposition' => 'attachment; filename="mailchimp-import-history.log"',
+        ];
+
+        return response($content, 200, $headers);
     }
 }
