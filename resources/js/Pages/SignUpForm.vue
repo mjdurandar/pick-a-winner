@@ -170,17 +170,20 @@ watchEffect(() => {
                 </h2>
                 <div class="flex mt-4 md:mt-0">
                     <!-- ✅ Show this only if signupForm exists -->
-                    <button v-if="signupForm" @click="copySignupFormUrl()" class="btn btn-success me-3">
+                    <button v-if="signupForm" @click="copySignupFormUrl()" class="btn me-3" style="background-color: black; color: white; border-radius: 5px; padding: 10px 20px; cursor: pointer;">
+                        <i class="fa-solid fa-copy"></i>
                         Copy Signup Link
                     </button>
 
                     <!-- ✅ Show "Edit Form" only if signupForm exists and user is admin -->
-                    <button v-if="signupForm && userRole === 'admin'" @click="editSignUpForm()" class="btn btn-warning">
-                        Edit Form
+                    <button v-if="signupForm && userRole === 'admin'" @click="editSignUpForm()" class="btn" style="background-color: black; color: white; border-radius: 5px; padding: 10px 20px; cursor: pointer;">
+                        <i class="fa-solid fa-pen-to-square"></i>
+                        Edit Form 
                     </button>  
 
                     <!-- ✅ Show "Generate Sign Up Form" only if signupForm does NOT exist -->
-                    <button v-if="!signupForm && userRole === 'admin'" @click="createSignUpForm()" class="btn btn-primary">
+                    <button v-if="!signupForm && userRole === 'admin'" @click="createSignUpForm()" class="btn" style="background-color: black; color: white; border-radius: 5px; padding: 10px 20px; cursor: pointer;">
+                        <i class="fa-solid fa-plus"></i>
                         Create Sign Up Form
                     </button>
                 </div>
@@ -237,6 +240,10 @@ watchEffect(() => {
 
                             <template v-if="question.type === 'email'">
                                 <input type="email" class="w-full border rounded px-3 py-2" disabled />
+                            </template>
+
+                            <template v-if="question.type === 'textarea'">
+                                <textarea class="w-full border rounded px-3 py-2" rows="4" disabled></textarea>
                             </template>
 
                             <template v-if="question.type === 'dropdown'">

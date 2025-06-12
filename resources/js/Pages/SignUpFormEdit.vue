@@ -21,6 +21,7 @@ const policyLink = ref(props.form.privacy_link);
 // ✅ Convert existing questions into reactive state
 const questions = ref(JSON.parse(props.form.questions || '[]')); 
 questions.value.forEach((question) => {
+    question.isNew = false; // Mark all existing questions as not new
     if (question.column_name === "events_location" && !question.hiddenOptions) {
         question.hiddenOptions = []; // ✅ Ensure hiddenOptions exists
     }
@@ -155,7 +156,8 @@ const addQuestion = () => {
         column_name: '', // 👈 Users must provide a column name
         options: ['Option 1', 'Option 2'],
         hasOtherOption: false,
-        allowMultiple: false, // Add allowMultiple property
+        allowMultiple: false,
+        isNew: true // Add this flag for new questions
     });
 };
 
@@ -340,15 +342,38 @@ const saveForm = () => {
                         />
 
                         <label class="font-medium">Type:</label>
-                        <select v-model="question.type" class="w-full border p-2 rounded mb-2" :disabled="question.column_name === 'events_location' || question.column_name === 'email_address'
-                            || question.column_name === 'mobile_number' || question.column_name === 'first_name' || question.column_name === 'last_name' || question.column_name === 'street_address' || question.column_name === 'street_address_2' || question.column_name === 'city'
-                            || question.column_name === 'state' || question.column_name === 'zip_code' || question.column_name === 'country'">
+                        <select v-model="question.type" class="w-full border p-2 rounded mb-2" 
+                            :disabled="!question.isNew">
                             <option value="email">Email</option>
                             <option value="text">Text Input</option>
+                            <option value="textarea">Text Area</option>
                             <option value="dropdown">Dropdown</option>
-                            <option value="checkbox">Checkbox</option>
                             <option value="number">Number</option>
                         </select>
+
+                        <div class="text-sm text-red-500 mb-2" v-if="!question.isNew">
+                            Note: To change the field type of existing questions, please contact the administrator
+                        </div>
+
+                        <div class="text-sm text-gray-500 mb-2" v-if="question.type === 'textarea'">
+                            Note: Text Area will be stored as a long text field in the database
+                        </div>
+
+                        <div class="text-sm text-gray-500 mb-2" v-if="question.type === 'text'">
+                            Note: Text Input will be stored as a string field in the database
+                        </div>
+
+                        <div class="text-sm text-gray-500 mb-2" v-if="question.type === 'email'">
+                            Note: Email will be stored as a string field in the database
+                        </div>
+
+                        <div class="text-sm text-gray-500 mb-2" v-if="question.type === 'number'">
+                            Note: Number will be stored as a string field in the database
+                        </div>
+
+                        <div class="text-sm text-gray-500 mb-2" v-if="question.type === 'dropdown'">
+                            Note: {{ question.allowMultiple ? 'Multiple selection dropdown will be stored as a long text field' : 'Single selection dropdown will be stored as a string field' }} in the database
+                        </div>
 
                         <!-- ✅ Dropdown Options -->
                         <div v-if="question.type === 'dropdown'">

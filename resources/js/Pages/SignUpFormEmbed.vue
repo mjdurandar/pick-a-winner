@@ -510,6 +510,12 @@ onMounted(() => {
                     </div>
                 </template>
 
+                <template v-if="question.type === 'textarea'">
+                    <div class="pb-3">
+                        <textarea v-model="formValues[question.text]" class="form-control w-full border rounded px-3 py-2" rows="4" required></textarea>
+                    </div>
+                </template>
+
                 <template v-if="question.type === 'number' && question.column_name === 'mobile_number'">
                     <div class="pb-3 ">
                         <input 

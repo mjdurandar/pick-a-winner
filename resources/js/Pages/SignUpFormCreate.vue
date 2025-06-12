@@ -177,7 +177,8 @@ const addQuestion = () => {
         column_name: '', // 👈 Users must provide a column name
         options: ['Option 1', 'Option 2'],
         hasOtherOption: false,
-        allowMultiple: false, // Add allowMultiple property
+        allowMultiple: false,
+        isNew: true // Add this flag for new questions
     });
 };
 
@@ -337,13 +338,39 @@ onMounted(() => {
                             placeholder="Enter column name for new questions only"
                         />
 
-                        <label class="font-medium">Question Type:</label>
-                        <select v-model="question.type" class="w-full border p-2 rounded mb-2">
+                        <label class="font-medium">Type:</label>
+                        <select v-model="question.type" class="w-full border p-2 rounded mb-2" 
+                            :disabled="!question.isNew">
                             <option value="email">Email</option>
                             <option value="text">Text Input</option>
+                            <option value="textarea">Text Area</option>
                             <option value="dropdown">Dropdown</option>
                             <option value="number">Number</option>
                         </select>
+
+                        <div class="text-sm text-red-500 mb-2" v-if="!question.isNew">
+                            Note: To change the field type of existing questions, please contact the administrator
+                        </div>
+
+                        <div class="text-sm text-gray-500 mb-2" v-if="question.type === 'textarea'">
+                            Note: Text Area will be stored as a long text field in the database
+                        </div>
+
+                        <div class="text-sm text-gray-500 mb-2" v-if="question.type === 'text'">
+                            Note: Text Input will be stored as a string field in the database
+                        </div>
+
+                        <div class="text-sm text-gray-500 mb-2" v-if="question.type === 'email'">
+                            Note: Email will be stored as a string field in the database
+                        </div>
+
+                        <div class="text-sm text-gray-500 mb-2" v-if="question.type === 'number'">
+                            Note: Number will be stored as a string field in the database
+                        </div>
+
+                        <div class="text-sm text-gray-500 mb-2" v-if="question.type === 'dropdown'">
+                            Note: {{ question.allowMultiple ? 'Multiple selection dropdown will be stored as a long text field' : 'Single selection dropdown will be stored as a string field' }} in the database
+                        </div>
 
                         <!-- ✅ Dropdown Options -->
                         <div v-if="question.type === 'dropdown'">

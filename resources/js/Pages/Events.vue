@@ -262,7 +262,7 @@ const goToSignUpForm = (eventId) => {
                             </div>
                             <div class="modal-footer">
                                 <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                                <button type="submit" class="btn btn-success">
+                                <button type="submit" class="btn" style="background-color: black; color: white;">
                                     {{ isEditing ? 'Update Event' : 'Save Event' }}
                                 </button>
                             </div>

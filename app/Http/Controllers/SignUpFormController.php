@@ -71,6 +71,9 @@ class SignUpFormController extends Controller
                     case 'email':
                         $table->string($columnName)->nullable();
                         break;
+                    case 'textarea':
+                        $table->longText($columnName)->nullable();
+                        break;
                     case 'number':
                         $table->string($columnName)->nullable(); // Store as string to maintain format
                         // if (isset($question['format'])) {
@@ -78,7 +81,11 @@ class SignUpFormController extends Controller
                         // }
                         break;
                     case 'dropdown':
-                        $table->string($columnName)->nullable();
+                        if (isset($question['allowMultiple']) && $question['allowMultiple']) {
+                            $table->longText($columnName)->nullable();
+                        } else {
+                            $table->string($columnName)->nullable();
+                        }
                         break;
                 }
             }
@@ -164,6 +171,9 @@ class SignUpFormController extends Controller
                             case 'email':
                                 $table->string($question['column_name'])->nullable();
                                 break;
+                            case 'textarea':
+                                $table->longText($question['column_name'])->nullable();
+                                break;
                             case 'number':
                                 $table->string($question['column_name'])->nullable(); // Store as string for format
                                 // if (isset($question['format'])) {
@@ -171,7 +181,11 @@ class SignUpFormController extends Controller
                                 // }
                                 break;
                             case 'dropdown':
-                                $table->string($question['column_name'])->nullable();
+                                if (isset($question['allowMultiple']) && $question['allowMultiple']) {
+                                    $table->longText($question['column_name'])->nullable();
+                                } else {
+                                    $table->string($question['column_name'])->nullable();
+                                }
                                 break;
                         }
                     }
