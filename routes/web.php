@@ -103,8 +103,8 @@ Route::middleware(['auth', RoleMiddleware::class . ':admin'])->group(function ()
 });
 
 // Mailchimp Auto-sync Settings Routes
-Route::get('/mailchimp/auto-sync/settings', [MailchimpAutoSyncController::class, 'getSettings'])->name('mailchimp.autosync.settings');
-Route::post('/mailchimp/auto-sync/settings', [MailchimpAutoSyncController::class, 'updateSettings'])->name('mailchimp.autosync.update');
+Route::get('/mailchimp/autosync/settings', [MailchimpAutoSyncController::class, 'getSettings'])->name('mailchimp.autosync.settings');
+Route::post('/mailchimp/autosync/update', [MailchimpAutoSyncController::class, 'updateSettings'])->name('mailchimp.autosync.update');
 
 // API Routes
 Route::prefix('api')->middleware(['auth', 'verified'])->group(function () {

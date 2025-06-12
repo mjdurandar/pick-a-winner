@@ -2,192 +2,132 @@
 
 namespace App\Services;
 
+use App\Models\Location;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
 use App\Services\MailchimpService;
-use App\Models\Location;
 use App\Services\MailchimpLogService;
 
 class AutoMailchimpService
 {
     protected $mailchimpService;
-    protected $config;
     protected $logService;
+    protected $settingsKey = 'mailchimp_autosync_settings_';
 
     public function __construct(MailchimpService $mailchimpService, MailchimpLogService $logService)
     {
         $this->mailchimpService = $mailchimpService;
         $this->logService = $logService;
-        $this->loadConfig();
     }
 
-    protected function loadConfig()
+    public function getSettings($eventId)
     {
-        $configPath = storage_path('app/mailchimp-config.json');
-        if (file_exists($configPath)) {
-            $this->config = json_decode(file_get_contents($configPath), true);
-            
-            // Get all location IDs from the database
-            $locationIds = Location::pluck('id')->toArray();
-            
-            // Update enabled_locations to include all locations
-            $this->config['enabled_locations'] = $locationIds;
-            $this->saveConfig();
-        } else {
-            // Get all location IDs for initial config
-            $locationIds = Location::pluck('id')->toArray();
-            
-            $this->config = [
-                'auto_sync' => false,
-                'default_list_id' => '',
-                'default_tags' => [],
-                'enabled_locations' => $locationIds,
-                'film_tour' => 'WM'
-            ];
-            $this->saveConfig();
-        }
-    }
-
-    protected function saveConfig()
-    {
-        $configPath = storage_path('app/mailchimp-config.json');
-        file_put_contents($configPath, json_encode($this->config, JSON_PRETTY_PRINT));
-    }
-
-    public function updateConfig($settings)
-    {
-        // Get all location IDs
-        $locationIds = Location::pluck('id')->toArray();
-        
-        // Merge settings but ensure enabled_locations includes all locations
-        $this->config = array_merge($this->config, $settings);
-        $this->config['enabled_locations'] = $locationIds;
-        
-        $this->saveConfig();
-    }
-
-    public function getConfig()
-    {
-        return $this->config;
-    }
-
-    public function isAutoSyncEnabled()
-    {
-        return $this->config['auto_sync'] ?? false;
-    }
-
-    public function isLocationEnabled($locationId)
-    {
-        return in_array($locationId, $this->config['enabled_locations'] ?? []);
-    }
-
-    public function syncSubscribers($subscribers, $locationId)
-    {
-        Log::info('Attempting to sync subscribers', [
-            'count' => count($subscribers),
-            'location_id' => $locationId,
-            'auto_sync_enabled' => $this->isAutoSyncEnabled(),
-            'location_enabled' => $this->isLocationEnabled($locationId)
+        return Cache::get($this->settingsKey . $eventId, [
+            'auto_sync' => false,
+            'default_list_id' => '',
+            'default_tags' => [],
+            'enabled_locations' => [],
+            'film_tour' => 'WM',
+            'event_id' => $eventId
         ]);
+    }
 
-        if (!$this->isAutoSyncEnabled()) {
-            Log::info('Auto-sync is disabled');
-            return;
-        }
+    public function updateSettings($settings)
+    {
+        $eventId = $settings['event_id'];
+        Cache::put($this->settingsKey . $eventId, $settings);
+        return $settings;
+    }
 
-        if (!$this->isLocationEnabled($locationId)) {
-            Log::info('Location is not enabled for auto-sync', ['location_id' => $locationId]);
-            return;
-        }
-
+    public function syncSubscriber($subscriber, $locationId)
+    {
         try {
-            $listId = $this->config['default_list_id'];
-            if (empty($listId)) {
-                Log::warning('Auto-sync failed: No default Mailchimp list configured');
+            $location = Location::with('event')->find($locationId);
+            if (!$location) {
+                Log::error('Location not found', ['location_id' => $locationId]);
                 return;
             }
+
+            $settings = $this->getSettings($location->event_id);
             
-            // Get location name for tags
-            $location = Location::find($locationId);
-            if (!$location) {
-                Log::warning('Location not found for auto-sync', ['location_id' => $locationId]);
+            if (!$settings['auto_sync'] || !$settings['default_list_id']) {
+                Log::info('Auto-sync disabled or no default list configured', [
+                    'event_id' => $location->event_id,
+                    'auto_sync' => $settings['auto_sync'],
+                    'default_list_id' => $settings['default_list_id']
+                ]);
                 return;
             }
 
             // Generate location-specific tags
-            $filmTour = $this->config['film_tour'] ?? 'WM';
             $locationName = $location->name;
+            $filmTour = $settings['film_tour'];
+            $year = date('Y');
             $locationFirstWord = explode(' ', $locationName)[0];
             
-            // Create the SOURCE and SHOW tags
-            $sourceTag = "SOURCE - {$filmTour} " . strtoupper($locationFirstWord) . " COMP 2025";
+            $sourceTag = "SOURCE - " . strtoupper($filmTour) . " " . strtoupper($locationFirstWord) . " COMP " . $year;
             $showTag = "SHOW - " . strtoupper($locationFirstWord);
             
             // Combine with default tags
             $tags = array_merge(
                 [$sourceTag, $showTag],
-                $this->config['default_tags'] ?? []
+                is_array($settings['default_tags']) ? $settings['default_tags'] : []
             );
 
-            // Process each subscriber immediately
-            foreach ($subscribers as $subscriber) {
-                try {
-                    $this->mailchimpService->addSubscriberToList(
-                        $listId,
-                        [
-                            'email_address' => $subscriber->email_address ?? '',
-                            'first_name' => $subscriber->first_name ?? '',
-                            'last_name' => $subscriber->last_name ?? '',
-                            'mobile_number' => $subscriber->mobile_number ?? '',
-                            'street_address' => $subscriber->street_address ?? '',
-                            'street_address_2' => $subscriber->street_address_2 ?? '',
-                            'city' => $subscriber->city ?? '',
-                            'state' => $subscriber->state ?? '',
-                            'zip_code' => $subscriber->zip_code ?? '',
-                            'country' => $subscriber->country ?? '',
-                            'gender' => $subscriber->gender ?? '',
-                            'age' => $subscriber->age ?? '',
-                        ],
-                        $tags
-                    );
+            // Add to Mailchimp
+            $this->mailchimpService->addSubscriberToList(
+                $settings['default_list_id'],
+                [
+                    'email_address' => $subscriber->email_address,
+                    'first_name' => $subscriber->first_name ?? '',
+                    'last_name' => $subscriber->last_name ?? '',
+                    'mobile_number' => $subscriber->mobile_number ?? '',
+                    'street_address' => $subscriber->street_address ?? '',
+                    'street_address_2' => $subscriber->street_address_2 ?? '',
+                    'city' => $subscriber->city ?? '',
+                    'state' => $subscriber->state ?? '',
+                    'zip_code' => $subscriber->zip_code ?? '',
+                    'country' => $subscriber->country ?? '',
+                    'gender' => $subscriber->gender ?? '',
+                    'age' => $subscriber->age ?? ''
+                ],
+                $tags
+            );
 
-                    // Log successful import
-                    $this->logService->logImport($locationName, [
-                        'success' => true,
-                        'email' => $subscriber->email_address ?? 'no email',
-                        'tags' => $tags
-                    ]);
+            // Log successful import
+            $this->logService->logImport($locationName, [
+                'success' => true,
+                'email' => $subscriber->email_address ?? 'no email',
+                'tags' => $tags
+            ]);
 
-                    Log::info('Successfully synced subscriber', [
-                        'email' => $subscriber->email_address ?? 'no email',
-                        'location' => $locationName
-                    ]);
-                } catch (\Exception $e) {
-                    // Log failed import
-                    $this->logService->logImport($locationName, [
-                        'success' => false,
-                        'email' => $subscriber->email_address ?? 'no email',
-                        'error' => $e->getMessage(),
-                        'tags' => $tags
-                    ]);
-
-                    Log::error('Failed to sync subscriber', [
-                        'email' => $subscriber->email_address ?? 'no email',
-                        'error' => $e->getMessage()
-                    ]);
-                }
-            }
+            Log::info('Subscriber auto-synced to Mailchimp', [
+                'email' => $subscriber->email_address,
+                'location' => $locationName,
+                'tags' => $tags
+            ]);
 
         } catch (\Exception $e) {
-            Log::error('Auto-sync failed', [
+            // Log failed import
+            $this->logService->logImport($locationName ?? 'unknown', [
+                'success' => false,
+                'email' => $subscriber->email_address ?? 'no email',
+                'error' => $e->getMessage(),
+                'tags' => $tags ?? []
+            ]);
+
+            Log::error('Failed to auto-sync subscriber', [
+                'error' => $e->getMessage(),
                 'location_id' => $locationId,
-                'error' => $e->getMessage()
+                'subscriber' => $subscriber->email_address ?? 'unknown'
             ]);
         }
     }
 
-    // Legacy method for backward compatibility
-    public function syncSubscriber($subscriber, $locationId)
+    public function syncSubscribers($subscribers, $locationId)
     {
-        $this->syncSubscribers([$subscriber], $locationId);
+        foreach ($subscribers as $subscriber) {
+            $this->syncSubscriber($subscriber, $locationId);
+        }
     }
 } 

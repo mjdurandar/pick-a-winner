@@ -40,7 +40,8 @@ const mailchimpSettings = ref({
     default_list_id: '',
     default_tags: '',
     enabled_locations: [],
-    film_tour: 'WM'  // Default to WM, can be changed in settings
+    film_tour: '',  // Default to WM
+    event_id: props.event.id  // Add event_id
 });
 const availableLists = ref([]);
 const isSettingsLoading = ref(false);
@@ -70,33 +71,16 @@ const formatLocationDateTime = (date, time) => {
 
 const generateLocationTags = (locationName) => {
     const tags = [];
-    const filmTour = mailchimpSettings.value.film_tour || 'WM';
-    const year = new Date().getFullYear() + 1; // Use next year by default
-    
+    const filmTour = mailchimpSettings.value.film_tour;
+    const year = new Date().getFullYear(); // Use next year by default
+    const locationFirstWord = locationName.split(' ')[0].toUpperCase(); // Get first word only
     // Add SHOW tag
-    tags.push(`SHOW - ${locationName.toUpperCase()}`);
+    tags.push(`SHOW - ${locationFirstWord}`);
     
     // Add SOURCE tag with configured film tour code
-    tags.push(`SOURCE - ${filmTour} ${locationName.toUpperCase()} COMP ${year}`);
+    tags.push(`SOURCE - ${filmTour.toUpperCase()} ${locationFirstWord} COMP ${year}`);
     
     return tags;
-};
-
-const importDataToMailChimp = async (location) => {
-    selectedLocation.value = location;
-    showMailchimpModal.value = true;
-    
-    try {
-        const response = await axios.get(route('location.mailchimpLists'));
-        mailchimpLists.value = response.data.lists;
-        
-        // Auto-generate tags based on location
-        const locationTags = generateLocationTags(location.name);
-        tags.value = locationTags.join(', ');
-    } catch (error) {
-        console.error('Failed to fetch Mailchimp lists:', error);
-        Swal.fire('Error!', 'Failed to fetch Mailchimp lists. Please try again.', 'error');
-    }
 };
 
 const handleMailchimpImport = async () => {
@@ -128,13 +112,13 @@ const handleMailchimpImport = async () => {
         console.log('Processing tags');
 
         // Generate location-specific tags
-        const filmTour = mailchimpSettings.value.film_tour || 'WM';
-        const year = new Date().getFullYear() + 1;
+        const filmTour = mailchimpSettings.value.film_tour;
+        const year = new Date().getFullYear();
         const locationName = selectedLocation.value.name;
         const locationFirstWord = locationName.split(' ')[0].toUpperCase(); // Get first word only
         
         // Create the SOURCE tag in the exact format
-        const sourceTag = `SOURCE - ${filmTour} ${locationFirstWord} COMP ${year}`;
+        const sourceTag = `SOURCE - ${filmTour.toUpperCase()} ${locationFirstWord} COMP ${year}`;
         const showTag = `SHOW - ${locationName.toUpperCase()}`; // Keep full name for SHOW tag
         
         // Combine with any manual tags
@@ -821,13 +805,18 @@ const closeAllPasswordsModal = () => {
 const openMailchimpSettingsModal = async () => {
     isSettingsLoading.value = true;
     try {
-        const response = await axios.get(route('mailchimp.autosync.settings'));
+        const response = await axios.get(route('mailchimp.autosync.settings'), {
+            params: {
+                event_id: props.event.id
+            }
+        });
         const { settings, available_lists } = response.data;
         
         mailchimpSettings.value = {
             ...settings,
-            film_tour: settings.film_tour || 'WM',
-            default_tags: Array.isArray(settings.default_tags) ? settings.default_tags.join(', ') : ''
+            film_tour: settings.film_tour,
+            default_tags: Array.isArray(settings.default_tags) ? settings.default_tags.join(', ') : '',
+            event_id: props.event.id
         };
         availableLists.value = available_lists;
         showMailchimpSettingsModal.value = true;
@@ -843,18 +832,18 @@ const saveMailchimpSettings = async () => {
     try {
         const settings = {
             ...mailchimpSettings.value,
-            film_tour: mailchimpSettings.value.film_tour || 'WM',
+            film_tour: mailchimpSettings.value.film_tour,
             default_tags: mailchimpSettings.value.default_tags.split(',').map(tag => tag.trim()).filter(tag => tag),
             enabled_locations: Array.isArray(mailchimpSettings.value.enabled_locations) 
                 ? mailchimpSettings.value.enabled_locations 
-                : []
+                : [],
+            event_id: props.event.id
         };
 
-        console.log('Saving settings:', settings); // Debug log
+        console.log('Saving settings:', settings);
 
         await axios.post(route('mailchimp.autosync.update'), settings);
         
-        // Close modal by updating the reactive state
         showMailchimpSettingsModal.value = false;
         
         Swal.fire('Success', 'Mailchimp auto-sync settings updated successfully', 'success');
@@ -1300,7 +1289,7 @@ Melbourne,September 02 2024,6:00 pm</pre>
                                 type="text" 
                                 v-model="mailchimpSettings.film_tour"
                                 class="form-control"
-                                placeholder="e.g., WM, BF, etc."
+                                placeholder="e.g., WM, RUNNATION, etc."
                                 required
                             >
                             <div class="form-text">

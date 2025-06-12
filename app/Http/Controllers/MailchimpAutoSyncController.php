@@ -5,7 +5,6 @@ namespace App\Http\Controllers;
 use Illuminate\Http\Request;
 use App\Services\AutoMailchimpService;
 use App\Services\MailchimpService;
-use Inertia\Inertia;
 
 class MailchimpAutoSyncController extends Controller
 {
@@ -18,37 +17,42 @@ class MailchimpAutoSyncController extends Controller
         $this->mailchimpService = $mailchimpService;
     }
 
-    public function getSettings()
+    public function getSettings(Request $request)
     {
-        $config = $this->autoMailchimpService->getConfig();
-        $lists = $this->mailchimpService->getLists();
+        $eventId = $request->input('event_id');
+        if (!$eventId) {
+            return response()->json(['error' => 'Event ID is required'], 400);
+        }
 
-        return response()->json([
-            'settings' => $config,
-            'available_lists' => $lists
-        ]);
+        try {
+            $settings = $this->autoMailchimpService->getSettings($eventId);
+            $lists = $this->mailchimpService->getLists();
+
+            return response()->json([
+                'settings' => $settings,
+                'available_lists' => $lists
+            ]);
+        } catch (\Exception $e) {
+            return response()->json(['error' => $e->getMessage()], 500);
+        }
     }
 
     public function updateSettings(Request $request)
     {
-        $settings = $request->validate([
+        $request->validate([
             'auto_sync' => 'required|boolean',
-            'delay_minutes' => 'required|integer|min:0',
             'default_list_id' => 'required|string',
             'default_tags' => 'array',
             'enabled_locations' => 'array',
-            'film_tour' => 'string|nullable'
+            'film_tour' => 'required|string',
+            'event_id' => 'required|integer'
         ]);
 
-        if (!isset($settings['film_tour'])) {
-            $settings['film_tour'] = 'WM';
+        try {
+            $settings = $this->autoMailchimpService->updateSettings($request->all());
+            return response()->json(['settings' => $settings]);
+        } catch (\Exception $e) {
+            return response()->json(['error' => $e->getMessage()], 500);
         }
-
-        $this->autoMailchimpService->updateConfig($settings);
-
-        return response()->json([
-            'message' => 'Settings updated successfully',
-            'settings' => $this->autoMailchimpService->getConfig()
-        ]);
     }
 } 
