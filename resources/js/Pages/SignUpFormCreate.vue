@@ -346,6 +346,7 @@ onMounted(() => {
                             <option value="textarea">Text Area</option>
                             <option value="dropdown">Dropdown</option>
                             <option value="number">Number</option>
+                            <option value="date">Date</option>
                         </select>
 
                         <div class="text-sm text-red-500 mb-2" v-if="!question.isNew">
@@ -366,6 +367,10 @@ onMounted(() => {
 
                         <div class="text-sm text-gray-500 mb-2" v-if="question.type === 'number'">
                             Note: Number will be stored as a string field in the database
+                        </div>
+
+                        <div class="text-sm text-gray-500 mb-2" v-if="question.type === 'date'">
+                            Note: Date will be stored as a date field in the database
                         </div>
 
                         <div class="text-sm text-gray-500 mb-2" v-if="question.type === 'dropdown'">

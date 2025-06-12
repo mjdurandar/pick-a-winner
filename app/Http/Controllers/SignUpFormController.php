@@ -76,9 +76,9 @@ class SignUpFormController extends Controller
                         break;
                     case 'number':
                         $table->string($columnName)->nullable(); // Store as string to maintain format
-                        // if (isset($question['format'])) {
-                        //     $table->string($columnName . '_format')->nullable(); // Store number format separately
-                        // }
+                        break;
+                    case 'date':
+                        $table->date($columnName)->nullable();
                         break;
                     case 'dropdown':
                         if (isset($question['allowMultiple']) && $question['allowMultiple']) {
@@ -179,6 +179,9 @@ class SignUpFormController extends Controller
                                 // if (isset($question['format'])) {
                                 //     $table->string($question['column_name'] . '_format')->nullable(); // Store number format
                                 // }
+                                break;
+                            case 'date':
+                                $table->date($question['column_name'])->nullable();
                                 break;
                             case 'dropdown':
                                 if (isset($question['allowMultiple']) && $question['allowMultiple']) {

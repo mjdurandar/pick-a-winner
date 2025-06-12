@@ -242,6 +242,10 @@ watchEffect(() => {
                                 <input type="email" class="w-full border rounded px-3 py-2" disabled />
                             </template>
 
+                            <template v-if="question.type === 'date'">
+                                <input type="date" class="w-full border rounded px-3 py-2" disabled />
+                            </template>
+
                             <template v-if="question.type === 'textarea'">
                                 <textarea class="w-full border rounded px-3 py-2" rows="4" disabled></textarea>
                             </template>
