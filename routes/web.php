@@ -108,7 +108,6 @@ Route::post('/mailchimp/autosync/update', [MailchimpAutoSyncController::class, '
 
 // API Routes
 Route::prefix('api')->middleware(['auth', 'verified'])->group(function () {
-    Route::get('/events/{event}/locations', [PickaWinnerController::class, 'getLocations']);
     Route::get('/location/mailchimp/lists', [LocationController::class, 'getMailchimpLists'])->name('location.mailchimpLists');
     Route::get('/location/subscribers', [LocationController::class, 'getSubscribers'])->name('location.getSubscribers');
 });
