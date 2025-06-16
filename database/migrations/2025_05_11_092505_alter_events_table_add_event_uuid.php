@@ -12,7 +12,9 @@ return new class extends Migration
     public function up(): void
     {
         Schema::table('events', function (Blueprint $table) {
-            $table->uuid('event_uuid')->nullable()->after('id');
+            if (!Schema::hasColumn('events', 'event_uuid')) {
+                $table->uuid('event_uuid')->nullable()->after('id');
+            }
         });
     }
 
@@ -22,7 +24,9 @@ return new class extends Migration
     public function down(): void
     {
         Schema::table('events', function (Blueprint $table) {
-            $table->dropColumn('event_uuid');
+            if (Schema::hasColumn('events', 'event_uuid')) {
+                $table->dropColumn('event_uuid');
+            }
         });
     }
 };
