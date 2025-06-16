@@ -855,7 +855,7 @@ const saveMailchimpSettings = async () => {
 
 // Add the download function
 const downloadMailchimpLogs = () => {
-    window.location.href = route('location.downloadMailchimpLogs');
+    window.location.href = route('location.downloadMailchimpLogs', { event_id: props.event.id });
 };
 
 </script>

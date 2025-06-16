@@ -317,15 +317,33 @@ class LocationController extends Controller
         return response($content, 200, $headers);
     }
 
-    public function downloadMailchimpLogs(MailchimpLogService $logService)
+    public function downloadMailchimpLogs(Request $request, MailchimpLogService $logService)
     {
-        $content = $logService->getLogContent();
+        $eventId = $request->input('event_id');
+        if (!$eventId) {
+            return response()->json(['error' => 'Event ID is required'], 400);
+        }
+
+        // Get logs content
+        $content = $logService->getLogContent($eventId);
+        
+        // Get stats
+        $stats = $logService->getLogStats($eventId);
+        
+        // Add stats to the top of the log file
+        $statsContent = "=== Import Statistics ===\n";
+        $statsContent .= "Total Imports: {$stats->total_imports}\n";
+        $statsContent .= "Successful Imports: {$stats->successful_imports}\n";
+        $statsContent .= "Failed Imports: {$stats->failed_imports}\n";
+        $statsContent .= str_repeat('=', 50) . "\n\n";
+        
+        $fullContent = $statsContent . $content;
         
         $headers = [
             'Content-type' => 'text/plain',
             'Content-Disposition' => 'attachment; filename="mailchimp-import-history.log"',
         ];
 
-        return response($content, 200, $headers);
+        return response($fullContent, 200, $headers);
     }
 }

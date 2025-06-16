@@ -50,16 +50,7 @@ class AutoMailchimpService
 
             $settings = $this->getSettings($location->event_id);
             
-            if (!$settings['auto_sync'] || !$settings['default_list_id']) {
-                Log::info('Auto-sync disabled or no default list configured', [
-                    'event_id' => $location->event_id,
-                    'auto_sync' => $settings['auto_sync'],
-                    'default_list_id' => $settings['default_list_id']
-                ]);
-                return;
-            }
-
-            // Generate location-specific tags
+            // Generate location-specific tags regardless of auto-sync status
             $locationName = $location->name;
             $filmTour = $settings['film_tour'];
             $year = date('Y');
@@ -73,6 +64,25 @@ class AutoMailchimpService
                 [$sourceTag, $showTag],
                 is_array($settings['default_tags']) ? $settings['default_tags'] : []
             );
+
+            // Check if auto-sync is enabled and has default list
+            if (!$settings['auto_sync'] || !$settings['default_list_id']) {
+                Log::info('Auto-sync disabled or no default list configured', [
+                    'event_id' => $location->event_id,
+                    'auto_sync' => $settings['auto_sync'],
+                    'default_list_id' => $settings['default_list_id']
+                ]);
+                
+                // Still log the attempt even if auto-sync is disabled
+                $this->logService->logImport($locationId, $locationName, [
+                    'success' => false,
+                    'email' => $subscriber->email_address ?? 'no email',
+                    'error' => 'Auto-sync is disabled or no default list configured',
+                    'tags' => $tags
+                ]);
+                
+                return;
+            }
 
             // Add to Mailchimp
             $this->mailchimpService->addSubscriberToList(
@@ -95,7 +105,14 @@ class AutoMailchimpService
             );
 
             // Log successful import
-            $this->logService->logImport($locationName, [
+            Log::info('About to log successful import', [
+                'locationId' => $locationId,
+                'locationName' => $locationName,
+                'email' => $subscriber->email_address ?? 'no email',
+                'tags' => $tags
+            ]);
+
+            $this->logService->logImport($locationId, $locationName, [
                 'success' => true,
                 'email' => $subscriber->email_address ?? 'no email',
                 'tags' => $tags
@@ -109,7 +126,13 @@ class AutoMailchimpService
 
         } catch (\Exception $e) {
             // Log failed import
-            $this->logService->logImport($locationName ?? 'unknown', [
+            Log::error('About to log failed import', [
+                'locationId' => $locationId,
+                'locationName' => $locationName ?? 'unknown',
+                'error' => $e->getMessage()
+            ]);
+
+            $this->logService->logImport($locationId, $locationName ?? 'unknown', [
                 'success' => false,
                 'email' => $subscriber->email_address ?? 'no email',
                 'error' => $e->getMessage(),
