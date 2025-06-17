@@ -29,12 +29,14 @@ const selectedLocation = computed(() => {
 // Format locations to display date and time in the desired format
 const formattedLocations = computed(() => {
     return locations.value.map(location => {
+        const dateObj = new Date(location.date);
         return {
             ...location,
+            dateObj, // Add the date object for sorting
             formatted_date: formatDate(location.date),
             formatted_time: formatTime(location.time)
         };
-    });
+    }).sort((a, b) => a.dateObj - b.dateObj); // Sort by date
 });
 
 // Group locations by date
