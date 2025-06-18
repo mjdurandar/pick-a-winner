@@ -481,12 +481,24 @@ const importLocations = async (locations) => {
 
 // ✅ Computed Property to Filter Locations
 const filteredLocations = computed(() => {
-    if (!searchQuery.value) {
-        return props.locations;
+    let locations = props.locations;
+    
+    // Filter by search query if exists
+    if (searchQuery.value) {
+        locations = locations.filter(location =>
+            location.name.toLowerCase().includes(searchQuery.value.toLowerCase())
+        );
     }
-    return props.locations.filter(location =>
-        location.name.toLowerCase().includes(searchQuery.value.toLowerCase())
-    );
+    
+    // Sort by date and time
+    return locations.sort((a, b) => {
+        // Create Date objects for comparison
+        const dateA = new Date(`${a.date}T${a.time}`);
+        const dateB = new Date(`${b.date}T${b.time}`);
+        
+        // Compare dates
+        return dateA - dateB;
+    });
 });
 
 const openPasswordModal = (location) => {
@@ -865,7 +877,7 @@ const downloadMailchimpLogs = () => {
 
     <AuthenticatedLayout>
         <div class="p-4">
-            <div class="mx-auto max-w-4xl">
+            <div class="mx-auto max-w-5xl">
                 <div class="overflow-hidden bg-white shadow-sm sm:rounded-lg">
                     <div class="p-6 text-gray-900 text-center">
                         <div class="flex flex-col sm:flex-row justify-between items-center gap-4 mb-4">

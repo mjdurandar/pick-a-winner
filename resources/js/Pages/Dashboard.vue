@@ -69,12 +69,14 @@
 
     // ✅ Chart Data for Attendees Per Location
     const chartData = computed(() => ({
-        labels: props.attendeesChartData.map(item => truncateText(item.location, 10)), // Truncate location names to 10 characters
+        labels: props.attendeesChartData.map(item => item.location), // Only location name
         datasets: [
             {
                 label: 'Attendees Per Location',
-                data: props.attendeesChartData.map(item => item.count), // Attendee count per location
-                backgroundColor: '#16C3D9'
+                data: props.attendeesChartData.map(item => item.count),
+                backgroundColor: '#16C3D9',
+                borderColor: '#14b8cc',
+                borderWidth: 1
             }
         ]
     }));
@@ -82,15 +84,59 @@
     const chartOptions = {
         responsive: true,
         maintainAspectRatio: false,
+        layout: {
+            padding: {
+                bottom: 25,
+                left: 10,
+                right: 10
+            }
+        },
         plugins: {
             tooltip: {
                 callbacks: {
+                    title: function(context) {
+                        const index = context[0].dataIndex;
+                        const item = props.attendeesChartData[index];
+                        return item.location;
+                    },
                     label: function(context) {
                         const index = context.dataIndex;
-                        const fullLocationName = props.attendeesChartData[index].location;
-                        const count = context.raw;
-                        return `${fullLocationName}: ${count}`;
+                        const item = props.attendeesChartData[index];
+                        return [
+                            `Date: ${item.date}`,
+                            `Time: ${item.time}`,
+                            `Attendees: ${item.count}`
+                        ];
                     }
+                }
+            },
+            legend: {
+                display: false
+            }
+        },
+        scales: {
+            x: {
+                grid: {
+                    display: false
+                },
+                ticks: {
+                    maxRotation: 90, // Vertical labels
+                    minRotation: 90, // Vertical labels
+                    font: {
+                        size: 11 // Slightly larger font since we only show location
+                    },
+                    autoSkip: false, // Show all labels
+                    padding: 5 // Add padding between labels
+                }
+            },
+            y: {
+                beginAtZero: true,
+                grid: {
+                    color: '#e2e8f0'
+                },
+                ticks: {
+                    stepSize: 1,
+                    precision: 0
                 }
             }
         }
@@ -251,8 +297,10 @@
                 <div class="overflow-hidden bg-white shadow-sm sm:rounded-lg">
                     <div class="p-6 text-gray-900">
                         <h3 class="text-lg font-semibold mb-3">Attendees Per Location</h3>
-                        <div class="h-80">
-                            <Bar v-if="props.attendeesChartData.length > 0" :data="chartData" :options="chartOptions" />
+                        <div class="h-[550px]"> <!-- Adjusted height since we only show location names -->
+                            <Bar v-if="props.attendeesChartData.length > 0" 
+                                 :data="chartData" 
+                                 :options="chartOptions" />
                             <p v-else class="text-gray-500 text-center">No data available for this event.</p>
                         </div>
                     </div>
