@@ -391,6 +391,16 @@ const importLocations = async (locations) => {
     try {
         console.log('Starting import of', locations.length, 'locations');
         
+        // Show loading modal
+        Swal.fire({
+            title: 'Importing Locations',
+            html: 'Please wait while we import your locations...',
+            allowOutsideClick: false,
+            didOpen: () => {
+                Swal.showLoading();
+            }
+        });
+
         const results = {
             success: [],
             failed: []
@@ -401,30 +411,11 @@ const importLocations = async (locations) => {
             const location = locations[i];
             try {
                 console.log(`Importing location ${i + 1}/${locations.length}:`, location);
-                const response = await router.post(route('location.store'), location);
-                
-                // Add to success list
-                results.success.push({
-                    index: i + 1,
-                    name: location.name,
-                    date: location.date,
-                    time: location.time
-                });
-
-                // Log progress
-                console.log(`Successfully imported ${i + 1}/${locations.length}:`, {
-                    name: location.name,
-                    date: location.date,
-                    time: location.time
-                });
-
+                await router.post(route('location.store'), location);
+                results.success.push(location);
             } catch (error) {
                 console.error(`Failed to import location ${i + 1}/${locations.length}:`, location, error);
-                results.failed.push({
-                    index: i + 1,
-                    name: location.name,
-                    error: error.message
-                });
+                results.failed.push(location);
             }
 
             // Add a small delay between imports to prevent overwhelming the server
@@ -434,45 +425,34 @@ const importLocations = async (locations) => {
         console.log('Import completed. Results:', {
             total: locations.length,
             successful: results.success.length,
-            failed: results.failed.length,
-            successList: results.success,
-            failedList: results.failed
+            failed: results.failed.length
         });
 
+        // Close loading modal and show results
         if (results.failed.length > 0) {
-            // Show error message with details
-            const errorMessage = `
-                Imported ${results.success.length} of ${locations.length} locations.<br><br>
-                Failed to import ${results.failed.length} locations:<br>
-                ${results.failed.map(f => `Row ${f.index}: ${f.name}`).join('<br>')}
-            `;
-            
             Swal.fire({
-                title: 'Partial Import Success',
-                html: errorMessage,
+                title: 'Import Complete',
+                html: `Successfully imported ${results.success.length} of ${locations.length} locations.<br>Failed to import ${results.failed.length} locations.`,
                 icon: 'warning',
                 confirmButtonText: 'OK'
             }).then(() => {
-                router.reload();
+                window.location.reload();
             });
         } else {
-            // All successful
             Swal.fire({
                 title: 'Success!',
-                html: `Successfully imported all ${locations.length} locations.<br><br>
-                      Imported locations:<br>
-                      ${results.success.map(s => `${s.name} (${s.date})`).join('<br>')}`,
+                text: `Successfully imported all ${locations.length} locations.`,
                 icon: 'success',
                 confirmButtonText: 'OK'
             }).then(() => {
-                router.reload();
+                window.location.reload();
             });
         }
     } catch (error) {
         console.error('Import error:', error);
         Swal.fire({
             title: 'Error!',
-            text: 'Failed to complete the import process. Please check the console for details.',
+            text: 'Failed to complete the import process.',
             icon: 'error',
             confirmButtonText: 'OK'
         });
