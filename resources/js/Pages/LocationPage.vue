@@ -391,11 +391,13 @@ const importLocations = async (locations) => {
     try {
         console.log('Starting import of', locations.length, 'locations');
         
-        // Show loading modal
-        Swal.fire({
+        // Show loading modal without any buttons
+        const loadingSwal = Swal.fire({
             title: 'Importing Locations',
             html: 'Please wait while we import your locations...',
             allowOutsideClick: false,
+            allowEscapeKey: false,
+            showConfirmButton: false,
             didOpen: () => {
                 Swal.showLoading();
             }
@@ -406,20 +408,31 @@ const importLocations = async (locations) => {
             failed: []
         };
 
-        // Import locations sequentially to avoid overwhelming the server
+        // Import locations sequentially with proper delay and error handling
         for (let i = 0; i < locations.length; i++) {
             const location = locations[i];
             try {
                 console.log(`Importing location ${i + 1}/${locations.length}:`, location);
+                
+                // Update loading message
+                Swal.update({
+                    html: `Importing location ${i + 1} of ${locations.length}...<br>${location.name}`
+                });
+
+                // Make the request
                 await router.post(route('location.store'), location);
                 results.success.push(location);
+                
+                // Add a longer delay between imports (500ms)
+                await new Promise(resolve => setTimeout(resolve, 500));
+                
             } catch (error) {
                 console.error(`Failed to import location ${i + 1}/${locations.length}:`, location, error);
-                results.failed.push(location);
+                results.failed.push({
+                    ...location,
+                    error: error.message
+                });
             }
-
-            // Add a small delay between imports to prevent overwhelming the server
-            await new Promise(resolve => setTimeout(resolve, 100));
         }
 
         console.log('Import completed. Results:', {
@@ -428,29 +441,38 @@ const importLocations = async (locations) => {
             failed: results.failed.length
         });
 
-        // Close loading modal and show results
+        // Close the loading modal
+        await loadingSwal.close();
+
+        // Show results modal
         if (results.failed.length > 0) {
-            Swal.fire({
+            // Show failed imports with details
+            const failedLocations = results.failed.map(loc => 
+                `${loc.name} (${loc.error || 'Unknown error'})`
+            ).join('<br>');
+            
+            await Swal.fire({
                 title: 'Import Complete',
-                html: `Successfully imported ${results.success.length} of ${locations.length} locations.<br>Failed to import ${results.failed.length} locations.`,
+                html: `Successfully imported ${results.success.length} of ${locations.length} locations.<br><br>` +
+                      `Failed to import ${results.failed.length} locations:<br>${failedLocations}`,
                 icon: 'warning',
                 confirmButtonText: 'OK'
-            }).then(() => {
-                window.location.reload();
             });
         } else {
-            Swal.fire({
+            await Swal.fire({
                 title: 'Success!',
                 text: `Successfully imported all ${locations.length} locations.`,
                 icon: 'success',
                 confirmButtonText: 'OK'
-            }).then(() => {
-                window.location.reload();
             });
         }
+
+        // Reload the page after showing the results
+        window.location.reload();
+
     } catch (error) {
         console.error('Import error:', error);
-        Swal.fire({
+        await Swal.fire({
             title: 'Error!',
             text: 'Failed to complete the import process.',
             icon: 'error',

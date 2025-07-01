@@ -7,7 +7,8 @@ import { debounce } from 'lodash';
 
 const props = defineProps({
     event: Object,
-    attendees: Array
+    attendees: Array,
+    form: Object
 });
 
 const searchQuery = ref("");
@@ -30,12 +31,22 @@ const handleSearchInput = (event) => {
 // ✅ Extract column names (exclude unwanted columns)
 const columnHeaders = computed(() => {
     if (props.attendees.length > 0) {
-        return Object.keys(props.attendees[0]).filter(col => !["created_at", "updated_at", "id", "event_id", "location_id", "events_location", "mobile_number_format"].includes(col));
+        const columns = Object.keys(props.attendees[0]).filter(col => !["created_at", "updated_at", "id", "event_id", "location_id", "events_location", "mobile_number_format"].includes(col));
+        return columns;
     }
     return [];
 });
 
-// ✅ Format column headers
+// ✅ Get question text for a column name
+const getQuestionText = (columnName) => {
+    if (!props.form || !props.form.questions) return formatHeader(columnName);
+    
+    const questions = JSON.parse(props.form.questions);
+    const question = questions.find(q => q.column_name === columnName);
+    return question ? question.text : formatHeader(columnName);
+};
+
+// ✅ Format column headers (fallback for columns without questions)
 const formatHeader = (header) => {
     return header.replace(/_/g, " ").replace(/\b\w/g, (char) => char.toUpperCase());
 };
@@ -88,8 +99,8 @@ const exportToCSV = () => {
 
     let csvContent = "data:text/csv;charset=utf-8,";
 
-    // Add headers
-    csvContent += columnHeaders.value.map(formatHeader).join(",") + "\n";
+    // Add headers using questions instead of column names
+    csvContent += columnHeaders.value.map(col => `"${getQuestionText(col)}"`).join(",") + "\n";
 
     // Add data rows
     filteredAttendees.value.forEach(attendee => {
@@ -164,14 +175,14 @@ const deleteAttendee = (attendeeId, eventId) => {
                                 <thead class="bg-gray-200 sticky top-0">
                                     <tr>
                                         <th v-for="(col, index) in columnHeaders" :key="index" class="border border-gray-300 p-2 whitespace-nowrap">
-                                            {{ formatHeader(col) }}
+                                            {{ getQuestionText(col) }}
                                         </th>
                                         <th class="border border-gray-300 p-2">Actions</th>
                                     </tr>
                                 </thead>
                                 <tbody>
                                     <tr v-for="(attendee, index) in paginatedAttendees" :key="index" class="text-left even:bg-gray-100">
-                                        <td v-for="(col, index) in columnHeaders" :key="index" class="border border-gray-300 p-2 break-words">
+                                        <td v-for="(col, index) in columnHeaders" :key="index" class="border border-gray-300 p-2 whitespace-nowrap">
                                             {{ attendee[col] }}
                                         </td>
                                         <td class="text-center content-center">

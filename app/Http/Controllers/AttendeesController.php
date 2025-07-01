@@ -30,7 +30,8 @@ class AttendeesController extends Controller
         
         return Inertia::render('Attendees', [
             'event' => $event,  // ✅ Pass the full event object instead of just ID
-            'attendees' => $attendees
+            'attendees' => $attendees,
+            'form' => $signupForm // Pass the form data to get access to questions
         ]);
     }
 
