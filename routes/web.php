@@ -63,6 +63,7 @@ Route::middleware(['auth', RoleMiddleware::class . ':admin,host'])->group(functi
     Route::post('/location', [LocationController::class, 'store'])->name('location.store');
     Route::put('/location/{location}', [LocationController::class, 'update'])->name('location.update');
     Route::delete('/location/{location}', [LocationController::class, 'destroy'])->name('location.destroy');
+    Route::delete('/location/delete-all/{eventId}', [LocationController::class, 'deleteAllLocations'])->name('location.deleteAll');
 
     //IMPORT DATA TO MAILCHIMP ROUTES
     Route::post('/location/import-data-to-mailchimp', [LocationController::class, 'importDataToMailChimp'])->name('location.importDataToMailChimp');

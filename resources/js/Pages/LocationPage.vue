@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed, onMounted } from 'vue';
+import { ref, computed, onMounted, watch } from 'vue';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout.vue';
 import { Head } from '@inertiajs/vue3';
 import { router } from '@inertiajs/vue3';
@@ -10,7 +10,8 @@ import axios from 'axios';
 // ✅ Define Props to Receive Locations from Backend
 const props = defineProps({
     event: Object,
-    locations: Array
+    locations: Array,
+    flash: Object // Add this line
 });
 
 // ✅ Reactive Data
@@ -693,6 +694,24 @@ const deleteLocation = (location) => {
     });
 };
 
+// Add function to delete all locations
+const deleteAllLocations = () => {
+    Swal.fire({
+        title: 'Delete All Locations?',
+        text: "This will delete ALL locations for this event. This action cannot be undone!",
+        icon: 'warning',
+        showCancelButton: true,
+        confirmButtonColor: '#d33',
+        cancelButtonColor: '#3085d6',
+        confirmButtonText: 'Yes, delete all!',
+        cancelButtonText: 'Cancel'
+    }).then((result) => {
+        if (result.isConfirmed) {
+            router.delete(route('location.deleteAll', props.event.id));
+        }
+    });
+};
+
 // Add function to handle modal close
 const closeLocationModal = () => {
     showLocationModal.value = false;
@@ -872,6 +891,30 @@ const downloadMailchimpLogs = () => {
     window.location.href = route('location.downloadMailchimpLogs', { event_id: props.event.id });
 };
 
+// Add watch for flash messages
+watch(
+    () => props.flash,
+    (flash) => {
+        if (flash?.success) {
+            Swal.fire({
+                title: 'Success!',
+                text: flash.success,
+                icon: 'success',
+                timer: 1500,
+                showConfirmButton: false
+            });
+        }
+        if (flash?.error) {
+            Swal.fire({
+                title: 'Error!',
+                text: flash.error,
+                icon: 'error'
+            });
+        }
+    },
+    { immediate: true, deep: true }
+);
+
 </script>
 
 <template>
@@ -928,6 +971,14 @@ const downloadMailchimpLogs = () => {
                                     @click="openLocationModal()"
                                 >
                                     <i class="fa-solid fa-plus"></i> Add Location
+                                </button>
+                                <!-- Delete All Locations Button -->
+                                <button 
+                                    class="bg-red-500 text-white px-4 py-2 rounded hover:bg-red-700"
+                                    @click="deleteAllLocations"
+                                    title="Delete All Locations"
+                                >
+                                    <i class="fa-solid fa-trash"></i> Delete All
                                 </button>
                             </div>
                         </div>

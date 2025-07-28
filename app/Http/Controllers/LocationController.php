@@ -346,4 +346,19 @@ class LocationController extends Controller
 
         return response($fullContent, 200, $headers);
     }
+
+    public function deleteAllLocations($eventId)
+    {
+        try {
+            $locations = Location::where('event_id', $eventId)->get();
+            if ($locations->isEmpty()) {
+                return back()->with('error', 'No locations found for this event');
+            }
+
+            Location::where('event_id', $eventId)->delete();
+            return back()->with('success', 'All locations deleted successfully');
+        } catch (\Exception $e) {
+            return back()->with('error', 'Failed to delete locations: ' . $e->getMessage());
+        }
+    }
 }
