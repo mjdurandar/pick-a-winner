@@ -59,6 +59,8 @@ class MailchimpService
                     $ageValue = 22;
                 } elseif ($ageStr === '45+') {
                     $ageValue = 45;
+                } else {
+                    $ageValue = $subscriber['age']; // Keep original value if not recognized
                 }
             }
         }
@@ -66,26 +68,51 @@ class MailchimpService
         // Use tags directly without any modification
         $tagsData = array_values(array_unique($tags));
 
+        // Log the data being sent to Mailchimp for debugging
+        \Illuminate\Support\Facades\Log::info('Sending data to Mailchimp', [
+            'email' => $subscriber['email_address'] ?? 'no email',
+            'first_name' => $subscriber['first_name'] ?? 'no first name',
+            'last_name' => $subscriber['last_name'] ?? 'no last name',
+            'city' => $subscriber['city'] ?? 'no city',
+            'state' => $subscriber['state'] ?? 'no state',
+            'zip_code' => $subscriber['zip_code'] ?? 'no zip',
+            'country' => $subscriber['country'] ?? 'no country',
+            'age' => $ageValue,
+            'gender' => $subscriber['gender'] ?? 'no gender',
+            'phone' => $subscriber['mobile_number'] ?? 'no phone',
+            'address' => $subscriber['street_address'] ?? 'no address',
+            'raw_subscriber_data' => $subscriber
+        ]);
+
+        // Prepare merge fields with validation
+        $mergeFields = [
+            'FNAME' => $subscriber['first_name'] ?? '',
+            'LNAME' => $subscriber['last_name'] ?? '',
+            'ADDRESS' => [
+                'addr1' => $subscriber['street_address'] ?? '',
+                'addr2' => $subscriber['street_address_2'] ?? '',
+                'city' => $subscriber['city'] ?? '',
+                'state' => $subscriber['state'] ?? '',
+                'zip' => $subscriber['zip_code'] ?? '',
+                'country' => $subscriber['country'] ?? '',
+            ],
+            'PHONE' => $subscriber['mobile_number'] ?? '',
+            'GENDER' => $subscriber['gender'] ?? '',
+            'MMERGE6' => $subscriber['city'] ?? '', // City
+            'MMERGE7' => $subscriber['state'] ?? '', // State
+            'MMERGE9' => $subscriber['country'] ?? '', // Country
+            'MMERGE10' => $ageValue, // Age
+            'MMERGE11' => $subscriber['street_address'] ?? '', // Street Address (backup)
+        ];
+
+        // Add MMERGE12 for zip code
+        $mergeFields['MMERGE12'] = $subscriber['zip_code'] ?? '';
+
         $response = Http::withBasicAuth('anystring', $this->apiKey)
             ->post("{$this->baseUrl}/lists/{$listId}/members", [
                 'email_address' => $subscriber['email_address'],
                 'status' => 'subscribed',
-                'merge_fields' => [
-                    'FNAME' => $subscriber['first_name'] ?? '',
-                    'LNAME' => $subscriber['last_name'] ?? '',
-                    'PHONE' => $subscriber['mobile_number'] ?? '',
-                    'GENDER' => $subscriber['gender'] ?? '',
-                    'AGE' => $ageValue,
-                    'SMSPHONE' => isset($subscriber['mobile_number']) ? $this->formatPhone($subscriber['mobile_number']) : '',
-                    'ADDRESS' => [
-                        'addr1' => $subscriber['street_address'] ?? '',
-                        'addr2' => $subscriber['street_address_2'] ?? '',
-                        'city' => $subscriber['city'] ?? '',
-                        'state' => $subscriber['state'] ?? '',
-                        'zip' => $subscriber['zip_code'] ?? '',
-                        'country' => $subscriber['country'] ?? '',
-                    ],
-                ],
+                'merge_fields' => $mergeFields,
                 'tags' => $tagsData
             ]);
 
