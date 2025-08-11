@@ -1,5 +1,5 @@
 <script setup>
-import { ref, watchEffect, computed } from 'vue';
+import { ref, watch, watchEffect, computed } from 'vue';
 import { router } from '@inertiajs/vue3';
 import Swal from 'sweetalert2';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout.vue';
@@ -33,6 +33,43 @@ questions.value.forEach((question) => {
     if (question.allowMultiple === undefined) {
         question.allowMultiple = false;
     }
+});
+
+const ADDRESS_COLUMNS = ['street_address','street_address_2','city','state','zip_code','country'];
+const ADDRESS_QUESTIONS_TEMPLATE = [
+  { text: 'Street Address', type: 'text', column_name: 'street_address', options: [], hasOtherOption: false, allowMultiple: false, isNew: true },
+  { text: 'Address Line 2', type: 'text', column_name: 'street_address_2', options: [], hasOtherOption: false, allowMultiple: false, isNew: true },
+  { text: 'City', type: 'text', column_name: 'city', options: [], hasOtherOption: false, allowMultiple: false, isNew: true },
+  { text: 'State', type: 'text', column_name: 'state', options: [], hasOtherOption: false, allowMultiple: false, isNew: true },
+  { text: 'Zip Code', type: 'text', column_name: 'zip_code', options: [], hasOtherOption: false, allowMultiple: false, isNew: true },
+  { text: 'Country', type: 'dropdown', column_name: 'country', options: ['Australia', 'New Zealand', 'USA', 'Canada', 'Germany', 'United Kingdom', 'Europe'], hasOtherOption: false, allowMultiple: false, isNew: true },
+];
+
+// Default toggle based on whether any address column exists
+const collectAddress = ref(questions.value.some(q => ADDRESS_COLUMNS.includes(q.column_name)));
+
+const removeAddressQuestions = () => {
+  questions.value = questions.value.filter(q => !ADDRESS_COLUMNS.includes(q.column_name));
+};
+
+const addAddressQuestionsIfMissing = () => {
+  const afterIndex = questions.value.findIndex(q => q.column_name === 'last_name');
+  const existing = new Set(questions.value.map(q => q.column_name));
+  const toInsert = ADDRESS_QUESTIONS_TEMPLATE.filter(q => !existing.has(q.column_name));
+  if (toInsert.length === 0) return;
+  if (afterIndex !== -1) {
+    questions.value.splice(afterIndex + 1, 0, ...toInsert);
+  } else {
+    questions.value.push(...toInsert);
+  }
+};
+
+watch(collectAddress, (shouldCollect) => {
+  if (shouldCollect) {
+    addAddressQuestionsIfMissing();
+  } else {
+    removeAddressQuestions();
+  }
 });
 
 // ✅ Dragging logic
@@ -303,6 +340,12 @@ const saveForm = () => {
         <div class="pb-5 mx-auto w-full px-4 md:w-1/2">
             <div class="bg-white p-6 shadow rounded-lg">
                 <h2 class="text-lg font-bold mb-3">Edit Questions (Drag to Reorder)</h2>
+                <div class="mb-4 p-3 border rounded shadow-sm bg-gray-50">
+                    <label class="inline-flex items-center gap-2">
+                        <input type="checkbox" v-model="collectAddress" />
+                        <span class="font-medium">Collect address details</span>
+                    </label>
+                </div>
                 <div class="mb-4 p-3 border rounded shadow-sm bg-gray-100">
                     <button 
                         @click="showModal = true" 

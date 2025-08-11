@@ -53,12 +53,12 @@ class MailchimpService
                 $ageValue = (int)$subscriber['age'];
             } elseif (is_string($subscriber['age'])) {
                 $ageStr = strtolower(trim($subscriber['age']));
-                if ($ageStr === 'under 21') {
-                    $ageValue = -21;
+                if ($ageStr === 'Under 21') {
+                    $ageValue = 'Under 21';
                 } elseif ($ageStr === '22-44') {
-                    $ageValue = 22;
+                    $ageValue = '22-44';
                 } elseif ($ageStr === '45+') {
-                    $ageValue = 45;
+                    $ageValue = '45+';
                 } else {
                     $ageValue = $subscriber['age']; // Keep original value if not recognized
                 }

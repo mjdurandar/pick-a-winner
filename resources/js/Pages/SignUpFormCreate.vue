@@ -1,5 +1,5 @@
 <script setup>
-import { ref, watchEffect, onMounted, computed } from 'vue';
+import { ref, watch, watchEffect, onMounted, computed } from 'vue';
 import { router } from '@inertiajs/vue3';
 import Swal from 'sweetalert2';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout.vue';
@@ -133,6 +133,41 @@ const defaultQuestions = ref([
 
 // ✅ Reactive copy of questions (to modify in UI)
 const questions = ref([...defaultQuestions.value]);
+const ADDRESS_COLUMNS = ['street_address','street_address_2','city','state','zip_code','country'];
+const ADDRESS_QUESTIONS_TEMPLATE = [
+  { text: 'Street Address', type: 'text', column_name: 'street_address', options: [], hasOtherOption: false, allowMultiple: false },
+  { text: 'Address Line 2', type: 'text', column_name: 'street_address_2', options: [], hasOtherOption: false, allowMultiple: false },
+  { text: 'City', type: 'text', column_name: 'city', options: [], hasOtherOption: false, allowMultiple: false },
+  { text: 'State', type: 'text', column_name: 'state', options: [], hasOtherOption: false, allowMultiple: false },
+  { text: 'Zip Code', type: 'text', column_name: 'zip_code', options: [], hasOtherOption: false, allowMultiple: false },
+  { text: 'Country', type: 'dropdown', column_name: 'country', options: ['Australia', 'New Zealand', 'USA', 'Canada', 'Germany', 'United Kingdom', 'Europe'], hasOtherOption: false, allowMultiple: false },
+];
+const collectAddress = ref(true);
+
+const removeAddressQuestions = () => {
+  questions.value = questions.value.filter(q => !ADDRESS_COLUMNS.includes(q.column_name));
+};
+
+const addAddressQuestionsIfMissing = () => {
+  // Insert after 'last_name' if present; otherwise append
+  const afterIndex = questions.value.findIndex(q => q.column_name === 'last_name');
+  const existing = new Set(questions.value.map(q => q.column_name));
+  const toInsert = ADDRESS_QUESTIONS_TEMPLATE.filter(q => !existing.has(q.column_name));
+  if (toInsert.length === 0) return;
+  if (afterIndex !== -1) {
+    questions.value.splice(afterIndex + 1, 0, ...toInsert);
+  } else {
+    questions.value.push(...toInsert);
+  }
+};
+
+watch(collectAddress, (shouldCollect) => {
+  if (shouldCollect) {
+    addAddressQuestionsIfMissing();
+  } else {
+    removeAddressQuestions();
+  }
+});
 const headerText = ref('GET A CHANCE TO WIN AMAZING PRICES!');
 const descriptionText = ref('*By entering the competition you accept the competition terms and conditions and consent to receiving marketing materials related to the offerings of Adventure Entertainment and our partners.');
 const termsLink = ref('#');
@@ -297,6 +332,12 @@ onMounted(() => {
                 
                 <!-- ✅ Draggable Questions Section -->
                 <h2 class="text-lg font-bold mb-3">Create Questions (Drag to Reorder)</h2>
+                <div class="mb-4 p-3 border rounded shadow-sm bg-gray-50">
+                    <label class="inline-flex items-center gap-2">
+                        <input type="checkbox" v-model="collectAddress" />
+                        <span class="font-medium">Collect address details</span>
+                    </label>
+                </div>
                 <div class="mb-4 p-3 border rounded shadow-sm bg-gray-100">
                     <button 
                         @click="showModal = true" 

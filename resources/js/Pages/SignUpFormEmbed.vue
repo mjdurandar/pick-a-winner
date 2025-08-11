@@ -273,11 +273,18 @@ const submitForm = async () => {
 
 // ✅ Computed property to check if the phone number is complete
 const isMobileNumberValid = computed(() => {
+    const phoneNumber = formValues.value['Mobile Number'] || '';
+    if (!phoneNumber) return false;
+
+    // If address fields are not being collected, allow a generic digit-length validation
+    if (!hasAddressFields.value) {
+        const digits = phoneNumber.replace(/\D/g, '').length;
+        return digits >= 8; // generic minimum when country is unknown
+    }
+
     const country = formValues.value['Country'];
     const format = phoneFormats[country];
-    const phoneNumber = formValues.value['Mobile Number'] || '';
-
-    if (!format || !phoneNumber) return false;
+    if (!format) return false;
 
     // Count how many digits are required in the format
     const requiredDigits = (format.match(/#/g) || []).length;
@@ -289,7 +296,13 @@ const isMobileNumberValid = computed(() => {
 const formatPhoneNumber = (fieldName, format) => {
     if (!formValues.value[fieldName]) return;
 
-    let rawValue = formValues.value[fieldName].replace(/\D/g, ''); // Remove non-numeric characters
+    // If no format provided, keep only allowed chars but don't force a mask
+    if (!format) {
+        formValues.value[fieldName] = formValues.value[fieldName].replace(/[^\d()+\-.\s]/g, '');
+        return;
+    }
+
+    let rawValue = formValues.value[fieldName].replace(/\D/g, '');
     let formattedNumber = '';
     let rawIndex = 0;
 
@@ -300,7 +313,7 @@ const formatPhoneNumber = (fieldName, format) => {
             }
         } else {
             if (rawIndex < rawValue.length) {
-                formattedNumber += format[i]; // Add separator if there's still numbers left
+                formattedNumber += format[i];
             }
         }
     }
@@ -374,8 +387,8 @@ const getVisibleOptions = (question) => {
 
 // Watch for changes in the country field and update the phone number format
 watch(() => formValues.value['Country'], (newCountry) => {
-    // console.log('Country changed:', newCountry); // Debugging log
-    formValues.value['mobile_number'] = '';
+    // console.log('Country changed:', newCountry);
+    formValues.value['Mobile Number'] = '';
 
     if (!newCountry) {
         return;
@@ -386,7 +399,7 @@ watch(() => formValues.value['Country'], (newCountry) => {
     if (format) {
         formatPhoneNumber('Mobile Number', format);
     } else {
-        console.log('No format found for', newCountry);
+        // No specific mask; leave number unformatted
     }
 });
 
