@@ -15,6 +15,55 @@ const currentPage = ref(1);
 const itemsPerPage = 20;
 const debouncedSearchValue = ref('');
 
+// ✅ Advanced Filter Options
+const showFilters = ref(false);
+const filters = ref({
+    location: '',
+    gender: '',
+    ageRange: '',
+    customQuestion: '',
+    customValue: ''
+});
+
+// ✅ Get unique values for filter dropdowns
+const uniqueLocations = computed(() => {
+    const locations = [...new Set(props.attendees.map(a => a.location_name).filter(Boolean))];
+    return locations.sort();
+});
+
+const uniqueGenders = computed(() => {
+    const genders = [...new Set(props.attendees.map(a => a.gender).filter(Boolean))];
+    return genders.sort();
+});
+
+// ✅ Get available custom questions (excluding standard ones)
+const availableCustomQuestions = computed(() => {
+    if (!props.form || !props.form.questions) return [];
+    
+    const questions = JSON.parse(props.form.questions);
+    const standardFields = ['first_name', 'last_name', 'email_address', 'gender', 'mobile_number', 'age', 'events_location'];
+    
+    return questions.filter(question => 
+        !standardFields.includes(question.column_name) && 
+        props.attendees.length > 0 && 
+        props.attendees[0][question.column_name] !== undefined
+    );
+});
+
+// ✅ Get question text for a column name
+const getQuestionText = (columnName) => {
+    if (!props.form || !props.form.questions) return formatHeader(columnName);
+    
+    const questions = JSON.parse(props.form.questions);
+    const question = questions.find(q => q.column_name === columnName);
+    return question ? question.text : formatHeader(columnName);
+};
+
+// ✅ Format column headers (fallback for columns without questions)
+const formatHeader = (header) => {
+    return header.replace(/_/g, " ").replace(/\b\w/g, (char) => char.toUpperCase());
+};
+
 // Debounce the search to prevent excessive filtering
 const updateDebouncedSearch = debounce((value) => {
     debouncedSearchValue.value = value.toLowerCase();
@@ -27,23 +76,77 @@ const handleSearchInput = (event) => {
     currentPage.value = 1; // Reset to first page on search
 };
 
-// Optimized search filter
+// ✅ Advanced filtering with search and filter options
 const filteredAttendees = computed(() => {
-    if (!debouncedSearchValue.value) {
-        return props.attendees;
-    }
-    
-    return props.attendees.filter(attendee => {
-        const searchFields = [
-            `${attendee.first_name} ${attendee.last_name}`,
-            attendee.email_address,
-            attendee.mobile_number,
-            attendee.gender,
-            attendee.location_name
-        ].map(field => (field || '').toLowerCase());
+    let filtered = props.attendees;
 
-        return searchFields.some(field => field.includes(debouncedSearchValue.value));
-    });
+    // ✅ Apply search filter
+    if (debouncedSearchValue.value) {
+        filtered = filtered.filter(attendee => {
+            const searchFields = [
+                `${attendee.first_name} ${attendee.last_name}`,
+                attendee.email_address,
+                attendee.mobile_number,
+                attendee.gender,
+                attendee.location_name
+            ].map(field => (field || '').toLowerCase());
+
+            return searchFields.some(field => field.includes(debouncedSearchValue.value));
+        });
+    }
+
+    // ✅ Apply location filter
+    if (filters.value.location) {
+        filtered = filtered.filter(attendee => 
+            attendee.location_name === filters.value.location
+        );
+    }
+
+    // ✅ Apply gender filter
+    if (filters.value.gender) {
+        filtered = filtered.filter(attendee => 
+            attendee.gender && attendee.gender.toLowerCase() === filters.value.gender.toLowerCase()
+        );
+    }
+
+
+
+    // ✅ Apply age range filter
+    if (filters.value.ageRange) {
+        filtered = filtered.filter(attendee => {
+            if (!attendee.age) return false;
+            const age = parseInt(attendee.age);
+            switch (filters.value.ageRange) {
+                case 'under21':
+                    return age < 21;
+                case '21to30':
+                    return age >= 21 && age <= 30;
+                case '31to40':
+                    return age >= 31 && age <= 40;
+                case '41to50':
+                    return age >= 41 && age <= 50;
+                case 'over50':
+                    return age > 50;
+                default:
+                    return true;
+            }
+        });
+    }
+
+    // ✅ Apply custom question filter
+    if (filters.value.customQuestion && filters.value.customValue) {
+        // Find the question object to get the column_name
+        const selectedQuestion = availableCustomQuestions.value.find(q => q.text === filters.value.customQuestion);
+        if (selectedQuestion) {
+            filtered = filtered.filter(attendee => {
+                const fieldValue = attendee[selectedQuestion.column_name];
+                if (!fieldValue) return false;
+                return fieldValue.toString().toLowerCase().includes(filters.value.customValue.toLowerCase());
+            });
+        }
+    }
+
+    return filtered;
 });
 
 // ✅ Paginated attendees
@@ -64,6 +167,99 @@ const goToPage = (page) => {
     }
 };
 
+// ✅ Filter management functions
+const resetFilters = () => {
+    filters.value = {
+        location: '',
+        gender: '',
+        ageRange: '',
+        customQuestion: '',
+        customValue: ''
+    };
+    currentPage.value = 1;
+};
+
+const toggleFilters = () => {
+    showFilters.value = !showFilters.value;
+};
+
+const applyFilters = () => {
+    currentPage.value = 1; // Reset to first page when filters change
+};
+
+// ✅ Check if any filters are active
+const hasActiveFilters = computed(() => {
+    return Object.values(filters.value).some(value => value !== '');
+});
+
+// ✅ Get filter summary
+const filterSummary = computed(() => {
+    const activeFilters = [];
+    if (filters.value.location) activeFilters.push(`Location: ${filters.value.location}`);
+    if (filters.value.gender) activeFilters.push(`Gender: ${filters.value.gender}`);
+    if (filters.value.ageRange) {
+        const ageLabels = {
+            'under21': 'Under 21',
+            '21to30': '21-30',
+            '31to40': '31-40',
+            '41to50': '41-50',
+            'over50': 'Over 50'
+        };
+        activeFilters.push(`Age: ${ageLabels[filters.value.ageRange]}`);
+    }
+    if (filters.value.customQuestion && filters.value.customValue) {
+        activeFilters.push(`${filters.value.customQuestion}: ${filters.value.customValue}`);
+    }
+    return activeFilters;
+});
+
+// ✅ Dynamic columns based on active filters
+const visibleColumns = computed(() => {
+    const baseColumns = [
+        { key: 'name', label: 'Name', always: true },
+        { key: 'email_address', label: 'Email', always: true },
+        { key: 'mobile_number', label: 'Mobile Number', always: true }
+    ];
+    
+    const conditionalColumns = [];
+    
+    // Show gender column if gender filter is active or there are multiple genders
+    if (filters.value.gender || uniqueGenders.value.length > 1) {
+        conditionalColumns.push({ key: 'gender', label: 'Gender' });
+    }
+    
+    // Show location column if location filter is active or there are multiple locations
+    if (filters.value.location || uniqueLocations.value.length > 1) {
+        conditionalColumns.push({ key: 'location_name', label: 'Event Location' });
+    }
+    
+    // Show age column if age filter is active
+    if (filters.value.ageRange) {
+        conditionalColumns.push({ key: 'age', label: 'Age' });
+    }
+    
+    // Show custom field column if custom filter is active
+    if (filters.value.customQuestion) {
+        conditionalColumns.push({ 
+            key: filters.value.customQuestion, 
+            label: filters.value.customQuestion,
+            isCustom: true
+        });
+    }
+    
+    return [...baseColumns, ...conditionalColumns];
+});
+
+// ✅ Helper function to get custom field value
+const getCustomFieldValue = (attendee, questionText) => {
+    // Find the question to get the column name
+    const question = availableCustomQuestions.value.find(q => q.text === questionText);
+    if (question && attendee[question.column_name]) {
+        return attendee[question.column_name];
+    }
+    return '-';
+};
+
 const form = useForm({
     id: null,
     event_id: '',
@@ -74,6 +270,7 @@ const props = defineProps({
     event: Object,     // ✅ Event details (includes table_name)
     attendees: Array,   // ✅ List of attendees from the dynamic table
     prizes: Array,      // ✅ List of prizes
+    form: Object,       // ✅ Signup form with questions
 });
 
 // Open Modal for Add a Prize
@@ -170,11 +367,14 @@ let animationInterval = null;
 // ✅ Open Modal and Start Animation
 const openPickWinnerModal = (prize) => {
     if (!props.attendees.length) {
-        Swal.fire('No Attendees', 'There are no attendees for this location.', 'warning');
+        Swal.fire('No Attendees', 'There are no attendees for this event.', 'warning');
         return;
     }
     if (!eligibleAttendees.value.length) {
-        Swal.fire('No Eligible Attendees', 'All attendees have already been chosen as winners.', 'warning');
+        const message = hasActiveFilters.value 
+            ? 'No eligible attendees found with the current filters applied. Try adjusting your filters or all filtered attendees may have already won prizes.'
+            : 'All attendees have already been chosen as winners.';
+        Swal.fire('No Eligible Attendees', message, 'warning');
         return;
     }
     selectedPrize.value = prize;
@@ -241,8 +441,9 @@ const confirmCancel = () => {
     });
 };
 
+// ✅ Eligible attendees considering both filters and winners
 const eligibleAttendees = computed(() => {
-    return props.attendees.filter(attendee => 
+    return filteredAttendees.value.filter(attendee => 
         !props.prizes.some(prize => prize.winner_email === attendee.email_address)
     );
 });
@@ -356,18 +557,123 @@ input:-webkit-autofill:active {
                 <div class="mx-auto max-w-7xl sm:px-6 lg:px-8">
                     <div class="overflow-hidden border border-gray-700 shadow-sm" style="background-color: #151515;">
                         <div class="p-6 text-white">
-                            <div class="d-flex justify-content-between">
-                                <h3 class="text-lg font-semibold mb-4">Attendees at {{ event.event_name }}</h3>
-                                <div class="flex items-center space-x-2">
-                                    <div class="mb-3">
+                            <div class="d-flex flex-column flex-md-row justify-content-between align-items-start mb-4">
+                                <div class="mb-3 mb-md-0">
+                                    <h3 class="text-lg font-semibold">Attendees at {{ event.event_name }}</h3>
+                                    <p class="text-sm text-gray-400">{{ filteredAttendees.length }} of {{ props.attendees.length }} attendees</p>
+                                </div>
+                                
+                                <div class="d-flex flex-column flex-md-row gap-2 align-items-end">
+                                    <!-- Search Input -->
+                                    <div>
                                         <input
                                             v-model="searchQuery"
                                             type="text"
                                             placeholder="Search attendees..."
-                                            class="w-full p-2 border rounded bg-gray-800 text-white border-gray-700"
-                                            style="color: white !important;"
+                                            class="p-2 border rounded bg-gray-800 text-white border-gray-700"
+                                            style="color: white !important; min-width: 200px;"
                                             @input="handleSearchInput"
                                         />
+                                    </div>
+                                    
+                                    <!-- Filter Toggle Button -->
+                                    <button 
+                                        @click="toggleFilters"
+                                        class="px-4 py-2 rounded transition-colors"
+                                        :class="hasActiveFilters ? 'bg-orange-500 hover:bg-orange-600' : 'bg-gray-600 hover:bg-gray-700'"
+                                    >
+                                        <i class="fas fa-filter mr-2"></i>
+                                        Filters {{ hasActiveFilters ? `(${filterSummary.length})` : '' }}
+                                    </button>
+                                </div>
+                            </div>
+
+                            <!-- Advanced Filters Panel -->
+                            <div v-if="showFilters" class="mb-4 p-4 bg-gray-800 border border-gray-600 rounded">
+                                <div class="row g-3">
+                                    <!-- Location Filter -->
+                                    <div class="col-md-3">
+                                        <label class="form-label text-sm">Location</label>
+                                        <select v-model="filters.location" class="form-control bg-gray-700 text-white border-gray-600" @change="applyFilters">
+                                            <option value="">All Locations</option>
+                                            <option v-for="location in uniqueLocations" :key="location" :value="location">
+                                                {{ location }}
+                                            </option>
+                                        </select>
+                                    </div>
+
+                                    <!-- Gender Filter -->
+                                    <div class="col-md-3">
+                                        <label class="form-label text-sm">Gender</label>
+                                        <select v-model="filters.gender" class="form-control bg-gray-700 text-white border-gray-600" @change="applyFilters">
+                                            <option value="">All Genders</option>
+                                            <option v-for="gender in uniqueGenders" :key="gender" :value="gender">
+                                                {{ gender }}
+                                            </option>
+                                        </select>
+                                    </div>
+
+
+
+                                    <!-- Age Range Filter -->
+                                    <div class="col-md-3">
+                                        <label class="form-label text-sm">Age Range</label>
+                                        <select v-model="filters.ageRange" class="form-control bg-gray-700 text-white border-gray-600" @change="applyFilters">
+                                            <option value="">All Ages</option>
+                                            <option value="under21">Under 21</option>
+                                            <option value="21to30">21-30</option>
+                                            <option value="31to40">31-40</option>
+                                            <option value="41to50">41-50</option>
+                                            <option value="over50">Over 50</option>
+                                        </select>
+                                    </div>
+
+                                    <!-- Custom Question Filter -->
+                                    <div class="col-md-4" v-if="availableCustomQuestions.length > 0">
+                                        <label class="form-label text-sm">Custom Question</label>
+                                        <select v-model="filters.customQuestion" class="form-control bg-gray-700 text-white border-gray-600" @change="applyFilters">
+                                            <option value="">Select Question</option>
+                                            <option v-for="question in availableCustomQuestions" :key="question.column_name" :value="question.text">
+                                                {{ question.text }}
+                                            </option>
+                                        </select>
+                                    </div>
+
+                                    <div class="col-md-4" v-if="filters.customQuestion">
+                                        <label class="form-label text-sm">Answer Contains</label>
+                                        <input 
+                                            v-model="filters.customValue"
+                                            type="text"
+                                            placeholder="Enter value to filter by..."
+                                            class="form-control bg-gray-700 text-white border-gray-600"
+                                            @input="applyFilters"
+                                        />
+                                    </div>
+
+                                    <!-- Reset Button -->
+                                    <div class="col-md-4 d-flex align-items-end">
+                                        <button 
+                                            @click="resetFilters"
+                                            class="btn btn-outline-warning w-100"
+                                            :disabled="!hasActiveFilters"
+                                        >
+                                            <i class="fas fa-undo mr-2"></i>
+                                            Reset Filters
+                                        </button>
+                                    </div>
+                                </div>
+
+                                <!-- Active Filters Summary -->
+                                <div v-if="hasActiveFilters" class="mt-3">
+                                    <div class="d-flex flex-wrap gap-2">
+                                        <span class="text-sm text-gray-300">Active filters:</span>
+                                        <span 
+                                            v-for="filter in filterSummary" 
+                                            :key="filter"
+                                            class="badge bg-cyan-600 text-white"
+                                        >
+                                            {{ filter }}
+                                        </span>
                                     </div>
                                 </div>
                             </div>
@@ -376,23 +682,35 @@ input:-webkit-autofill:active {
                                 <table class="w-full border-collapse border border-gray-700">
                                     <thead>
                                         <tr class="bg-cyan-500">
-                                            <th class="border border-gray-700 p-2 text-white">Name</th>
-                                            <th class="border border-gray-700 p-2 text-white">Email</th>
-                                            <th class="border border-gray-700 p-2 text-white">Gender</th>
-                                            <th class="border border-gray-700 p-2 text-white">Mobile Number</th>
-                                            <th class="border border-gray-700 p-2 text-white">Event Location</th>
+                                            <th 
+                                                v-for="column in visibleColumns" 
+                                                :key="column.key"
+                                                class="border border-gray-700 p-2 text-white"
+                                            >
+                                                {{ column.label }}
+                                            </th>
                                         </tr>
                                     </thead>
                                     <tbody style="background-color: #151515;">
                                         <tr v-for="(attendee, index) in paginatedAttendees" :key="index" class="text-left text-white">
-                                            <td class="border border-gray-700 p-2">{{ attendee.first_name }} {{ attendee.last_name }}</td>
-                                            <td class="border border-gray-700 p-2">{{ attendee.email_address }}</td>
-                                            <td class="border border-gray-700 p-2">{{ attendee.gender }}</td>
-                                            <td class="border border-gray-700 p-2">{{ attendee.mobile_number }}</td>
-                                            <td class="border border-gray-700 p-2">{{ attendee.location_name }}</td>
+                                            <td 
+                                                v-for="column in visibleColumns" 
+                                                :key="column.key"
+                                                class="border border-gray-700 p-2"
+                                            >
+                                                <template v-if="column.key === 'name'">
+                                                    {{ attendee.first_name }} {{ attendee.last_name }}
+                                                </template>
+                                                <template v-else-if="column.isCustom">
+                                                    {{ getCustomFieldValue(attendee, column.key) }}
+                                                </template>
+                                                <template v-else>
+                                                    {{ attendee[column.key] || '-' }}
+                                                </template>
+                                            </td>
                                         </tr>
                                         <tr v-if="paginatedAttendees.length === 0">
-                                            <td colspan="5" class="border border-gray-700 p-4 text-center text-gray-400">
+                                            <td :colspan="visibleColumns.length" class="border border-gray-700 p-4 text-center text-gray-400">
                                                 No matching attendees found.
                                             </td>
                                         </tr>
@@ -435,6 +753,16 @@ input:-webkit-autofill:active {
                             <h5 class="modal-title">🎉 Picking a Winner 🎉</h5>
                         </div>
                         <div class="modal-body text-center">
+                            <!-- Pool Information -->
+                            <div class="mb-3 p-2 bg-gray-800 rounded">
+                                <p class="text-sm text-gray-300 mb-1">
+                                    Selecting from {{ eligibleAttendees.length }} eligible attendees
+                                    <template v-if="hasActiveFilters">(filtered pool)</template>
+                                </p>
+                                <div v-if="hasActiveFilters" class="text-xs text-cyan-400">
+                                    Active filters: {{ filterSummary.join(', ') }}
+                                </div>
+                            </div>
                             <h3 class="text-xl font-bold text-green-500">
                                 <template v-if="isPicking">
                                     🔄 Searching...

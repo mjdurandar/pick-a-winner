@@ -117,6 +117,7 @@ class PickaWinnerController extends Controller
             'event' => $event,
             'attendees' => $attendees,
             'prizes' => $prizes,
+            'form' => $signUpForm, // ✅ Pass the signup form with questions
         ]);
     }
 
