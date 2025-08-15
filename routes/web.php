@@ -48,8 +48,10 @@ Route::middleware(['auth', RoleMiddleware::class . ':admin,host'])->group(functi
 
     //ATTENDEES ROUTES
     Route::get('/attendees/{eventId}', [AttendeesController::class, 'index'])->name('attendees.index');
+    Route::get('/attendees/{eventId}/location/{locationId}', [AttendeesController::class, 'locationAttendees'])->name('attendees.location');
     Route::put('/attendees/{id}', [AttendeesController::class, 'update'])->name('attendees.update');
     Route::delete('/attendee/{attendee}/event/{event}', [AttendeesController::class, 'destroy'])->name('attendees.destroy');
+    Route::delete('/attendee/{attendee}/event/{event}/location/{location}', [AttendeesController::class, 'destroyFromLocation'])->name('attendees.destroyFromLocation');
 
     //SIGN UP FORM ROUTES
     Route::get('/signup-form/index/{eventId}', [SignUpFormController::class, 'index'])->name('signup.index');

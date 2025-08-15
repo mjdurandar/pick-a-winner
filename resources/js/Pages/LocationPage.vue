@@ -607,6 +607,10 @@ const allLocationsPage = () => {
     router.get(route('pickawinner.alllocation', { event: props.event.id }));
 };
 
+const viewLocationAttendees = (location) => {
+    router.get(route('attendees.location', { eventId: props.event.id, locationId: location.id }));
+};
+
 
 // Function to open location creation modal
 const openLocationModal = (location = null) => {
@@ -1006,6 +1010,15 @@ watch(
                                 style="background-color: white; border: 2px solid black; font-weight: bold; color: black; border-radius: 5px; padding: 10px 20px; cursor: pointer;">
                                     {{ location.name }} <br> {{ formatLocationDateTime(location.date, location.time) }}
                                 </div>
+                                <!-- Users/Attendees Button -->
+                                <button 
+                                    @click="viewLocationAttendees(location)"
+                                    class="text-white px-3 py-2 rounded"
+                                    style="background-color: #16C3D9; color: white; border-radius: 5px; padding: 10px 20px; cursor: pointer;"
+                                    title="View Attendees"
+                                >
+                                    <i class="fa-solid fa-users"></i>
+                                </button>
                                 <!-- Edit Button -->
                                 <button 
                                     @click="openLocationModal(location)"
@@ -1015,15 +1028,6 @@ watch(
                                 >
                                     <i class="fa-solid fa-pen-to-square"></i>
                                 </button>
-                                <!-- Delete Button -->
-                                <button 
-                                    @click="deleteLocation(location)"
-                                    class="text-white px-3 py-2 rounded"
-                                    style="background-color: #16C3D9; color: white; border-radius: 5px; padding: 10px 20px; cursor: pointer;"
-                                    title="Delete Location"
-                                >
-                                    <i class="fa-solid fa-trash"></i>
-                                </button>
                                 <!-- Password Button -->
                                 <button 
                                     @click="openPasswordModal(location)"
@@ -1032,6 +1036,15 @@ watch(
                                     title="View Password"
                                 >
                                     <i class="fa-solid fa-key"></i>
+                                </button>
+                                <!-- Delete Button -->
+                                <button 
+                                    @click="deleteLocation(location)"
+                                    class="text-white px-3 py-2 rounded"
+                                    style="background-color: #FF5349; color: white; border-radius: 5px; padding: 10px 20px; cursor: pointer;"
+                                    title="Delete Location"
+                                >
+                                    <i class="fa-solid fa-trash"></i>
                                 </button>
                             </div>
                         </div>

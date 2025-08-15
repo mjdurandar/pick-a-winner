@@ -11,13 +11,14 @@ class PrizeController extends Controller
 
         $request->validate([
             'event_id' => 'required|exists:events,id',
+            'prize_name' => 'required|string|max:255',
         ]);
     
         // ✅ Create the new prize
         $prize = Prize::create([
             'event_id' => $request->event_id,
             'location_id' => $request->location_id,
-            'prize_name' => 'Prize Name',
+            'prize_name' => $request->prize_name,
             'winner' => $request->winner_name ?? "No Winner Yet",
             'winner_email' => $request->winner_email ?? "No Winner Yet",
             'winner_mobile_number' => $request->winner_mobile_number ?? "No Winner Yet",

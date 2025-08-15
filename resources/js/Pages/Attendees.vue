@@ -182,10 +182,10 @@ const deleteAttendee = (attendeeId, eventId) => {
                                 </thead>
                                 <tbody>
                                     <tr v-for="(attendee, index) in paginatedAttendees" :key="index" class="text-left even:bg-gray-100">
-                                        <td v-for="(col, index) in columnHeaders" :key="index" class="border border-gray-300 p-2 whitespace-nowrap">
+                                        <td v-for="(col, index) in columnHeaders" :key="index" class="border border-gray-300 p-2 whitespace-nowrap overflow-hidden text-ellipsis">
                                             {{ attendee[col] }}
                                         </td>
-                                        <td class="text-center content-center">
+                                        <td class="text-center content-center whitespace-nowrap">
                                             <button class="btn btn-danger m-1" @click="deleteAttendee(attendee.id, event.id)">
                                                 <i class="fa-solid fa-trash"></i>
                                             </button>
