@@ -63,7 +63,9 @@ class SpreadsheetLogService
                 $tagColumns[0],              // J: TAG 1
                 $tagColumns[1],              // K: TAG 2
                 $tagColumns[2],              // L: TAG 3
-                $tagColumns[3]               // M: TAG 4
+                $tagColumns[3],              // M: TAG 4
+                $tagColumns[4],              // N: TAG 5
+                $tagColumns[5]               // O: TAG 6
             ];
             
             // Generate tab-separated format for easy copy-paste

@@ -199,6 +199,55 @@ const fetchMergeFields = async (listId) => {
     }
 };
 
+// ✅ Custom notification function that won't interfere with modals
+const showCustomNotification = (message, type = 'success') => {
+    // Remove any existing notification
+    const existingNotification = document.getElementById('custom-notification');
+    if (existingNotification) {
+        existingNotification.remove();
+    }
+    
+    // Create notification element
+    const notification = document.createElement('div');
+    notification.id = 'custom-notification';
+    notification.style.cssText = `
+        position: fixed;
+        top: 20px;
+        right: 20px;
+        background: ${type === 'success' ? '#10B981' : '#EF4444'};
+        color: white;
+        padding: 12px 20px;
+        border-radius: 8px;
+        font-size: 14px;
+        font-weight: 500;
+        z-index: 9999;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+        transform: translateX(100%);
+        transition: transform 0.3s ease;
+        max-width: 300px;
+        word-wrap: break-word;
+    `;
+    notification.textContent = message;
+    
+    // Add to page
+    document.body.appendChild(notification);
+    
+    // Animate in
+    setTimeout(() => {
+        notification.style.transform = 'translateX(0)';
+    }, 10);
+    
+    // Auto remove after 3 seconds
+    setTimeout(() => {
+        notification.style.transform = 'translateX(100%)';
+        setTimeout(() => {
+            if (notification.parentNode) {
+                notification.remove();
+            }
+        }, 300);
+    }, 3000);
+};
+
 // ✅ Initialize component
 onMounted(() => {
     fetchMailchimpSettings();
@@ -890,13 +939,8 @@ const showDetailedResults = async (results) => {
                         if (hasTabs && tabSplit.length > 1) {
                             console.log('Valid tab-separated data found, copying to clipboard');
                             navigator.clipboard.writeText(tabLine).then(() => {
-                                Swal.fire({
-                                    title: 'Copied!',
-                                    text: 'Tab-separated data copied to clipboard. Paste into A151.',
-                                    icon: 'success',
-                                    timer: 2000,
-                                    showConfirmButton: false
-                                });
+                                // Show a custom notification that won't interfere with the modal
+                                showCustomNotification('Tab-separated data copied to clipboard!', 'success');
                             }).catch(err => {
                                 console.error('Failed to copy to clipboard:', err);
                                 // Fallback: show the data in an alert for manual copying
@@ -918,13 +962,8 @@ const showDetailedResults = async (results) => {
                             // Convert comma-separated to tab-separated
                             const tabSeparatedLine = commaSplit.join('\t');
                             navigator.clipboard.writeText(tabSeparatedLine).then(() => {
-                                Swal.fire({
-                                    title: 'Copied!',
-                                    text: 'Comma-separated data converted to tab-separated and copied to clipboard. Paste into A151.',
-                                    icon: 'success',
-                                    timer: 2000,
-                                    showConfirmButton: false
-                                });
+                                // Show a custom notification that won't interfere with the modal
+                                showCustomNotification('Comma-separated data converted and copied!', 'success');
                             });
                         } else {
                             console.log('No tabs or commas found in line, searching for tab-separated data');
@@ -935,26 +974,16 @@ const showDetailedResults = async (results) => {
                                 if (line && (line.includes('\t') || line.split('\t').length > 1)) {
                                     console.log('Found tab-separated data on line', i);
                                     navigator.clipboard.writeText(line).then(() => {
-                                        Swal.fire({
-                                            title: 'Copied!',
-                                            text: 'Tab-separated data copied to clipboard. Paste into A151.',
-                                            icon: 'success',
-                                            timer: 2000,
-                                            showConfirmButton: false
-                                        });
+                                        // Show a custom notification that won't interfere with the modal
+                                        showCustomNotification('Tab-separated data copied to clipboard!', 'success');
                                     });
                                     return;
                                 } else if (line && (line.includes(',') || line.split(',').length > 1)) {
                                     console.log('Found comma-separated data on line', i, 'converting to tab-separated');
                                     const tabSeparatedLine = line.split(',').join('\t');
                                     navigator.clipboard.writeText(tabSeparatedLine).then(() => {
-                                        Swal.fire({
-                                            title: 'Copied!',
-                                            text: 'Comma-separated data converted to tab-separated and copied to clipboard. Paste into A151.',
-                                            icon: 'success',
-                                            timer: 2000,
-                                            showConfirmButton: false
-                                        });
+                                        // Show a custom notification that won't interfere with the modal
+                                        showCustomNotification('Comma-separated data converted and copied!', 'success');
                                     });
                                     return;
                                 }
