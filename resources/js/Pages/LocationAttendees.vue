@@ -29,6 +29,17 @@ const mailchimpSettings = ref({
     default_tags: ''
 });
 
+// Mailchimp import variables
+const showMailchimpModal = ref(false);
+const mailchimpLists = ref([]);
+const selectedList = ref('');
+const isImporting = ref(false);
+const customTags = ref('');
+const availableMergeFields = ref([]);
+const isLoadingMergeFields = ref(false);
+const missingFields = ref([]);
+const fieldSuggestions = ref({});
+
 // Debounce the search to prevent excessive filtering
 const updateDebouncedSearch = debounce((value) => {
     debouncedSearchValue.value = value.toLowerCase();
@@ -161,6 +172,31 @@ const generateLocationTags = () => {
     }
     
     return tags;
+};
+
+// ✅ Watch for list selection changes to fetch merge fields
+const fetchMergeFields = async (listId) => {
+    if (!listId) {
+        availableMergeFields.value = [];
+        return;
+    }
+    
+    isLoadingMergeFields.value = true;
+    try {
+        const response = await axios.get('/api/location/mailchimp/merge-fields', {
+            params: { list_id: listId }
+        });
+        availableMergeFields.value = response.data.merge_fields;
+        missingFields.value = response.data.missing_required_fields || [];
+        fieldSuggestions.value = response.data.field_mapping || {};
+        console.log('Available merge fields:', response.data.merge_fields);
+        console.log('Missing fields:', response.data.missing_common_fields);
+    } catch (error) {
+        console.error('Failed to fetch merge fields:', error);
+        availableMergeFields.value = [];
+    } finally {
+        isLoadingMergeFields.value = false;
+    }
 };
 
 // ✅ Initialize component
@@ -321,6 +357,546 @@ const closeEditPrizeModal = () => {
     selectedPrize.value = null;
     editPrizeName.value = '';
 };
+
+// ✅ Mailchimp import functions
+const openMailchimpImportModal = async () => {
+    try {
+        // Get Mailchimp lists
+        const response = await axios.get(route('location.mailchimpLists'));
+        mailchimpLists.value = response.data.lists;
+        
+        // Pre-populate the tags field with auto-generated location tags
+        const locationTags = generateLocationTags();
+        customTags.value = locationTags.join(', ');
+        
+        // Show the modal
+        showMailchimpModal.value = true;
+    } catch (error) {
+        console.error('Failed to fetch Mailchimp lists:', error);
+        Swal.fire('Error', 'Failed to load Mailchimp audiences', 'error');
+    }
+};
+
+const handleMailchimpImport = async () => {
+    if (!selectedList.value) {
+        Swal.fire('Error!', 'Please select a Mailchimp audience.', 'error');
+        return;
+    }
+
+    if (filteredAttendees.value.length === 0) {
+        Swal.fire('Error!', 'No attendees found to import.', 'error');
+        return;
+    }
+
+    isImporting.value = true;
+
+    try {
+        // Get all attendees data
+        const attendeesToImport = filteredAttendees.value;
+        const totalAttendees = attendeesToImport.length;
+
+        // Use the editable tags field (which contains both auto-generated and custom tags)
+        let allTags = [];
+        if (customTags.value.trim()) {
+            allTags = customTags.value
+                .split(',')
+                .map(tag => tag.trim())
+                .filter(tag => tag);
+        }
+
+        console.log('Final tags for import:', allTags);
+
+        // Process in chunks
+        const chunkSize = totalAttendees <= 10 ? totalAttendees : 10;
+        const totalChunks = Math.ceil(attendeesToImport.length / chunkSize);
+        let successCount = 0;
+        let failureCount = 0;
+        let updateCount = 0;
+        let newCount = 0;
+        let errors = [];
+        let importedAttendees = [];
+        let updatedAttendees = [];
+        let newAttendees = [];
+        let errorDetails = [];
+        let rejectedFields = [];
+        let rejectedFieldsCount = 0;
+
+        // Create and show enhanced progress modal
+        Swal.fire({
+            title: 'Importing Attendees to Mailchimp',
+            html: `
+                <div class="text-left space-y-2">
+                    <div class="flex justify-between">
+                        <span>Progress:</span>
+                        <span><strong>0 of ${totalAttendees}</strong> processed</span>
+                    </div>
+                    <div class="w-full bg-gray-200 rounded-full h-2.5">
+                        <div class="bg-blue-600 h-2.5 rounded-full" style="width: 0%"></div>
+                    </div>
+                    <div class="grid grid-cols-3 gap-2 mt-3 text-sm">
+                        <div class="bg-green-100 p-2 rounded">
+                            <div class="text-green-800 font-medium">✓ Success</div>
+                            <div class="text-green-600">0</div>
+                        </div>
+                        <div class="bg-blue-100 p-2 rounded">
+                            <div class="text-blue-800 font-medium">↻ Updated</div>
+                            <div class="text-blue-600">0</div>
+                        </div>
+                        <div class="bg-red-100 p-2 rounded">
+                            <div class="text-red-800 font-medium">✗ Failed</div>
+                            <div class="text-red-600">0</div>
+                        </div>
+                    </div>
+                    <div class="mt-2 text-sm text-gray-600">
+                        Processing attendees...
+                    </div>
+                </div>
+            `,
+            allowOutsideClick: false,
+            allowEscapeKey: false,
+            showConfirmButton: false,
+            didOpen: () => {
+                Swal.showLoading();
+            }
+        });
+
+        // Process each chunk
+        for (let i = 0; i < totalChunks; i++) {
+            const start = i * chunkSize;
+            const end = Math.min(start + chunkSize, attendeesToImport.length);
+            const chunk = attendeesToImport.slice(start, end);
+            
+            try {
+                console.log('Posting chunk to Mailchimp with tags:', allTags);
+                const response = await axios.post('/location/manual-import-to-mailchimp', {
+                    subscribers: chunk,
+                    list_id: selectedList.value,
+                    tags: allTags,
+                    location_id: props.location.id
+                });
+                
+                console.log('Mailchimp response', response);
+                
+                // Process response details
+                if (response.data.details.success > 0) {
+                    importedAttendees = importedAttendees.concat(chunk);
+                }
+                
+                // Enhanced response processing
+                if (response.data.details.updated) {
+                    updateCount += response.data.details.updated;
+                    updatedAttendees = updatedAttendees.concat(
+                        chunk.filter((_, index) => response.data.details.updatedIndices?.includes(index) || response.data.details.updated > 0)
+                    );
+                }
+                
+                if (response.data.details.new) {
+                    newCount += response.data.details.new;
+                    newAttendees = newAttendees.concat(
+                        chunk.filter((_, index) => !response.data.details.updatedIndices?.includes(index) || response.data.details.new > 0)
+                    );
+                }
+                
+                successCount += response.data.details.success;
+                failureCount += response.data.details.failed;
+                errors = errors.concat(response.data.details.errors);
+                
+                // Collect detailed error information
+                if (response.data.details.errorDetails) {
+                    errorDetails = errorDetails.concat(response.data.details.errorDetails);
+                }
+                
+                // Collect rejected fields information
+                if (response.data.details.rejectedFields) {
+                    rejectedFields = rejectedFields.concat(response.data.details.rejectedFields);
+                }
+                if (response.data.details.rejectedFieldsCount) {
+                    rejectedFieldsCount += response.data.details.rejectedFieldsCount;
+                }
+
+                // Update enhanced progress
+                const processed = Math.min((i + 1) * chunkSize, totalAttendees);
+                const progressPercent = (processed / totalAttendees * 100).toFixed(1);
+                
+                await Swal.update({
+                    html: `
+                        <div class="text-left space-y-2">
+                            <div class="flex justify-between">
+                                <span>Progress:</span>
+                                <span><strong>${processed} of ${totalAttendees}</strong> processed (${progressPercent}%)</span>
+                            </div>
+                            <div class="w-full bg-gray-200 rounded-full h-2.5">
+                                <div class="bg-blue-600 h-2.5 rounded-full transition-all" style="width: ${progressPercent}%"></div>
+                            </div>
+                            <div class="grid grid-cols-3 gap-2 mt-3 text-sm">
+                                <div class="bg-green-100 p-2 rounded">
+                                    <div class="text-green-800 font-medium">✓ Success</div>
+                                    <div class="text-green-600">${successCount}</div>
+                                </div>
+                                <div class="bg-blue-100 p-2 rounded">
+                                    <div class="text-blue-800 font-medium">↻ Updated</div>
+                                    <div class="text-blue-600">${updateCount}</div>
+                                </div>
+                                <div class="bg-red-100 p-2 rounded">
+                                    <div class="text-red-800 font-medium">✗ Failed</div>
+                                    <div class="text-red-600">${failureCount}</div>
+                                </div>
+                            </div>
+                            <div class="mt-2 text-sm text-gray-600">
+                                Processing chunk ${i + 1} of ${totalChunks}...
+                            </div>
+                        </div>
+                    `
+                });
+                console.log('Processed', processed);
+            } catch (error) {
+                console.error('Chunk import error:', error);
+                errors.push(`Chunk ${i + 1} failed: ${error.message}`);
+            }
+        }
+
+        // Close progress modal
+        await Swal.close();
+        console.log('Progress modal closed');
+        
+        // Generate and download log file
+        await generateImportLog({
+            totalSubscribers: totalAttendees,
+            successCount,
+            failureCount,
+            updateCount,
+            newCount,
+            errors,
+            errorDetails
+        }, importedAttendees);
+        console.log('Log file generated');
+        
+        // Show comprehensive final results
+        await showDetailedResults({
+            totalAttendees,
+            successCount,
+            failureCount,
+            updateCount,
+            newCount,
+            errors,
+            errorDetails,
+            importedAttendees,
+            updatedAttendees,
+            newAttendees,
+            rejectedFields,
+            rejectedFieldsCount
+        });
+        console.log('Final results shown'); 
+        
+        // Close the Mailchimp modal and reset form
+        showMailchimpModal.value = false;
+        selectedList.value = '';
+        customTags.value = '';
+        isImporting.value = false;
+    } catch (error) {
+        console.error('Import error:', error);
+        await Swal.fire('Error!', error.response?.data?.error || 'Failed to import data to Mailchimp.', 'error');
+        isImporting.value = false;
+    }
+};
+
+// Show detailed results modal
+const showDetailedResults = async (results) => {
+    const {
+        totalAttendees,
+        successCount,
+        failureCount,
+        updateCount,
+        newCount,
+        errors,
+        errorDetails,
+        importedAttendees,
+        updatedAttendees,
+        newAttendees,
+        rejectedFields,
+        rejectedFieldsCount
+    } = results;
+
+    // Create tabs content
+    const summaryTab = `
+        <div class="text-left space-y-4">
+            <div class="grid grid-cols-2 gap-4">
+                <div class="bg-blue-50 p-4 rounded-lg">
+                    <h4 class="font-semibold text-blue-800 mb-2">📊 Import Summary</h4>
+                    <div class="space-y-1 text-sm">
+                        <div class="flex justify-between">
+                            <span>Total Processed:</span>
+                            <span class="font-medium">${totalAttendees}</span>
+                        </div>
+                        <div class="flex justify-between">
+                            <span>✅ Successfully Imported:</span>
+                            <span class="font-medium text-green-600">${successCount}</span>
+                        </div>
+                        <div class="flex justify-between">
+                            <span>❌ Failed:</span>
+                            <span class="font-medium text-red-600">${failureCount}</span>
+                        </div>
+                        <div class="flex justify-between">
+                            <span>📈 Success Rate:</span>
+                            <span class="font-medium">${((successCount / totalAttendees) * 100).toFixed(1)}%</span>
+                        </div>
+                    </div>
+                </div>
+                <div class="bg-green-50 p-4 rounded-lg">
+                    <h4 class="font-semibold text-green-800 mb-2">🎯 Import Breakdown</h4>
+                    <div class="space-y-1 text-sm">
+                        <div class="flex justify-between">
+                            <span>🆕 New Subscribers:</span>
+                            <span class="font-medium text-blue-600">${newCount}</span>
+                        </div>
+                        <div class="flex justify-between">
+                            <span>🔄 Updated Existing:</span>
+                            <span class="font-medium text-orange-600">${updateCount}</span>
+                        </div>
+                        <div class="flex justify-between">
+                            <span>📍 Location:</span>
+                            <span class="font-medium">${props.location.name}</span>
+                        </div>
+                        <div class="flex justify-between">
+                            <span>📋 Tags Applied:</span>
+                            <span class="font-medium">${customTags.value ? customTags.value.split(',').filter(t => t.trim()).length : 0}</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    `;
+
+    const successTab = `
+        <div class="text-left">
+            <h4 class="font-semibold text-green-800 mb-3">✅ Successfully Imported (${successCount})</h4>
+            <div class="max-h-60 overflow-y-auto">
+                ${importedAttendees.length > 0 ? `
+                    <div class="space-y-2">
+                        ${importedAttendees.slice(0, 50).map((attendee, index) => `
+                            <div class="bg-green-50 p-2 rounded text-sm">
+                                <div class="font-medium">${attendee.first_name || 'N/A'} ${attendee.last_name || 'N/A'}</div>
+                                <div class="text-gray-600">${attendee.email_address || 'No email'}</div>
+                                ${attendee.city ? `<div class="text-gray-500">${attendee.city}</div>` : ''}
+                            </div>
+                        `).join('')}
+                        ${importedAttendees.length > 50 ? `<div class="text-center text-gray-500 text-sm mt-2">... and ${importedAttendees.length - 50} more</div>` : ''}
+                    </div>
+                ` : '<div class="text-gray-500 text-center py-4">No successful imports</div>'}
+            </div>
+        </div>
+    `;
+
+    const errorsTab = `
+        <div class="text-left">
+            <h4 class="font-semibold text-red-800 mb-3">❌ Import Errors (${failureCount})</h4>
+            <div class="max-h-60 overflow-y-auto">
+                ${errors.length > 0 ? `
+                    <div class="space-y-2">
+                        ${errors.slice(0, 20).map((error, index) => `
+                            <div class="bg-red-50 p-2 rounded text-sm">
+                                <div class="text-red-700">${error}</div>
+                            </div>
+                        `).join('')}
+                        ${errors.length > 20 ? `<div class="text-center text-gray-500 text-sm mt-2">... and ${errors.length - 20} more errors</div>` : ''}
+                    </div>
+                ` : '<div class="text-gray-500 text-center py-4">No errors occurred</div>'}
+            </div>
+        </div>
+    `;
+
+    const rejectedTab = `
+        <div class="text-left">
+            <h4 class="font-semibold text-yellow-800 mb-3">🚫 Rejected Fields (${rejectedFieldsCount} fields from ${rejectedFields.length} subscribers)</h4>
+            <div class="max-h-60 overflow-y-auto">
+                ${rejectedFields.length > 0 ? `
+                    <div class="space-y-3">
+                        ${rejectedFields.map((subscriber, index) => `
+                            <div class="bg-yellow-50 p-3 rounded border border-yellow-200">
+                                <div class="font-medium text-yellow-900 mb-2">
+                                    ${subscriber.name || 'N/A'} (${subscriber.email})
+                                </div>
+                                <div class="space-y-1">
+                                    ${subscriber.rejected_fields.map(field => `
+                                        <div class="bg-white p-2 rounded text-xs border-l-4 border-yellow-400">
+                                            <div class="font-medium text-gray-900">${field.field_name} (${field.field})</div>
+                                            <div class="text-gray-600">
+                                                <strong>Reason:</strong> ${field.reason}
+                                            </div>
+                                            ${field.value ? `<div class="text-gray-500"><strong>Value:</strong> ${field.value}</div>` : ''}
+                                            <div class="text-gray-400 text-xs"><strong>Source:</strong> ${field.data_source}</div>
+                                        </div>
+                                    `).join('')}
+                                </div>
+                            </div>
+                        `).join('')}
+                    </div>
+                ` : '<div class="text-gray-500 text-center py-4">No fields were rejected</div>'}
+            </div>
+            ${rejectedFields.length > 0 ? `
+                <div class="mt-3 p-3 bg-blue-50 rounded text-sm">
+                    <div class="font-medium text-blue-800 mb-1">💡 How to Fix Rejected Fields:</div>
+                    <ul class="text-blue-700 space-y-1 text-xs">
+                        <li>• <strong>SMS Phone:</strong> Add Australian phone numbers (+61 or 04 prefix) for SMS marketing</li>
+                        <li>• <strong>Missing Data:</strong> Ensure your signup form collects all required information</li>
+                        <li>• <strong>Field Setup:</strong> Add missing fields to your Mailchimp audience settings</li>
+                    </ul>
+                </div>
+            ` : ''}
+        </div>
+    `;
+
+    const updatesTab = `
+        <div class="text-left">
+            <h4 class="font-semibold text-orange-800 mb-3">🔄 Updated Subscribers (${updateCount})</h4>
+            <div class="max-h-60 overflow-y-auto">
+                ${updatedAttendees.length > 0 ? `
+                    <div class="space-y-2">
+                        ${updatedAttendees.slice(0, 50).map((attendee, index) => `
+                            <div class="bg-orange-50 p-2 rounded text-sm">
+                                <div class="font-medium">${attendee.first_name || 'N/A'} ${attendee.last_name || 'N/A'}</div>
+                                <div class="text-gray-600">${attendee.email_address || 'No email'}</div>
+                                <div class="text-orange-600 text-xs">Updated existing subscriber</div>
+                            </div>
+                        `).join('')}
+                        ${updatedAttendees.length > 50 ? `<div class="text-center text-gray-500 text-sm mt-2">... and ${updatedAttendees.length - 50} more</div>` : ''}
+                    </div>
+                ` : '<div class="text-gray-500 text-center py-4">No existing subscribers were updated</div>'}
+            </div>
+        </div>
+    `;
+
+    // Show the comprehensive results modal
+    await Swal.fire({
+        title: 'Import Results',
+        html: `
+            <div class="text-left">
+                <div class="border-b border-gray-200 mb-4">
+                    <nav class="-mb-px flex space-x-8">
+                        <button onclick="showTab('summary')" id="tab-summary" class="tab-button active border-b-2 border-blue-500 py-2 px-1 text-sm font-medium text-blue-600">
+                            📊 Summary
+                        </button>
+                        <button onclick="showTab('success')" id="tab-success" class="tab-button border-b-2 border-transparent py-2 px-1 text-sm font-medium text-gray-500 hover:text-gray-700">
+                            ✅ Success (${successCount})
+                        </button>
+                        <button onclick="showTab('updates')" id="tab-updates" class="tab-button border-b-2 border-transparent py-2 px-1 text-sm font-medium text-gray-500 hover:text-gray-700">
+                            🔄 Updates (${updateCount})
+                        </button>
+                        <button onclick="showTab('errors')" id="tab-errors" class="tab-button border-b-2 border-transparent py-2 px-1 text-sm font-medium text-gray-500 hover:text-gray-700">
+                            ❌ Errors (${failureCount})
+                        </button>
+                        <button onclick="showTab('rejected')" id="tab-rejected" class="tab-button border-b-2 border-transparent py-2 px-1 text-sm font-medium text-gray-500 hover:text-gray-700">
+                            🚫 Rejected Fields (${rejectedFieldsCount})
+                        </button>
+                    </nav>
+                </div>
+                <div id="tab-content-summary" class="tab-content">${summaryTab}</div>
+                <div id="tab-content-success" class="tab-content hidden">${successTab}</div>
+                <div id="tab-content-updates" class="tab-content hidden">${updatesTab}</div>
+                <div id="tab-content-errors" class="tab-content hidden">${errorsTab}</div>
+                <div id="tab-content-rejected" class="tab-content hidden">${rejectedTab}</div>
+                <div class="mt-4 text-center">
+                    <div class="text-sm text-gray-600">
+                        📥 A detailed log file has been downloaded with complete import details.
+                    </div>
+                </div>
+            </div>
+        `,
+        width: '800px',
+        confirmButtonText: 'Close',
+        confirmButtonColor: '#059669',
+        didOpen: () => {
+            // Add tab switching functionality
+            window.showTab = (tabName) => {
+                // Hide all tab content
+                document.querySelectorAll('.tab-content').forEach(el => el.classList.add('hidden'));
+                document.querySelectorAll('.tab-button').forEach(el => {
+                    el.classList.remove('active', 'border-blue-500', 'text-blue-600');
+                    el.classList.add('border-transparent', 'text-gray-500');
+                });
+                
+                // Show selected tab
+                document.getElementById('tab-content-' + tabName).classList.remove('hidden');
+                const button = document.getElementById('tab-' + tabName);
+                button.classList.add('active', 'border-blue-500', 'text-blue-600');
+                button.classList.remove('border-transparent', 'text-gray-500');
+            };
+        },
+        icon: failureCount > 0 ? 'warning' : 'success'
+    });
+};
+
+// Generate import log file
+const generateImportLog = async (stats, attendees) => {
+    try {
+        const logContent = generateLogContent(stats, attendees);
+        downloadLogFile(logContent, `mailchimp-import-${props.location.name}-${new Date().toISOString().split('T')[0]}.log`);
+    } catch (error) {
+        console.error('Failed to generate log file:', error);
+    }
+};
+
+const generateLogContent = (stats, attendees) => {
+    const timestamp = new Date().toISOString();
+    const locationName = props.location.name;
+    
+    let content = `=== Mailchimp Import Log ===\n`;
+    content += `Timestamp: ${timestamp}\n`;
+    content += `Location: ${locationName}\n`;
+    content += `Event: ${props.event.event_name}\n`;
+    content += `Mailchimp List ID: ${selectedList.value}\n`;
+    
+    // Include the final tags that were actually used for import
+    content += `Tags Applied: ${customTags.value || 'None'}\n`;
+    
+    content += `\n=== Import Statistics ===\n`;
+    content += `Total Attendees: ${stats.totalSubscribers}\n`;
+    content += `Successfully Imported: ${stats.successCount}\n`;
+    content += `Failed Imports: ${stats.failureCount}\n`;
+    content += `Success Rate: ${((stats.successCount / stats.totalSubscribers) * 100).toFixed(2)}%\n`;
+    
+    if (stats.errors && stats.errors.length > 0) {
+        content += `\n=== Import Errors ===\n`;
+        stats.errors.forEach((error, index) => {
+            content += `${index + 1}. ${error}\n`;
+        });
+    }
+    
+    if (attendees && attendees.length > 0) {
+        content += `\n=== Successfully Imported Attendees ===\n`;
+        attendees.forEach((attendee, index) => {
+            content += `${index + 1}. ${attendee.first_name || ''} ${attendee.last_name || ''} (${attendee.email_address || 'No email'})\n`;
+        });
+    }
+    
+    content += `\n=== Field Mappings Used ===\n`;
+    content += `First Name: FNAME | MERGE1\n`;
+    content += `Last Name: LNAME | MERGE2\n`;
+    content += `Email Address: EMAIL | MERGE0\n`;
+    content += `Street Address: MMERGE10 | MERGE10\n`;
+    content += `City: CITY | MERGE3\n`;
+    content += `State: STATE | MERGE6\n`;
+    content += `Zip Code: ZIPCODE | MERGE7\n`;
+    content += `Country: COUNTRY | MERGE8\n`;
+    content += `Mobile Number: PHONE | MERGE4\n`;
+    content += `SMS Phone: SMSPHONE | MERGE30\n`;
+    content += `Age: MMERGE14 | MERGE14\n`;
+    content += `Gender: GENDER | MERGE17\n`;
+    
+    return content;
+};
+
+const downloadLogFile = (content, filename) => {
+    const blob = new Blob([content], { type: 'text/plain' });
+    const url = window.URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    window.URL.revokeObjectURL(url);
+};
 </script>
 
 <template>
@@ -385,13 +961,22 @@ const closeEditPrizeModal = () => {
                                 class="w-full md:w-1/3 p-2 border rounded"
                                 @input="handleSearchInput"
                             />
-                            <!-- ✅ Export Button -->
-                            <button 
-                                @click="exportToCSV" 
-                                class="bg-green-500 text-white px-4 py-2 rounded hover:bg-green-700"
-                            >
-                                <i class="fa-solid fa-file-csv"></i> Export CSV
-                            </button>
+                            <div class="flex gap-2">
+                                <!-- ✅ Export Button -->
+                                <button 
+                                    @click="exportToCSV" 
+                                    class="bg-green-500 text-white px-4 py-2 rounded hover:bg-green-700"
+                                >
+                                    <i class="fa-solid fa-file-csv"></i> Export CSV
+                                </button>
+                                <!-- ✅ Mailchimp Import Button -->
+                                <button 
+                                    @click="openMailchimpImportModal" 
+                                    class="bg-orange-500 text-white px-4 py-2 rounded hover:bg-orange-700"
+                                >
+                                    <i class="fa-solid fa-envelope"></i> Import to Mailchimp
+                                </button>
+                            </div>
                         </div>
 
                         <div class="overflow-x-auto">
@@ -579,6 +1164,188 @@ const closeEditPrizeModal = () => {
                         >
                             <i class="fa-solid fa-save mr-2"></i>
                             Update Prize
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Mailchimp Import Modal -->
+        <div v-if="showMailchimpModal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+            <div class="bg-white p-6 rounded-lg shadow-xl max-w-4xl w-full mx-4 max-h-[90vh] overflow-y-auto">
+                <div class="flex justify-between items-center mb-4">
+                    <h3 class="text-lg font-semibold">Import Attendees to Mailchimp</h3>
+                    <button @click="showMailchimpModal = false" class="text-gray-500 hover:text-gray-700">
+                        <i class="fa-solid fa-times"></i>
+                    </button>
+                </div>
+                
+                <div class="space-y-4">
+                    <p class="text-gray-600">
+                        Import <strong>{{ filteredAttendees.length }}</strong> attendees from <strong>{{ location.name }}</strong> to Mailchimp
+                    </p>
+
+                    <!-- Editable Tags Section -->
+                    <div class="mb-4">
+                        <label class="block text-sm font-medium text-gray-700 mb-2">
+                            <i class="fa-solid fa-tags mr-1"></i>
+                            Tags to Import (Editable)
+                        </label>
+                        <textarea 
+                            v-model="customTags"
+                            class="w-full border rounded px-3 py-2 h-24"
+                            placeholder="Enter tags separated by commas..."
+                            :disabled="isImporting"
+                        ></textarea>
+                        <div class="mt-2 flex items-start justify-between">
+                            <p class="text-sm text-gray-600">
+                                <strong>Auto-populated</strong> with location-specific tags. You can edit, add, or remove any tags before importing.
+                            </p>
+                            <button 
+                                type="button"
+                                @click="customTags = generateLocationTags().join(', ')"
+                                class="text-sm bg-gray-100 hover:bg-gray-200 px-2 py-1 rounded"
+                                :disabled="isImporting"
+                            >
+                                <i class="fa-solid fa-refresh mr-1"></i>
+                                Reset to Auto-Generated
+                            </button>
+                        </div>
+                        
+                        <!-- Live Preview of Tags -->
+                        <div v-if="customTags.trim()" class="mt-3 p-3 bg-blue-50 rounded-lg">
+                            <h5 class="text-sm font-medium text-blue-800 mb-2">
+                                <i class="fa-solid fa-eye mr-1"></i>
+                                Preview: {{ customTags.split(',').filter(tag => tag.trim()).length }} tags will be applied
+                            </h5>
+                            <div class="flex flex-wrap gap-2">
+                                <span 
+                                    v-for="tag in customTags.split(',').filter(tag => tag.trim())" 
+                                    :key="tag.trim()" 
+                                    class="bg-blue-200 text-blue-800 px-2 py-1 rounded text-sm"
+                                >
+                                    {{ tag.trim() }}
+                                </span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Field Mapping Information -->
+                    <div class="mb-4 p-4 bg-gray-50 rounded-lg">
+                        <h4 class="font-semibold mb-2">Field Mappings:</h4>
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-2 text-sm">
+                            <div><strong>First Name:</strong> FNAME | MERGE1</div>
+                            <div><strong>Last Name:</strong> LNAME | MERGE2</div>
+                            <div><strong>Email Address:</strong> EMAIL | MERGE0</div>
+                            <div><strong>Street Address:</strong> MMERGE10 | MERGE10</div>
+                            <div><strong>City:</strong> CITY | MERGE3</div>
+                            <div><strong>State:</strong> STATE | MERGE6</div>
+                            <div><strong>Zip Code:</strong> ZIPCODE | MERGE7</div>
+                            <div><strong>Country:</strong> COUNTRY | MERGE8</div>
+                            <div><strong>Mobile Number:</strong> PHONE | MERGE4</div>
+                            <div><strong>SMS Phone:</strong> SMSPHONE | MERGE30</div>
+                            <div><strong>Age:</strong> MMERGE14 | MERGE14</div>
+                            <div><strong>Gender:</strong> GENDER | MERGE17</div>
+                        </div>
+                    </div>
+
+                    <div class="mb-4">
+                        <label class="block text-sm font-medium text-gray-700 mb-2">
+                            Select Mailchimp Audience
+                        </label>
+                        <select 
+                            v-model="selectedList"
+                            class="w-full border rounded px-3 py-2"
+                            :disabled="isImporting"
+                            @change="fetchMergeFields(selectedList)"
+                        >
+                            <option value="">Select an audience...</option>
+                            <option 
+                                v-for="list in mailchimpLists" 
+                                :key="list.id" 
+                                :value="list.id"
+                            >
+                                {{ list.name }} ({{ list.stats.member_count }} members)
+                            </option>
+                        </select>
+                        
+                        <!-- Loading indicator for merge fields -->
+                        <div v-if="isLoadingMergeFields" class="mt-2 text-sm text-gray-600">
+                            <i class="fa-solid fa-spinner fa-spin mr-1"></i>
+                            Loading merge fields...
+                        </div>
+                    </div>
+
+                    <!-- Available Merge Fields Display -->
+                    <div v-if="availableMergeFields.length > 0" class="mb-4 p-4 bg-blue-50 rounded-lg">
+                        <h4 class="font-semibold mb-2 text-blue-800">
+                            <i class="fa-solid fa-info-circle mr-1"></i>
+                            Available Mailchimp Fields for this Audience
+                        </h4>
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-2 text-sm">
+                            <div v-for="field in availableMergeFields" :key="field.tag" class="bg-white p-2 rounded border">
+                                <div class="font-medium text-blue-900">{{ field.name }}</div>
+                                <div class="text-gray-600 text-xs">Tag: {{ field.tag }} | Type: {{ field.type }}</div>
+                                <div v-if="field.help_text" class="text-gray-500 text-xs italic">{{ field.help_text }}</div>
+                            </div>
+                        </div>
+                        <div class="mt-3 text-xs text-blue-700">
+                            💡 The system will automatically map your form data to these available fields
+                        </div>
+                    </div>
+
+                    <!-- Missing Fields Warning -->
+                    <div v-if="missingFields.length > 0" class="mb-4 p-4 bg-orange-50 border border-orange-200 rounded-lg">
+                        <h4 class="font-semibold mb-2 text-orange-800">
+                            <i class="fa-solid fa-exclamation-triangle mr-1"></i>
+                            Missing Fields in Your Mailchimp Audience
+                        </h4>
+                        <div class="text-sm text-orange-700 mb-3">
+                            Some data won't be imported because these fields don't exist in your Mailchimp audience:
+                        </div>
+                        <div class="grid grid-cols-1 gap-2 text-sm">
+                            <div v-for="field in missingFields" :key="field" class="bg-white p-2 rounded border border-orange-200">
+                                <div class="font-medium text-orange-900">{{ field }}</div>
+                                <div class="text-orange-600 text-xs">{{ fieldSuggestions[field] }}</div>
+                            </div>
+                        </div>
+                        <div class="mt-3 text-xs text-orange-700">
+                            💡 Go to your Mailchimp audience settings to add these fields for complete data import
+                        </div>
+                    </div>
+
+                    <!-- Warning if no audience selected -->
+                    <div v-if="selectedList && availableMergeFields.length === 0 && !isLoadingMergeFields" class="mb-4 p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
+                        <div class="text-yellow-800">
+                            <i class="fa-solid fa-exclamation-triangle mr-1"></i>
+                            <strong>Warning:</strong> Could not load merge fields for this audience. The import may fail if field names don't match.
+                        </div>
+                    </div>
+
+                    <div class="flex justify-end space-x-3">
+                        <button 
+                            @click="showMailchimpModal = false"
+                            class="px-4 py-2 border rounded text-gray-600 hover:bg-gray-50"
+                            :disabled="isImporting"
+                        >
+                            Cancel
+                        </button>
+                        <button 
+                            @click="handleMailchimpImport"
+                            class="px-4 py-2 bg-orange-500 text-white rounded hover:bg-orange-600"
+                            :disabled="isImporting || !selectedList"
+                        >
+                            <span v-if="isImporting">
+                                <i class="fa-solid fa-spinner fa-spin mr-2"></i>
+                                Importing...
+                            </span>
+                            <span v-else>
+                                <i class="fa-solid fa-envelope mr-2"></i>
+                                Import {{ filteredAttendees.length }} Attendees
+                                <span v-if="customTags.trim()" class="text-sm opacity-90">
+                                    ({{ customTags.split(',').filter(tag => tag.trim()).length }} tags)
+                                </span>
+                            </span>
                         </button>
                     </div>
                 </div>

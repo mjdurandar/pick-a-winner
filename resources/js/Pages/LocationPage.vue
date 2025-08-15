@@ -167,7 +167,8 @@ const handleMailchimpImport = async () => {
                 const response = await axios.post('/location/import-data-to-mailchimp', {
                     subscribers: chunk,
                     list_id: selectedList.value,
-                    tags: allTags
+                    tags: allTags,
+                    location_id: selectedLocation.value.id
                 });
                 console.log('Mailchimp response', response);
                 // Add successfully imported subscribers to the log
@@ -211,7 +212,7 @@ const handleMailchimpImport = async () => {
         }
         Swal.fire({
             title: 'Import Completed',
-            html: `Successfully imported ${successCount} out of ${totalSubscribers} subscribers.<br>Failed: ${failureCount}${errorHtml}<br><br>A log file has been downloaded with complete details.`,
+            html: `Successfully imported ${successCount} out of ${totalSubscribers} subscribers.<br>Failed: ${failureCount}${errorHtml}<br><br>Import logs have been saved to the database and a detailed log file has been downloaded.`,
             icon: errors.length > 0 ? 'warning' : 'success'
         });
         console.log('Final results shown'); 
@@ -890,6 +891,74 @@ const saveMailchimpSettings = async () => {
     }
 };
 
+// Generate import log file
+const generateImportLog = async (stats, subscribers) => {
+    try {
+        const logContent = generateLogContent(stats, subscribers);
+        downloadLogFile(logContent, `mailchimp-import-${selectedLocation.value.name}-${new Date().toISOString().split('T')[0]}.log`);
+    } catch (error) {
+        console.error('Failed to generate log file:', error);
+    }
+};
+
+const generateLogContent = (stats, subscribers) => {
+    const timestamp = new Date().toISOString();
+    const locationName = selectedLocation.value.name;
+    
+    let content = `=== Mailchimp Import Log ===\n`;
+    content += `Timestamp: ${timestamp}\n`;
+    content += `Location: ${locationName}\n`;
+    content += `Mailchimp List ID: ${selectedList.value}\n`;
+    content += `Tags Applied: ${tags.value || 'None'}\n`;
+    content += `\n=== Import Statistics ===\n`;
+    content += `Total Subscribers: ${stats.totalSubscribers}\n`;
+    content += `Successfully Imported: ${stats.successCount}\n`;
+    content += `Failed Imports: ${stats.failureCount}\n`;
+    content += `Success Rate: ${((stats.successCount / stats.totalSubscribers) * 100).toFixed(2)}%\n`;
+    
+    if (stats.errors && stats.errors.length > 0) {
+        content += `\n=== Import Errors ===\n`;
+        stats.errors.forEach((error, index) => {
+            content += `${index + 1}. ${error}\n`;
+        });
+    }
+    
+    if (subscribers && subscribers.length > 0) {
+        content += `\n=== Successfully Imported Subscribers ===\n`;
+        subscribers.forEach((subscriber, index) => {
+            content += `${index + 1}. ${subscriber.first_name || ''} ${subscriber.last_name || ''} (${subscriber.email_address || 'No email'})\n`;
+        });
+    }
+    
+    content += `\n=== Field Mappings Used ===\n`;
+    content += `First Name: FNAME | MERGE1\n`;
+    content += `Last Name: LNAME | MERGE2\n`;
+    content += `Email Address: EMAIL | MERGE0\n`;
+    content += `Street Address: MMERGE10 | MERGE10\n`;
+    content += `City: CITY | MERGE3\n`;
+    content += `State: STATE | MERGE6\n`;
+    content += `Zip Code: ZIPCODE | MERGE7\n`;
+    content += `Country: COUNTRY | MERGE8\n`;
+    content += `Mobile Number: PHONE | MERGE4\n`;
+    content += `SMS Phone: SMSPHONE | MERGE30\n`;
+    content += `Age: MMERGE14 | MERGE14\n`;
+    content += `Gender: GENDER | MERGE17\n`;
+    
+    return content;
+};
+
+const downloadLogFile = (content, filename) => {
+    const blob = new Blob([content], { type: 'text/plain' });
+    const url = window.URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    window.URL.revokeObjectURL(url);
+};
+
 // Add the download function
 const downloadMailchimpLogs = () => {
     window.location.href = route('location.downloadMailchimpLogs', { event_id: props.event.id });
@@ -1247,7 +1316,7 @@ Melbourne,September 02 2024,6:00 pm</pre>
 
         <!-- Mailchimp Import Modal -->
         <div v-if="showMailchimpModal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-            <div class="bg-white p-6 rounded-lg shadow-xl max-w-2xl w-full mx-4">
+            <div class="bg-white p-6 rounded-lg shadow-xl max-w-4xl w-full mx-4 max-h-[90vh] overflow-y-auto">
                 <div class="flex justify-between items-center mb-4">
                     <h3 class="text-lg font-semibold">Import to Mailchimp</h3>
                     <button @click="showMailchimpModal = false" class="text-gray-500 hover:text-gray-700">
@@ -1259,6 +1328,25 @@ Melbourne,September 02 2024,6:00 pm</pre>
                     <p class="text-gray-600">
                         Import subscribers from <strong>{{ selectedLocation?.name }}</strong> to Mailchimp
                     </p>
+
+                    <!-- Field Mapping Information -->
+                    <div class="mb-4 p-4 bg-gray-50 rounded-lg">
+                        <h4 class="font-semibold mb-2">Field Mappings:</h4>
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-2 text-sm">
+                            <div><strong>First Name:</strong> FNAME | MERGE1</div>
+                            <div><strong>Last Name:</strong> LNAME | MERGE2</div>
+                            <div><strong>Email Address:</strong> EMAIL | MERGE0</div>
+                            <div><strong>Street Address:</strong> MMERGE10 | MERGE10</div>
+                            <div><strong>City:</strong> CITY | MERGE3</div>
+                            <div><strong>State:</strong> STATE | MERGE6</div>
+                            <div><strong>Zip Code:</strong> ZIPCODE | MERGE7</div>
+                            <div><strong>Country:</strong> COUNTRY | MERGE8</div>
+                            <div><strong>Mobile Number:</strong> PHONE | MERGE4</div>
+                            <div><strong>SMS Phone:</strong> SMSPHONE | MERGE30</div>
+                            <div><strong>Age:</strong> MMERGE14 | MERGE14</div>
+                            <div><strong>Gender:</strong> GENDER | MERGE17</div>
+                        </div>
+                    </div>
 
                     <div class="mb-4">
                         <label class="block text-sm font-medium text-gray-700 mb-2">

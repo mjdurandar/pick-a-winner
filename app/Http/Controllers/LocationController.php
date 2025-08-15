@@ -126,6 +126,71 @@ class LocationController extends Controller
         }
     }
 
+    public function getMailchimpMergeFields(Request $request)
+    {
+        try {
+            $request->validate([
+                'list_id' => 'required|string'
+            ]);
+
+            $mergeFields = $this->mailchimpService->getListMergeFields($request->list_id);
+            
+            // Check for your actual available fields based on screenshots
+            $availableFields = [
+                'FNAME', 'LNAME', 'CITY', 'SHOWCITY', 'STATE', 'ZIPCODE', 'COUNTRY', 
+                'MMERGE11', 'GENDER', 'MMERGE18', 'MMERGE10', 'MMERGE12', 'MMERGE13', 'MMERGE14',
+                'PHONE', 'SMSPHONE' // Now available based on your latest screenshot
+            ];
+            $existingTags = array_column($mergeFields, 'tag');
+            
+            // No missing ideal fields anymore since you added phone fields
+            $missingIdealFields = [];
+            
+            // Fields that don't exist in your audience
+            $missingFields = array_diff($availableFields, $existingTags);
+            
+            return response()->json([
+                'merge_fields' => $mergeFields,
+                'missing_required_fields' => $missingFields,
+                'missing_ideal_fields' => $missingIdealFields,
+                'field_mapping' => [
+                    'FNAME' => 'First Name (Available ✅)',
+                    'LNAME' => 'Last Name (Available ✅)', 
+                    'EMAIL' => 'Email Address (Built-in ✅)',
+                    'MMERGE10' => 'Street Address (Available ✅)',
+                    'MMERGE11' => 'Address (Available ✅)',
+                    'CITY' => 'City (Available ✅)',
+                    'SHOWCITY' => 'Show City (Available ✅)',
+                    'STATE' => 'State (Available ✅)',
+                    'ZIPCODE' => 'Zip Code (Available ✅)',
+                    'COUNTRY' => 'Country (Available ✅)',
+                    'GENDER' => 'Gender (Available ✅)',
+                    'MMERGE18' => 'Household Income (Available ✅)',
+                    'MMERGE12' => 'Overseas Sports Frequency (Available ✅)',
+                    'MMERGE13' => 'Equipment Spending (Available ✅)',
+                    'MMERGE14' => 'Age (Available ✅)',
+                    'PHONE' => 'Phone Number (Available ✅)',
+                    'SMSPHONE' => 'SMS Phone Number (Available ✅ - SMS Marketing Ready!)'
+                ],
+                'data_to_import' => [
+                    'first_name' => 'Nathan',
+                    'last_name' => 'Maxwell', 
+                    'email_address' => 'natedogts@gmail.com',
+                    'street_address' => '131 Wairakei Ave',
+                    'city' => 'Papamoa',
+                    'state' => 'Bay of Plenty',
+                    'zip_code' => '3118',
+                    'country' => 'New Zealand',
+                    'mobile_number' => '02 240 5267',
+                    'age' => '22-44',
+                    'gender' => 'Male'
+                ]
+            ]);
+        } catch (\Exception $e) {
+            return response()->json(['error' => $e->getMessage()], 500);
+        }
+    }
+
     public function getSubscribers(Request $request)
     {   
         $request->validate([
@@ -289,7 +354,7 @@ class LocationController extends Controller
             'importedSubscribers' => 'array'
         ]);
 
-        $filename = $logService->appendToLog(
+        $filename = $logService->logImport(
             $logData['location_id'],
             $logData['location_name'],
             $logData
@@ -359,6 +424,147 @@ class LocationController extends Controller
             return back()->with('success', 'All locations deleted successfully');
         } catch (\Exception $e) {
             return back()->with('error', 'Failed to delete locations: ' . $e->getMessage());
+        }
+    }
+
+    // NEW METHOD: Manual import with enhanced field mapping and tracking
+    public function manualImportToMailchimp(Request $request, MailchimpLogService $logService)
+    {   
+        Log::info('manualImportToMailchimp called', ['data' => $request->all()]);
+        set_time_limit(60);
+
+        $request->validate([
+            'subscribers' => 'required|array',
+            'list_id' => 'required|string',
+            'tags' => 'required|array',
+            'location_id' => 'sometimes|exists:locations,id'
+        ]);
+
+        try {
+            $results = [
+                'success' => 0,
+                'failed' => 0,
+                'new' => 0,
+                'updated' => 0,
+                'errors' => [],
+                'errorDetails' => [],
+                'rejectedFields' => [],
+                'rejectedFieldsCount' => 0
+            ];
+
+            $tags = $request->tags;
+            $successfulSubscribers = [];
+            $newSubscribers = [];
+            $updatedSubscribers = [];
+            Log::info('Manual import using tags:', ['tags' => $tags]);
+
+            foreach ($request->subscribers as $subscriber) {
+                try {
+                    if (empty($subscriber['email_address'])) {
+                        $results['failed']++;
+                        $results['errors'][] = "Skipped subscriber: Missing email address";
+                        continue;
+                    }
+
+                    Log::info('Manual import - Mailchimp add start', [
+                        'email' => $subscriber['email_address'],
+                        'tags' => $tags,
+                        'available_fields' => array_keys($subscriber)
+                    ]);
+                    
+                    // Use the new manual import method with smart field mapping
+                    $result = $this->mailchimpService->manualImportSubscriber(
+                        $request->list_id,
+                        $subscriber,
+                        $tags
+                    );
+                    
+                    Log::info('Manual import - Mailchimp add end', [
+                        'email' => $subscriber['email_address'],
+                        'tags' => $tags,
+                        'import_type' => $result['import_type'] ?? 'unknown'
+                    ]);
+                    
+                    $results['success']++;
+                    $successfulSubscribers[] = $subscriber;
+                    
+                    // Track new vs updated
+                    if (isset($result['import_type'])) {
+                        if ($result['import_type'] === 'new') {
+                            $results['new']++;
+                            $newSubscribers[] = $subscriber;
+                        } else if ($result['import_type'] === 'updated') {
+                            $results['updated']++;
+                            $updatedSubscribers[] = $subscriber;
+                        }
+                    }
+                    
+                    // Track rejected fields
+                    if (isset($result['rejected_fields']) && !empty($result['rejected_fields'])) {
+                        $subscriberRejectedFields = [
+                            'email' => $subscriber['email_address'],
+                            'name' => trim(($subscriber['first_name'] ?? '') . ' ' . ($subscriber['last_name'] ?? '')),
+                            'rejected_fields' => $result['rejected_fields']
+                        ];
+                        $results['rejectedFields'][] = $subscriberRejectedFields;
+                        $results['rejectedFieldsCount'] += count($result['rejected_fields']);
+                    }
+
+                } catch (\Exception $e) {
+                    $results['failed']++;
+                    $errorMessage = "Failed to import {$subscriber['email_address']}: " . substr($e->getMessage(), 0, 200);
+                    $results['errors'][] = $errorMessage;
+                    $results['errorDetails'][] = [
+                        'email' => $subscriber['email_address'],
+                        'error' => $e->getMessage(),
+                        'subscriber_data' => $subscriber
+                    ];
+                    Log::error('Manual import - Failed to import subscriber', [
+                        'email' => $subscriber['email_address'],
+                        'error' => $e->getMessage(),
+                        'tags' => $tags,
+                        'subscriber_data' => $subscriber
+                    ]);
+                }
+            }
+
+            // Log the import session if location_id is provided
+            if ($request->has('location_id')) {
+                try {
+                    $logStats = [
+                        'success' => $results['success'] > 0, // Boolean for compatibility
+                        'totalSubscribers' => count($request->subscribers),
+                        'successCount' => $results['success'],
+                        'failureCount' => $results['failed'],
+                        'updateCount' => $results['updated'],
+                        'newCount' => $results['new'],
+                        'errors' => $results['errors'],
+                        'errorDetails' => $results['errorDetails'],
+                        'rejectedFields' => $results['rejectedFields'],
+                        'rejectedFieldsCount' => $results['rejectedFieldsCount'],
+                        'tags' => $tags
+                    ];
+                    
+                    $logService->logImport($request->location_id, 'Manual Import', $logStats);
+                } catch (\Exception $e) {
+                    Log::error('Failed to log manual import session', [
+                        'error' => $e->getMessage(),
+                        'location_id' => $request->location_id
+                    ]);
+                }
+            }
+
+            return response()->json([
+                'message' => "Manual import processed. Success: {$results['success']}, Failed: {$results['failed']}, New: {$results['new']}, Updated: {$results['updated']}",
+                'details' => $results
+            ]);
+
+        } catch (\Exception $e) {
+            Log::error('Manual Mailchimp import error: ' . $e->getMessage());
+            return response()->json([
+                'error' => 'An error occurred during manual import.',
+                'details' => $e->getMessage()
+            ], 500);
         }
     }
 }
