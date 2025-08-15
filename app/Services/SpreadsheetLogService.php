@@ -37,11 +37,20 @@ class SpreadsheetLogService
             // Link saved to folder (you may want to customize this)
             $linkSavedToFolder = "Event_{$event->id}_Location_{$locationId}";
             
-            // Extract import statistics
+            // Extract import statistics - use exact field names from controller
             $totalCollectedData = $importData['totalSubscribers'] ?? 0;
             $newFromImport = $importData['newCount'] ?? 0;
             $updatedData = $importData['updateCount'] ?? 0;
             $rejectedData = $importData['failureCount'] ?? 0;
+            
+            // Debug log to see what data is being passed
+            Log::info('SpreadsheetLogService - Import data received', [
+                'importData' => $importData,
+                'totalCollectedData' => $totalCollectedData,
+                'newFromImport' => $newFromImport,
+                'updatedData' => $updatedData,
+                'rejectedData' => $rejectedData
+            ]);
             
             // Process tags (limit to 6 tags as per your spreadsheet columns)
             $tagColumns = [];

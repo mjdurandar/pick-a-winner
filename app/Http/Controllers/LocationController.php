@@ -605,4 +605,35 @@ class LocationController extends Controller
             ], 500);
         }
     }
+
+    /**
+     * Generate spreadsheet data with cumulative totals
+     */
+    public function generateSpreadsheetData(Request $request, SpreadsheetLogService $spreadsheetService)
+    {
+        $request->validate([
+            'location_id' => 'required|exists:locations,id',
+            'import_data' => 'required|array',
+            'tags' => 'required|array'
+        ]);
+
+        try {
+            $copyPasteData = $spreadsheetService->generateFormattedText(
+                $request->location_id,
+                $request->import_data,
+                $request->tags
+            );
+
+            return response()->json([
+                'copy_paste_data' => $copyPasteData
+            ]);
+
+        } catch (\Exception $e) {
+            Log::error('Failed to generate spreadsheet data: ' . $e->getMessage());
+            return response()->json([
+                'error' => 'Failed to generate spreadsheet data',
+                'details' => $e->getMessage()
+            ], 500);
+        }
+    }
 }

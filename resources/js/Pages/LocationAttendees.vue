@@ -622,11 +622,40 @@ const handleMailchimpImport = async () => {
         }, importedAttendees);
         console.log('Log file generated');
         
-        // Handle copy-paste data for spreadsheet (from last response)
+        // Generate copy-paste data with cumulative totals
         let copyPasteData = null;
-        if (lastResponse && lastResponse.data.details.copy_paste_data) {
-            copyPasteData = lastResponse.data.details.copy_paste_data;
-            console.log('Copy-paste data generated for spreadsheet');
+        try {
+            // Create the import data with cumulative totals
+            const importDataForSpreadsheet = {
+                totalSubscribers: totalAttendees,
+                successCount: successCount,
+                failureCount: failureCount,
+                updateCount: updateCount,
+                newCount: newCount,
+                errors: errors,
+                errorDetails: errorDetails,
+                rejectedFields: rejectedFields,
+                rejectedFieldsCount: rejectedFieldsCount
+            };
+            
+            // Generate copy-paste data using the cumulative totals
+            const response = await axios.post('/location/generate-spreadsheet-data', {
+                location_id: props.location.id,
+                import_data: importDataForSpreadsheet,
+                tags: allTags
+            });
+            
+            if (response.data.copy_paste_data) {
+                copyPasteData = response.data.copy_paste_data;
+                console.log('Copy-paste data generated with cumulative totals');
+            }
+        } catch (error) {
+            console.error('Failed to generate copy-paste data:', error);
+            // Fallback to last response if available
+            if (lastResponse && lastResponse.data.details.copy_paste_data) {
+                copyPasteData = lastResponse.data.details.copy_paste_data;
+                console.log('Using fallback copy-paste data from last response');
+            }
         }
         
         // Show comprehensive final results
