@@ -12,6 +12,7 @@ use Illuminate\Support\Str;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use App\Services\MailchimpLogService;
+use App\Services\SpreadsheetLogService;
 
 class LocationController extends Controller
 {
@@ -428,7 +429,7 @@ class LocationController extends Controller
     }
 
     // NEW METHOD: Manual import with enhanced field mapping and tracking
-    public function manualImportToMailchimp(Request $request, MailchimpLogService $logService)
+    public function manualImportToMailchimp(Request $request, MailchimpLogService $logService, SpreadsheetLogService $spreadsheetService)
     {   
         Log::info('manualImportToMailchimp called', ['data' => $request->all()]);
         set_time_limit(60);
@@ -546,6 +547,29 @@ class LocationController extends Controller
                     ];
                     
                     $logService->logImport($request->location_id, 'Manual Import', $logStats);
+                    
+                    // Generate copy-paste data for spreadsheet
+                    try {
+                        $copyPasteData = $spreadsheetService->generateFormattedText(
+                            $request->location_id, 
+                            $logStats, 
+                            $tags
+                        );
+                        
+                        // Add copy-paste data to response
+                        $results['copy_paste_data'] = $copyPasteData;
+                        
+                        Log::info('Generated copy-paste data for spreadsheet', [
+                            'location_id' => $request->location_id
+                        ]);
+                        
+                    } catch (\Exception $e) {
+                        Log::error('Failed to generate copy-paste data', [
+                            'error' => $e->getMessage(),
+                            'location_id' => $request->location_id
+                        ]);
+                        // Don't fail the import if copy-paste generation fails
+                    }
                 } catch (\Exception $e) {
                     Log::error('Failed to log manual import session', [
                         'error' => $e->getMessage(),

@@ -461,6 +461,7 @@ const handleMailchimpImport = async () => {
         });
 
         // Process each chunk
+        let lastResponse = null;
         for (let i = 0; i < totalChunks; i++) {
             const start = i * chunkSize;
             const end = Math.min(start + chunkSize, attendeesToImport.length);
@@ -476,6 +477,7 @@ const handleMailchimpImport = async () => {
                 });
                 
                 console.log('Mailchimp response', response);
+                lastResponse = response; // Store the last response for copy-paste data
                 
                 // Process response details
                 if (response.data.details.success > 0) {
@@ -571,6 +573,13 @@ const handleMailchimpImport = async () => {
         }, importedAttendees);
         console.log('Log file generated');
         
+        // Handle copy-paste data for spreadsheet (from last response)
+        let copyPasteData = null;
+        if (lastResponse && lastResponse.data.details.copy_paste_data) {
+            copyPasteData = lastResponse.data.details.copy_paste_data;
+            console.log('Copy-paste data generated for spreadsheet');
+        }
+        
         // Show comprehensive final results
         await showDetailedResults({
             totalAttendees,
@@ -584,7 +593,8 @@ const handleMailchimpImport = async () => {
             updatedAttendees,
             newAttendees,
             rejectedFields,
-            rejectedFieldsCount
+            rejectedFieldsCount,
+            copyPasteData
         });
         console.log('Final results shown'); 
         
@@ -614,7 +624,8 @@ const showDetailedResults = async (results) => {
         updatedAttendees,
         newAttendees,
         rejectedFields,
-        rejectedFieldsCount
+        rejectedFieldsCount,
+        copyPasteData
     } = results;
 
     // Create tabs content
@@ -800,6 +811,20 @@ const showDetailedResults = async (results) => {
                         📥 A detailed log file has been downloaded with complete import details.
                     </div>
                 </div>
+                
+                <!-- Copy-Paste Data Section -->
+                <div class="mt-6 p-4 bg-gray-50 rounded-lg">
+                    <h4 class="font-semibold text-gray-800 mb-3">📋 Spreadsheet Data</h4>
+                    <div class="mb-4 p-3 bg-white border rounded-lg">
+                        <div class="text-sm text-gray-600 mb-2">Copy-paste data for spreadsheet:</div>
+                        <div class="select-all cursor-pointer hover:bg-gray-100 transition-colors p-2 bg-gray-50 rounded font-mono text-xs whitespace-pre-wrap" id="spreadsheet-data">${copyPasteData || 'No data available'}</div>
+                    </div>
+                    <div class="flex justify-center">
+                        <button onclick="copyTabSeparated()" class="bg-blue-500 hover:bg-blue-600 text-white px-6 py-3 rounded-lg text-sm font-medium transition-colors shadow-md">
+                            📋 Copy Separated Data
+                        </button>
+                    </div>
+                </div>
             </div>
         `,
         width: '800px',
@@ -821,6 +846,150 @@ const showDetailedResults = async (results) => {
                 button.classList.add('active', 'border-blue-500', 'text-blue-600');
                 button.classList.remove('border-transparent', 'text-gray-500');
             };
+            
+            // Add click handler for spreadsheet data selection
+            const spreadsheetDataElement = document.getElementById('spreadsheet-data');
+            if (spreadsheetDataElement) {
+                spreadsheetDataElement.addEventListener('click', function() {
+                    const range = document.createRange();
+                    range.selectNodeContents(this);
+                    const selection = window.getSelection();
+                    selection.removeAllRanges();
+                    selection.addRange(range);
+                });
+            }
+            
+            // Add copy functions
+            window.copyTabSeparated = function() {
+                console.log('Copy function called');
+                const dataElement = document.getElementById('spreadsheet-data');
+                if (dataElement) {
+                    const text = dataElement.textContent;
+                    console.log('Raw text content:', text);
+                    const lines = text.split('\n');
+                    console.log('Split lines:', lines);
+                    
+                    // Find the line that contains "COPY THIS LINE"
+                    const copyLineIndex = lines.findIndex(line => line.includes('COPY THIS LINE'));
+                    console.log('Copy line index:', copyLineIndex);
+                    if (copyLineIndex !== -1 && copyLineIndex + 1 < lines.length) {
+                        // Get the line after "COPY THIS LINE" which contains the tab-separated data
+                        const tabLine = lines[copyLineIndex + 1].trim();
+                        console.log('Tab line found:', tabLine);
+                        console.log('Tab line length:', tabLine.length);
+                        console.log('Tab line contains tabs:', tabLine.includes('\t'));
+                        console.log('Tab line split by tabs:', tabLine.split('\t'));
+                        
+                        // Verify this line contains tab-separated data (should have multiple tabs)
+                        // Also check for other common separators that might be used
+                        const hasTabs = tabLine.includes('\t');
+                        const hasCommas = tabLine.includes(',');
+                        const tabSplit = tabLine.split('\t');
+                        const commaSplit = tabLine.split(',');
+                        
+                        if (hasTabs && tabSplit.length > 1) {
+                            console.log('Valid tab-separated data found, copying to clipboard');
+                            navigator.clipboard.writeText(tabLine).then(() => {
+                                Swal.fire({
+                                    title: 'Copied!',
+                                    text: 'Tab-separated data copied to clipboard. Paste into A151.',
+                                    icon: 'success',
+                                    timer: 2000,
+                                    showConfirmButton: false
+                                });
+                            }).catch(err => {
+                                console.error('Failed to copy to clipboard:', err);
+                                // Fallback: show the data in an alert for manual copying
+                                Swal.fire({
+                                    title: 'Copy Failed',
+                                    html: `
+                                        <div class="text-left">
+                                            <p class="mb-3">Please manually copy this data:</p>
+                                            <div class="bg-gray-100 p-3 rounded text-sm font-mono break-all">
+                                                ${tabLine}
+                                            </div>
+                                        </div>
+                                    `,
+                                    confirmButtonText: 'OK'
+                                });
+                            });
+                        } else if (hasCommas && commaSplit.length > 1) {
+                            console.log('Found comma-separated data, converting to tab-separated');
+                            // Convert comma-separated to tab-separated
+                            const tabSeparatedLine = commaSplit.join('\t');
+                            navigator.clipboard.writeText(tabSeparatedLine).then(() => {
+                                Swal.fire({
+                                    title: 'Copied!',
+                                    text: 'Comma-separated data converted to tab-separated and copied to clipboard. Paste into A151.',
+                                    icon: 'success',
+                                    timer: 2000,
+                                    showConfirmButton: false
+                                });
+                            });
+                        } else {
+                            console.log('No tabs or commas found in line, searching for tab-separated data');
+                            // If no tabs found, try to find the actual tab-separated line
+                            for (let i = copyLineIndex + 1; i < lines.length; i++) {
+                                const line = lines[i].trim();
+                                console.log(`Checking line ${i}:`, line);
+                                if (line && (line.includes('\t') || line.split('\t').length > 1)) {
+                                    console.log('Found tab-separated data on line', i);
+                                    navigator.clipboard.writeText(line).then(() => {
+                                        Swal.fire({
+                                            title: 'Copied!',
+                                            text: 'Tab-separated data copied to clipboard. Paste into A151.',
+                                            icon: 'success',
+                                            timer: 2000,
+                                            showConfirmButton: false
+                                        });
+                                    });
+                                    return;
+                                } else if (line && (line.includes(',') || line.split(',').length > 1)) {
+                                    console.log('Found comma-separated data on line', i, 'converting to tab-separated');
+                                    const tabSeparatedLine = line.split(',').join('\t');
+                                    navigator.clipboard.writeText(tabSeparatedLine).then(() => {
+                                        Swal.fire({
+                                            title: 'Copied!',
+                                            text: 'Comma-separated data converted to tab-separated and copied to clipboard. Paste into A151.',
+                                            icon: 'success',
+                                            timer: 2000,
+                                            showConfirmButton: false
+                                        });
+                                    });
+                                    return;
+                                }
+                            }
+                            // If still not found, show error with more details
+                            console.log('No tab-separated or comma-separated data found');
+                            Swal.fire({
+                                title: 'Error',
+                                html: `
+                                    <div class="text-left">
+                                        <p class="mb-3">Could not find properly separated data in the copy-paste content.</p>
+                                        <p class="text-sm text-gray-600 mb-3">Raw content found:</p>
+                                        <div class="bg-gray-100 p-2 rounded text-xs font-mono max-h-32 overflow-y-auto">
+                                            ${tabLine}
+                                        </div>
+                                    </div>
+                                `,
+                                icon: 'error'
+                            });
+                        }
+                    } else {
+                        console.log('Could not find COPY THIS LINE or no data after it');
+                        Swal.fire({
+                            title: 'Error',
+                            text: 'Could not find the copy-paste data format.',
+                            icon: 'error'
+                        });
+                    }
+                } else {
+                    console.log('Data element not found');
+                }
+            };
+            
+
+            
         },
         icon: failureCount > 0 ? 'warning' : 'success'
     });
