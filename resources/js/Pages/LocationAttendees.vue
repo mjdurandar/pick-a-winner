@@ -652,6 +652,13 @@ const handleMailchimpImport = async () => {
         selectedList.value = '';
         customTags.value = '';
         isImporting.value = false;
+        
+        // If import was successful, refresh the page to update the import status indicator
+        if (successCount > 0) {
+            setTimeout(() => {
+                router.reload();
+            }, 2000); // Wait 2 seconds to let user see the results
+        }
     } catch (error) {
         console.error('Import error:', error);
         await Swal.fire('Error!', error.response?.data?.error || 'Failed to import data to Mailchimp.', 'error');
@@ -1103,9 +1110,16 @@ const downloadLogFile = (content, filename) => {
     <AuthenticatedLayout>
         <template #header>
             <div class="flex justify-between items-center">
-                <h2 class="text-xl font-semibold leading-tight text-gray-800">
-                    Attendees for {{ location.name }} - {{ event.event_name }}
-                </h2>
+                <div class="flex items-center space-x-3">
+                    <h2 class="text-xl font-semibold leading-tight text-gray-800">
+                        Attendees for {{ location.name }} - {{ event.event_name }}
+                    </h2>
+                    <!-- Mailchimp Import Status Indicator -->
+                    <div v-if="location.imported_to_mailchimp" class="flex items-center space-x-2 bg-green-100 text-green-800 px-3 py-1 rounded-full text-sm">
+                        <i class="fa-solid fa-check-circle"></i>
+                        <span>Imported to Mailchimp</span>
+                    </div>
+                </div>
                 <button 
                     @click="goBackToLocation"
                     class="bg-gray-500 text-white px-4 py-2 rounded hover:bg-gray-700"

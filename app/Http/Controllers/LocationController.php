@@ -38,9 +38,23 @@ class LocationController extends Controller
         $event = Events::findOrFail($eventId);
         $locations = Location::where('event_id', $eventId)->get();
 
+        // Check which locations have been imported to Mailchimp
+        $locationIds = $locations->pluck('id');
+        $importedLocationIds = DB::table('mailchimp_logs')
+            ->whereIn('location_id', $locationIds)
+            ->where('status', 'Success')
+            ->distinct()
+            ->pluck('location_id');
+
+        // Add import status to each location
+        $locationsWithImportStatus = $locations->map(function ($location) use ($importedLocationIds) {
+            $location->imported_to_mailchimp = $importedLocationIds->contains($location->id);
+            return $location;
+        });
+
         return Inertia::render('LocationPage', [
             'event' => $event,
-            'locations' => $locations
+            'locations' => $locationsWithImportStatus
         ]);
     }
 

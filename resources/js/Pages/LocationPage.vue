@@ -1083,10 +1083,17 @@ watch(
                                 <button 
                                     @click="viewLocationAttendees(location)"
                                     class="text-white px-3 py-2 rounded"
-                                    style="background-color: #16C3D9; color: white; border-radius: 5px; padding: 10px 20px; cursor: pointer;"
-                                    title="View Attendees"
+                                    :style="{
+                                        backgroundColor: location.imported_to_mailchimp ? '#10B981' : '#16C3D9',
+                                        color: 'white',
+                                        borderRadius: '5px',
+                                        padding: '10px 20px',
+                                        cursor: 'pointer'
+                                    }"
+                                    :title="location.imported_to_mailchimp ? 'View Attendees (Imported to Mailchimp)' : 'View Attendees'"
                                 >
                                     <i class="fa-solid fa-users"></i>
+                                    <span v-if="location.imported_to_mailchimp" class="text-xs"></span>
                                 </button>
                                 <!-- Edit Button -->
                                 <button 
