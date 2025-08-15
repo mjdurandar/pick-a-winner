@@ -930,7 +930,7 @@ watch(
                 <div class="overflow-hidden bg-white shadow-sm sm:rounded-lg">
                     <div class="p-6 text-gray-900 text-center">
                         <div class="flex flex-col sm:flex-row justify-between items-center gap-4 mb-4">
-                            <h3 class="text-lg font-semibold text-center sm:text-left">Locations Password for {{ event.event_name }}</h3>
+                            <h3 class="text-lg font-semibold text-center sm:text-left">{{ event.event_name }}</h3>
                             <div class="flex gap-2">
                                 <!-- CSV Import Button with Help Text -->
                                 <div class="relative group">

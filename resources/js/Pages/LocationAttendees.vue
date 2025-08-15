@@ -1,9 +1,10 @@
 <script setup>
-import { ref, computed } from 'vue';
+import { ref, computed, onMounted } from 'vue';
 import Swal from 'sweetalert2';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout.vue';
 import { Head, router } from '@inertiajs/vue3';
 import { debounce } from 'lodash';
+import axios from 'axios';
 
 const props = defineProps({
     event: Object,
@@ -23,6 +24,10 @@ const showWinnerModal = ref(false);
 const showEditPrizeModal = ref(false);
 const selectedPrize = ref(null);
 const editPrizeName = ref('');
+const mailchimpSettings = ref({
+    film_tour: '',
+    default_tags: ''
+});
 
 // Debounce the search to prevent excessive filtering
 const updateDebouncedSearch = debounce((value) => {
@@ -109,6 +114,60 @@ const goToPage = (page) => {
     }
 };
 
+// ✅ Fetch Mailchimp settings for tag generation
+const fetchMailchimpSettings = async () => {
+    try {
+        const response = await axios.get(route('mailchimp.autosync.settings'), {
+            params: {
+                event_id: props.event.id
+            }
+        });
+        const { settings } = response.data;
+        mailchimpSettings.value = {
+            film_tour: settings.film_tour || '',
+            default_tags: Array.isArray(settings.default_tags) ? settings.default_tags.join(', ') : settings.default_tags || ''
+        };
+    } catch (error) {
+        console.error('Failed to fetch Mailchimp settings:', error);
+        // Set defaults if fetch fails
+        mailchimpSettings.value = {
+            film_tour: 'WM',
+            default_tags: ''
+        };
+    }
+};
+
+// ✅ Generate location-specific Mailchimp tags
+const generateLocationTags = () => {
+    const tags = [];
+    const filmTour = mailchimpSettings.value.film_tour || 'WM';
+    const year = new Date().getFullYear();
+    const locationName = props.location.name;
+    const locationFirstWord = locationName.split(' ')[0].toUpperCase();
+    
+    // Add SHOW tag
+    tags.push(`SHOW - ${locationFirstWord}`);
+    
+    // Add SOURCE tag with configured film tour code
+    tags.push(`SOURCE - ${filmTour.toUpperCase()} ${locationFirstWord} COMP ${year}`);
+    
+    // Add any default tags if they exist
+    if (mailchimpSettings.value.default_tags) {
+        const defaultTags = mailchimpSettings.value.default_tags
+            .split(',')
+            .map(tag => tag.trim())
+            .filter(tag => tag);
+        tags.push(...defaultTags);
+    }
+    
+    return tags;
+};
+
+// ✅ Initialize component
+onMounted(() => {
+    fetchMailchimpSettings();
+});
+
 // ✅ Export filtered data to CSV
 const exportToCSV = () => {
     if (filteredAttendees.value.length === 0) {
@@ -117,16 +176,20 @@ const exportToCSV = () => {
     }
 
     let csvContent = "data:text/csv;charset=utf-8,";
+    
+    // Generate Mailchimp tags for this location
+    const locationTags = generateLocationTags();
+    const tagsString = locationTags.join(', ');
 
     // Add headers using questions instead of column names
-    csvContent += columnHeaders.value.map(col => `"${getQuestionText(col)}"`).join(",") + ",\"Winner Status\",\"Prize\"\n";
+    csvContent += columnHeaders.value.map(col => `"${getQuestionText(col)}"`).join(",") + ",\"Winner Status\",\"Prize\",\"Mailchimp Tags\"\n";
 
     // Add data rows
     filteredAttendees.value.forEach(attendee => {
         const row = columnHeaders.value.map(col => `"${attendee[col] || ''}"`).join(",");
         const winnerStatus = isWinner(attendee) ? "Winner" : "Not Winner";
         const prize = getWinnerPrize(attendee);
-        csvContent += row + `,\"${winnerStatus}\",\"${prize}\"\n`;
+        csvContent += row + `,\"${winnerStatus}\",\"${prize}\",\"${tagsString}\"\n`;
     });
 
     // Create a downloadable link
@@ -295,6 +358,21 @@ const closeEditPrizeModal = () => {
                             <div class="bg-yellow-100 p-4 rounded-lg">
                                 <h3 class="text-lg font-semibold text-yellow-800">Eligible for Prizes</h3>
                                 <p class="text-2xl font-bold text-yellow-900">{{ attendees.length - prizes.length }}</p>
+                            </div>
+                        </div>
+
+                        <!-- Mailchimp Tags Info -->
+                        <div class="bg-purple-100 p-4 rounded-lg mb-6">
+                            <h3 class="text-lg font-semibold text-purple-800 mb-2">Mailchimp Export Tags</h3>
+                            <p class="text-sm text-purple-700 mb-2">The following tags will be included in the CSV export:</p>
+                            <div class="flex flex-wrap gap-2">
+                                <span 
+                                    v-for="tag in generateLocationTags()" 
+                                    :key="tag" 
+                                    class="bg-purple-200 text-purple-800 px-2 py-1 rounded text-sm"
+                                >
+                                    {{ tag }}
+                                </span>
                             </div>
                         </div>
 
