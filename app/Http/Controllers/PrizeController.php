@@ -11,7 +11,7 @@ class PrizeController extends Controller
 
         $request->validate([
             'event_id' => 'required|exists:events,id',
-            'prize_name' => 'required|string|max:255',
+            'prize_name' => 'nullable|string|max:255',
         ]);
     
         // ✅ Create the new prize

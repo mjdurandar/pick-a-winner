@@ -356,9 +356,9 @@ const confirmWinner = () => {
 
     isSubmitting.value = true;
 
-    // Create a new entry with winner but null prize
+    // Create a new entry with winner but empty prize
     const data = new FormData();
-    data.append('prize_name', null); // Prize will be set later
+    data.append('prize_name', 'null'); // Prize will be set later - using 'null' string
     data.append('event_id', props.event.id);
     data.append('location_id', props.location.id);
     data.append('winner_name', selectedWinner.value.first_name + " " + selectedWinner.value.last_name);
@@ -622,7 +622,7 @@ input:-webkit-autofill:active {
                                         :class="{'bg-cyan-700': prize.winner_email}">
                                             <!-- <td class="border border-gray-700 p-2">{{ prize.prize_name }}</td> -->
                                             <td class="border border-gray-700 p-2">{{ prize.winner }}</td>
-                                            <td class="border border-gray-700 p-2">{{ prize.prize_name === 'Prize Name' ? '' : (prize.prize_name || 'Not assigned') }}</td>
+                                            <td class="border border-gray-700 p-2">{{ (prize.prize_name && prize.prize_name !== 'null') ? prize.prize_name : '' }}</td>
                                             <!-- <td class="border border-gray-700 p-2">{{ prize.winner_email || 'No Winner Yet' }}</td>
                                             <td class="border border-gray-700 p-2">{{ prize.winner_mobile_number || 'No Winner Yet' }}</td> -->
                                             <td class="border border-gray-700 p-2 text-center">
