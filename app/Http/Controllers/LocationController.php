@@ -80,12 +80,33 @@ class LocationController extends Controller
             'time' => 'required'
         ]);
 
+        // Check if there are multiple locations with the same password (3-5 locations)
+        $existingLocations = Location::where('event_id', $request->event_id)->get();
+        
+        // Group locations by password and count them
+        $passwordCounts = $existingLocations->groupBy('password')->map(function ($group) {
+            return $group->count();
+        });
+        
+        // Find the most common password that appears 3 or more times
+        $commonPassword = null;
+        $maxCount = 0;
+        foreach ($passwordCounts as $password => $count) {
+            if ($count >= 3 && $count > $maxCount) {
+                $commonPassword = $password;
+                $maxCount = $count;
+            }
+        }
+        
+        // Use the common password if found, otherwise generate a random one
+        $password = $commonPassword ?: Str::random(10);
+
         $location = Location::create([
             'name' => $request->name,
             'event_id' => $request->event_id,
             'date' => $request->date,
             'time' => $request->time,
-            'password' => Str::random(10) // Generate a random password for the location
+            'password' => $password
         ]);
 
         return back()->with('success', 'Location created successfully');
