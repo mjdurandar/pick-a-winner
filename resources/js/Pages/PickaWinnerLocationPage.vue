@@ -681,7 +681,7 @@ input:-webkit-autofill:active {
                                 :disabled="isSubmitting"
                             >
                                 <span v-if="isSubmitting" class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>
-                                {{ isSubmitting ? 'Saving...' : 'Congratulations!' }}
+                                {{ isSubmitting ? 'Saving...' : 'Save Winner' }}
                             </button>
                         </div>
                     </div>
