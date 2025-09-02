@@ -13,9 +13,11 @@ class DashboardController extends Controller
 {   
     public function index() {
         $events = Events::get();
+        $eventCount = Events::count();
     
         return Inertia::render('Dashboard', [
-            'events' => $events
+            'events' => $events,
+            'eventCount' => $eventCount
         ]);
     }
     

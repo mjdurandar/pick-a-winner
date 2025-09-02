@@ -316,7 +316,7 @@
                             {{ allDataAttendees || 0 }}
                         </div>
                     </div>
-                    <div class="w-full lg:w-1/3 overflow-hidden bg-white shadow-sm sm:rounded-lg">
+                    <div v-if="selectedLocation" class="w-full lg:w-1/3 overflow-hidden bg-white shadow-sm sm:rounded-lg">
                         <div class="p-6 text-gray-900">Total Location Attendees</div>
                         <div class="pt-2 pb-5 d-flex justify-content-center font-semibold" style="font-size: 50px;">
                             {{ attendeesSelectedLocation || 0 }}
