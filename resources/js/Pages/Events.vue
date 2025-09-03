@@ -119,7 +119,8 @@ const saveEvent = () => {
 };
 
 const allLocationsPage = (event) => {
-    router.get(route('pickawinner.alllocation', { event: event.id }));
+    const url = route('pickawinner.alllocation', { event: event.id });
+    window.open(url, '_blank', 'noopener');
 };
 
 // Delete Event
@@ -184,7 +185,7 @@ const goToSignUpForm = (eventId) => {
                                         Sign Up Form
                                     </button>
                                     <div>
-                                        <button @click="allLocationsPage(event)" class="btn btn-sm me-2" style="background-color: #16C3D9; color: white;" v-if="userRole === 'admin' || userRole === 'host'">
+                                        <button target="_blank" @click="allLocationsPage(event)" class="btn btn-sm me-2" style="background-color: #16C3D9; color: white;" v-if="userRole === 'admin' || userRole === 'host'">
                                             <i class="fa-solid fa-users"></i>
                                         </button>
                                         <button @click="attendeesPage(event)" class="btn btn-sm me-2" style="background-color: #16C3D9; color: white;" v-if="userRole === 'admin' || userRole === 'host'">
