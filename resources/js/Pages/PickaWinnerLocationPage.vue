@@ -672,11 +672,11 @@ input:-webkit-autofill:active {
                             </template>
                         </div>
                         <div class="modal-footer border-gray-700 justify-content-center">
-                            <div class="d-block">
+                            <div class="d-block w-100 text-center">
                                 <button 
                                     type="button"
-                                    class="btn btn-success btn-lg d-block w-100 mb-3" 
-                                    style="font-size: 17px;"
+                                    class="btn btn-success btn-lg d-block mb-3" 
+                                    style="font-size: 17px; height: 50px; width: 150px; margin: 0 auto;"
                                     v-if="!isPicking" 
                                     @click="confirmWinner()"
                                     :disabled="isSubmitting"
@@ -684,7 +684,7 @@ input:-webkit-autofill:active {
                                     <span v-if="isSubmitting" class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>
                                     {{ isSubmitting ? 'Saving...' : 'Save Winner' }}
                                 </button>
-                                <button type="button" style="width: 180px; margin: auto; font-size: 12px;" class="btn btn-secondary d-block mb-2" v-if="!isPicking" @click="pickAgain()">Nope! Pick Again...</button>
+                                <button type="button" style="width: 140px; margin: 0 auto; font-size: 12px;" class="btn btn-secondary d-block" v-if="!isPicking" @click="pickAgain()">Nope! Pick Again...</button>
                             </div>
                         </div>
                     </div>
