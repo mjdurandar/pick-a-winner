@@ -671,18 +671,21 @@ input:-webkit-autofill:active {
                                 <p><strong>Age:</strong> {{ selectedWinner.age }}</p>
                             </template>
                         </div>
-                        <div class="modal-footer border-gray-700 d-flex justify-content-between">
-                            <button type="button" class="btn btn-secondary" v-if="!isPicking" @click="pickAgain()">Pick Again</button>
-                            <button 
-                                type="button" 
-                                class="btn btn-success" 
-                                v-if="!isPicking" 
-                                @click="confirmWinner()"
-                                :disabled="isSubmitting"
-                            >
-                                <span v-if="isSubmitting" class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>
-                                {{ isSubmitting ? 'Saving...' : 'Save Winner' }}
-                            </button>
+                        <div class="modal-footer border-gray-700 justify-content-center">
+                            <div class="d-block">
+                                <button 
+                                    type="button"
+                                    class="btn btn-success btn-lg d-block w-100 mb-3" 
+                                    style="font-size: 17px;"
+                                    v-if="!isPicking" 
+                                    @click="confirmWinner()"
+                                    :disabled="isSubmitting"
+                                >
+                                    <span v-if="isSubmitting" class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>
+                                    {{ isSubmitting ? 'Saving...' : 'Save Winner' }}
+                                </button>
+                                <button type="button" style="width: 180px; margin: auto; font-size: 12px;" class="btn btn-secondary d-block mb-2" v-if="!isPicking" @click="pickAgain()">Nope! Pick Again...</button>
+                            </div>
                         </div>
                     </div>
                 </div>
