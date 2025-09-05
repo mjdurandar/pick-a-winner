@@ -19,7 +19,7 @@
     const props = defineProps({
         events: { type: Array, default: () => [] },              
         locations: { type: Array, default: () => [] },       
-        selectedEventId: Number,    
+        selectedEventId: [String, Number],    
         allDataAttendees: Number,
         eventCount: Number,
         selectedLocationId: String, 
@@ -27,14 +27,18 @@
         attendeesChartData: { type: Array, default: () => [] },   // ✅ Receive Chart Data from Backend
     });
 
-    const selectedEvent = ref(props.selectedEventId || (props.events.length > 0 ? props.events[0].id : null));
+    const selectedEvent = ref(props.selectedEventId || 'all');
     const selectedLocation = ref(props.selectedLocationId || null);
+    
+    // Separate reactive values for the dropdowns (temporary selections)
+    const tempSelectedEvent = ref(props.selectedEventId || 'all');
+    const tempSelectedLocation = ref(props.selectedLocationId || null);
 
-    // ✅ Filter Locations for Selected Event
+    // ✅ Filter Locations for Selected Event (based on temp selection for dropdown)
     const filteredLocations = computed(() => {
         if (!Array.isArray(props.locations)) return []; // Ensure it's always an array
-        if (!selectedEvent.value) return [];
-        return props.locations.filter(location => location.event_id === selectedEvent.value);
+        if (!tempSelectedEvent.value || tempSelectedEvent.value === 'all') return [];
+        return props.locations.filter(location => location.event_id === tempSelectedEvent.value);
     });
 
     // Group locations by date
@@ -67,12 +71,12 @@
         return text.substring(0, length) + '...';
     };
 
-    // ✅ Chart Data for Attendees Per Location
+    // ✅ Chart Data for Attendees Per Location/Event
     const chartData = computed(() => ({
-        labels: props.attendeesChartData.map(item => item.location), // Only location name
+        labels: props.attendeesChartData.map(item => item.location), // Location name or Event name
         datasets: [
             {
-                label: 'Attendees Per Location',
+                label: selectedEvent.value === 'all' ? 'Attendees Per Event' : 'Attendees Per Location',
                 data: props.attendeesChartData.map(item => item.count),
                 backgroundColor: '#16C3D9',
                 borderColor: '#14b8cc',
@@ -81,85 +85,135 @@
         ]
     }));
 
-    const chartOptions = {
-        responsive: true,
-        maintainAspectRatio: false,
-        layout: {
-            padding: {
-                bottom: 25,
-                left: 10,
-                right: 10
-            }
-        },
-        plugins: {
-            tooltip: {
-                callbacks: {
-                    title: function(context) {
-                        const index = context[0].dataIndex;
-                        const item = props.attendeesChartData[index];
-                        return item.location;
+    // ✅ Dynamic chart options based on data
+    const chartOptions = computed(() => {
+        // Calculate max value from data
+        const maxValue = Math.max(...props.attendeesChartData.map(item => item.count), 0);
+        
+        // Calculate appropriate step size based on max value
+        let stepSize = 1;
+        if (maxValue > 1000) {
+            stepSize = Math.ceil(maxValue / 20); // Show about 20 ticks max
+        } else if (maxValue > 100) {
+            stepSize = Math.ceil(maxValue / 15); // Show about 15 ticks max
+        } else if (maxValue > 10) {
+            stepSize = Math.ceil(maxValue / 10); // Show about 10 ticks max
+        }
+        
+        return {
+            responsive: true,
+            maintainAspectRatio: false,
+            layout: {
+                padding: {
+                    bottom: 25,
+                    left: 10,
+                    right: 10
+                }
+            },
+            plugins: {
+                tooltip: {
+                    callbacks: {
+                        title: function(context) {
+                            const index = context[0].dataIndex;
+                            const item = props.attendeesChartData[index];
+                            return item.location;
+                        },
+                        label: function(context) {
+                            const index = context.dataIndex;
+                            const item = props.attendeesChartData[index];
+                            
+                            // Different tooltip content for All Events vs individual event
+                            if (selectedEvent.value === 'all') {
+                                const tooltipItems = [
+                                    `Event: ${item.event_name}`,
+                                    `Event Date: ${item.date}`,
+                                    `Total Attendees: ${item.count}`,
+                                    `Locations: ${item.location_count || 0}`
+                                ];
+                                
+                                // Add note if no signup form exists
+                                if (item.has_signup_form === false) {
+                                    tooltipItems.push('No signup form created');
+                                }
+                                
+                                return tooltipItems;
+                            } else {
+                                const labels = [
+                                    `Date: ${item.date}`,
+                                    `Time: ${item.time}`,
+                                    `Attendees: ${item.count}`
+                                ];
+                                
+                                // Add event name if it exists
+                                if (item.event_name) {
+                                    labels.unshift(`Event: ${item.event_name}`);
+                                }
+                                
+                                return labels;
+                            }
+                        }
+                    }
+                },
+                legend: {
+                    display: false
+                }
+            },
+            scales: {
+                x: {
+                    grid: {
+                        display: false
                     },
-                    label: function(context) {
-                        const index = context.dataIndex;
-                        const item = props.attendeesChartData[index];
-                        return [
-                            `Date: ${item.date}`,
-                            `Time: ${item.time}`,
-                            `Attendees: ${item.count}`
-                        ];
+                    ticks: {
+                        maxRotation: 90, // Vertical labels
+                        minRotation: 90, // Vertical labels
+                        font: {
+                            size: 11 // Slightly larger font since we only show location
+                        },
+                        autoSkip: false, // Show all labels
+                        padding: 5 // Add padding between labels
+                    }
+                },
+                y: {
+                    beginAtZero: true,
+                    grid: {
+                        color: '#e2e8f0'
+                    },
+                    ticks: {
+                        stepSize: stepSize,
+                        precision: 0
                     }
                 }
-            },
-            legend: {
-                display: false
             }
-        },
-        scales: {
-            x: {
-                grid: {
-                    display: false
-                },
-                ticks: {
-                    maxRotation: 90, // Vertical labels
-                    minRotation: 90, // Vertical labels
-                    font: {
-                        size: 11 // Slightly larger font since we only show location
-                    },
-                    autoSkip: false, // Show all labels
-                    padding: 5 // Add padding between labels
-                }
-            },
-            y: {
-                beginAtZero: true,
-                grid: {
-                    color: '#e2e8f0'
-                },
-                ticks: {
-                    stepSize: 1,
-                    precision: 0
-                }
-            }
-        }
-    };
+        };
+    });
 
-    // ✅ Function to Handle Event Change
+    // ✅ Function to Handle Event Change (for dropdown only)
     const handleEventChange = () => {
-        if (!filteredLocations.value.some(location => location.id === selectedLocation.value)) {
-            selectedLocation.value = null;
+        if (tempSelectedEvent.value === 'all') {
+            tempSelectedLocation.value = null;
+        } else if (!filteredLocations.value.some(location => location.id === tempSelectedLocation.value)) {
+            tempSelectedLocation.value = null;
         }
-        props.locations.length = 0;
     };
 
     // ✅ Function to Handle Filtering
     const filterData = () => {
-        if (!selectedEvent.value) {
+        if (!tempSelectedEvent.value) {
             alert('Please select an event first.');
             return;
         }
-        router.get(route('dashboard.filter', { event: selectedEvent.value, location: selectedLocation.value }));
+        
+        // Update the actual selected values when filter is applied
+        selectedEvent.value = tempSelectedEvent.value;
+        selectedLocation.value = tempSelectedLocation.value;
+        
+        router.get(route('dashboard.filter', { event: tempSelectedEvent.value, location: tempSelectedLocation.value }));
     };
 
     const selectedEventName = computed(() => {
+        if (selectedEvent.value === 'all') {
+            return "All Events";
+        }
         const event = props.events.find(e => e.id === selectedEvent.value);
         return event ? event.event_name : "Select an Event";
     });
@@ -252,10 +306,10 @@
                             <div class="me-3">
                                 <label class="block text-lg font-semibold mb-2">Event:</label>
                                 <select 
-                                    v-model="selectedEvent" 
+                                    v-model="tempSelectedEvent" 
                                     @change="handleEventChange"
                                     class="w-full p-2 border rounded">
-                                    <option value="" disabled>Select an Event</option>
+                                    <option value="all">All Events</option>
                                     <option v-for="event in events" :key="event.id" :value="event.id">
                                         {{ event.event_name }}
                                     </option>
@@ -263,10 +317,10 @@
                             </div>
 
                             <!-- ✅ Location Selection with OptGroup by Date -->
-                            <div v-if="locations.length > 0" class="me-3">
+                            <div v-if="locations.length > 0 && tempSelectedEvent !== 'all'" class="me-3">
                                 <label class="block text-lg font-semibold mb-2">Location:</label>
                                 <select 
-                                    v-model="selectedLocation"
+                                    v-model="tempSelectedLocation"
                                     class="w-full p-2 border rounded"
                                     :disabled="filteredLocations.length === 0">
                                     <option value="" disabled>Select a Location</option>
@@ -296,12 +350,16 @@
             <div class="mx-auto max-w-7xl sm:px-6 lg:px-8 mt-3">
                 <div class="overflow-hidden bg-white shadow-sm sm:rounded-lg">
                     <div class="p-6 text-gray-900">
-                        <h3 class="text-lg font-semibold mb-3">Attendees Per Location</h3>
+                        <h3 class="text-lg font-semibold mb-3">
+                            {{ selectedEvent === 'all' ? 'Attendees Per Event' : 'Attendees Per Location' }}
+                        </h3>
                         <div class="h-[550px]"> <!-- Adjusted height since we only show location names -->
                             <Bar v-if="props.attendeesChartData.length > 0" 
                                  :data="chartData" 
                                  :options="chartOptions" />
-                            <p v-else class="text-gray-500 text-center">No data available for this event.</p>
+                            <p v-else class="text-gray-500 text-center">
+                                {{ selectedEvent === 'all' ? 'No events available.' : 'No data available for this event.' }}
+                            </p>
                         </div>
                     </div>
                 </div>

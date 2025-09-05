@@ -32,4 +32,9 @@ class Events extends Model
             }
         });
     }
+
+    public function signUpForm()
+    {
+        return $this->hasOne(SignUpForm::class, 'event_id');
+    }
 }
