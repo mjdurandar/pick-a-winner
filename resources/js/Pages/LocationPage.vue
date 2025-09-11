@@ -56,8 +56,30 @@ const locationForm = useForm({
     time: ''
 });
 
+// Add reactive refs for TBA checkboxes
+const noDateYet = ref(false);
+const noTimeYet = ref(false);
+
 const formatLocationDateTime = (date, time) => {
     if (!date || !time) return '';
+    
+    // Handle TBA values
+    if (date === 'TBA' || time === 'TBA') {
+        let result = '';
+        if (date === 'TBA' && time === 'TBA') {
+            result = 'Date & Time TBA';
+        } else if (date === 'TBA') {
+            result = `Date TBA, ${time}`;
+        } else if (time === 'TBA') {
+            const dateObj = new Date(date);
+            result = `${dateObj.toLocaleDateString('en-US', {
+                year: 'numeric',
+                month: 'long',
+                day: 'numeric'
+            })} - Time TBA`;
+        }
+        return result;
+    }
 
     const datetime = new Date(`${date}T${time}`);
     return datetime.toLocaleString('en-US', {
@@ -349,11 +371,16 @@ const parseCSV = (csvText) => {
             };
 
             // Validate data
-            if (!locationData.name || !locationData.date || !locationData.time || 
-                locationData.name.trim() === '' || 
-                locationData.date.trim() === '' || 
-                locationData.time.trim() === '') {
-                throw new Error('Missing required data');
+            if (!locationData.name || locationData.name.trim() === '') {
+                throw new Error('Location name is required');
+            }
+            
+            // Allow TBA values for date and time
+            if (!locationData.date || locationData.date.trim() === '') {
+                locationData.date = 'TBA';
+            }
+            if (!locationData.time || locationData.time.trim() === '') {
+                locationData.time = 'TBA';
             }
 
             validLocations.push(locationData);
@@ -616,6 +643,9 @@ const viewLocationAttendees = (location) => {
 // Function to open location creation modal
 const openLocationModal = (location = null) => {
     locationForm.reset();
+    noDateYet.value = false;
+    noTimeYet.value = false;
+    
     if (location) {
         isEditing.value = true;
         locationForm.id = location.id;
@@ -623,6 +653,10 @@ const openLocationModal = (location = null) => {
         locationForm.date = location.date;
         locationForm.time = location.time;
         locationForm.event_id = props.event.id;
+        
+        // Set checkboxes based on existing values
+        noDateYet.value = location.date === 'TBA';
+        noTimeYet.value = location.time === 'TBA';
     } else {
         isEditing.value = false;
         locationForm.event_id = props.event.id;
@@ -634,13 +668,30 @@ const openLocationModal = (location = null) => {
 
 // Function to save location
 const saveLocation = () => {
-    if (!locationForm.name || !locationForm.date || !locationForm.time) {
-        Swal.fire('Error', 'Location name, date and time are required!', 'error');
+    if (!locationForm.name) {
+        Swal.fire('Error', 'Location name is required!', 'error');
+        return;
+    }
+
+    // Prepare form data with TBA values if checkboxes are checked
+    const formData = {
+        ...locationForm,
+        date: noDateYet.value ? 'TBA' : locationForm.date,
+        time: noTimeYet.value ? 'TBA' : locationForm.time
+    };
+
+    // Validate that if checkboxes are not checked, date and time are provided
+    if (!noDateYet.value && !formData.date) {
+        Swal.fire('Error', 'Date is required or check "No Date yet"!', 'error');
+        return;
+    }
+    if (!noTimeYet.value && !formData.time) {
+        Swal.fire('Error', 'Time is required or check "No Time yet"!', 'error');
         return;
     }
 
     if (isEditing.value) {
-        router.put(route('location.update', locationForm.id), locationForm, {
+        router.put(route('location.update', locationForm.id), formData, {
             onSuccess: () => {
                 closeLocationModal();
                 Swal.fire('Success!', 'Location has been updated.', 'success');
@@ -652,7 +703,7 @@ const saveLocation = () => {
             }
         });
     } else {
-        router.post(route('location.store'), locationForm, {
+        router.post(route('location.store'), formData, {
             onSuccess: () => {
                 closeLocationModal();
                 Swal.fire('Success!', 'Location has been created.', 'success');
@@ -720,6 +771,8 @@ const deleteAllLocations = () => {
 // Add function to handle modal close
 const closeLocationModal = () => {
     showLocationModal.value = false;
+    noDateYet.value = false;
+    noTimeYet.value = false;
     let modalElement = bootstrap.Modal.getInstance(document.getElementById('createLocationModal'));
     if (modalElement) {
         modalElement.hide();
@@ -1233,8 +1286,20 @@ watch(
                                     v-model="locationForm.date" 
                                     type="date" 
                                     class="form-control" 
-                                    required 
+                                    :disabled="noDateYet"
+                                    :required="!noDateYet"
                                 />
+                                <div class="form-check mt-2">
+                                    <input 
+                                        type="checkbox" 
+                                        v-model="noDateYet" 
+                                        class="form-check-input" 
+                                        id="noDateYet"
+                                    />
+                                    <label class="form-check-label" for="noDateYet">
+                                        No Date yet
+                                    </label>
+                                </div>
                             </div>
                             <div class="mb-3">
                                 <label class="form-label">Time</label>
@@ -1242,8 +1307,20 @@ watch(
                                     v-model="locationForm.time" 
                                     type="time" 
                                     class="form-control" 
-                                    required 
+                                    :disabled="noTimeYet"
+                                    :required="!noTimeYet"
                                 />
+                                <div class="form-check mt-2">
+                                    <input 
+                                        type="checkbox" 
+                                        v-model="noTimeYet" 
+                                        class="form-check-input" 
+                                        id="noTimeYet"
+                                    />
+                                    <label class="form-check-label" for="noTimeYet">
+                                        No Time yet
+                                    </label>
+                                </div>
                             </div>
 
                             <div class="modal-footer">
@@ -1270,15 +1347,19 @@ watch(
                     <div class="bg-gray-100 p-4 rounded">
                         <pre class="text-sm">name,date,time
 Adelaide,September 01 2024,4:00 pm
-Melbourne,September 02 2024,6:00 pm</pre>
+Melbourne,September 02 2024,6:00 pm
+Sydney,,TBA
+Brisbane,October 15 2024,
+Perth,,</pre>
                     </div>
                     <div class="space-y-2">
                         <p class="font-semibold">Requirements:</p>
                         <ul class="list-disc list-inside space-y-1 text-gray-600">
                             <li>File must be in CSV format</li>
                             <li>Must include header row with columns: name, date, time</li>
-                            <li>Date format: Month DD YYYY (e.g., "September 01 2024")</li>
-                            <li>Time format: H:MM am/pm (e.g., "4:00 pm" or "10:30 am")</li>
+                            <li>Date format: Month DD YYYY (e.g., "September 01 2024") or leave empty for TBA</li>
+                            <li>Time format: H:MM am/pm (e.g., "4:00 pm" or "10:30 am") or leave empty for TBA</li>
+                            <li>Location name is required, but date and time can be left empty for TBA</li>
                         </ul>
                     </div>
                     <div class="mt-6 flex justify-end">
