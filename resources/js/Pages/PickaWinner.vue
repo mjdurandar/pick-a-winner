@@ -30,9 +30,12 @@ const selectedLocation = computed(() => {
 const formattedLocations = computed(() => {
     return locations.value.map(location => {
         const dateObj = new Date(location.date);
+        // Create a datetime object that includes both date and time for proper sorting
+        const dateTimeObj = new Date(`${location.date}T${location.time}`);
         return {
             ...location,
             dateObj, // Add the date object for sorting
+            dateTimeObj, // Add the datetime object for time sorting
             formatted_date: formatDate(location.date),
             formatted_time: formatTime(location.time)
         };
@@ -62,8 +65,8 @@ const groupedLocations = computed(() => {
                 return nameComparison;
             }
             
-            // If names are the same, sort by time
-            return a.dateObj - b.dateObj;
+            // If names are the same, sort by datetime (which includes time)
+            return a.dateTimeObj - b.dateTimeObj;
         });
     });
 
