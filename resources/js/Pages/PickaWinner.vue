@@ -41,7 +41,7 @@ const formattedLocations = computed(() => {
 
 // Group locations by date
 const groupedLocations = computed(() => {
-    return formattedLocations.value.reduce((groups, location) => {
+    const groups = formattedLocations.value.reduce((groups, location) => {
         const dateKey = location.date; // Use raw date for grouping key
         if (!groups[dateKey]) {
             groups[dateKey] = {
@@ -52,6 +52,22 @@ const groupedLocations = computed(() => {
         groups[dateKey].locations.push(location);
         return groups;
     }, {});
+
+    // Sort locations within each date group alphabetically by name, then by time
+    Object.keys(groups).forEach(dateKey => {
+        groups[dateKey].locations.sort((a, b) => {
+            // First sort alphabetically by name
+            const nameComparison = a.name.localeCompare(b.name);
+            if (nameComparison !== 0) {
+                return nameComparison;
+            }
+            
+            // If names are the same, sort by time
+            return a.dateObj - b.dateObj;
+        });
+    });
+
+    return groups;
 });
 
 // Function to format date to "March 07, 2025" format
