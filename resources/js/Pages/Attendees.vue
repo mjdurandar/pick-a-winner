@@ -16,6 +16,11 @@ const debouncedSearchValue = ref('');
 const currentPage = ref(1);
 const itemsPerPage = 20;
 
+// Export tags modal
+const showExportModal = ref(false);
+const exportTags = ref('');
+const defaultSourceWord = ref('WM'); // Default word for SOURCE tag
+
 // Debounce the search to prevent excessive filtering
 const updateDebouncedSearch = debounce((value) => {
     debouncedSearchValue.value = value.toLowerCase();
@@ -90,7 +95,18 @@ const goToPage = (page) => {
     }
 };
 
-// ✅ Export filtered data to CSV
+// ✅ Show export modal
+const showExportModalDialog = () => {
+    if (filteredAttendees.value.length === 0) {
+        Swal.fire('No Data', 'No attendees found to export.', 'warning');
+        return;
+    }
+    exportTags.value = '';
+    defaultSourceWord.value = 'WM'; // Reset to default
+    showExportModal.value = true;
+};
+
+// ✅ Export filtered data to CSV with tags
 const exportToCSV = () => {
     if (filteredAttendees.value.length === 0) {
         Swal.fire('No Data', 'No attendees found to export.', 'warning');
@@ -99,12 +115,29 @@ const exportToCSV = () => {
 
     let csvContent = "data:text/csv;charset=utf-8,";
 
-    // Add headers using questions instead of column names
-    csvContent += columnHeaders.value.map(col => `"${getQuestionText(col)}"`).join(",") + "\n";
+    // Add headers using questions instead of column names, plus Tags column
+    const headers = [...columnHeaders.value.map(col => `"${getQuestionText(col)}"`), '"Tags"'];
+    csvContent += headers.join(",") + "\n";
+
+    // Process manual tags - convert to uppercase and split by comma
+    const manualTags = exportTags.value
+        .split(',')
+        .map(tag => tag.trim().toUpperCase())
+        .filter(tag => tag);
 
     // Add data rows
     filteredAttendees.value.forEach(attendee => {
-        csvContent += columnHeaders.value.map(col => `"${attendee[col] || ''}"`).join(",") + "\n";
+        const dataRow = columnHeaders.value.map(col => `"${attendee[col] || ''}"`);
+        
+        // Generate automated tags for this attendee
+        const automatedTags = generateAutomatedTags(attendee);
+        
+        // Combine automated and manual tags
+        const allTags = [...automatedTags, ...manualTags];
+        const finalTags = allTags.join(', ');
+        
+        dataRow.push(`"${finalTags}"`); // Add tags column
+        csvContent += dataRow.join(",") + "\n";
     });
 
     // Create a downloadable link
@@ -115,6 +148,44 @@ const exportToCSV = () => {
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
+
+    // Close modal and show success message
+    showExportModal.value = false;
+    Swal.fire('Success!', 'CSV file has been exported with tags.', 'success');
+};
+
+// ✅ Close export modal
+const closeExportModal = () => {
+    showExportModal.value = false;
+    exportTags.value = '';
+    defaultSourceWord.value = 'WM'; // Reset to default
+};
+
+// ✅ Extract location name from Location Name column
+const extractLocationName = (locationName) => {
+    if (!locationName) return '';
+    // Get the part before the dash and trim whitespace
+    const parts = locationName.split(' - ');
+    return parts[0] ? parts[0].trim() : locationName.trim();
+};
+
+// ✅ Generate automated tags based on location and default word
+const generateAutomatedTags = (attendee) => {
+    const locationName = attendee.location_name || '';
+    const extractedLocation = extractLocationName(locationName);
+    const currentYear = new Date().getFullYear();
+    
+    const automatedTags = [];
+    
+    if (extractedLocation) {
+        // Add SHOW - {LOCATION} tag
+        automatedTags.push(`SHOW - ${extractedLocation.toUpperCase()}`);
+        
+        // Add SOURCE - {DEFAULT_WORD} {LOCATION} COMP {YEAR} tag
+        automatedTags.push(`SOURCE - ${defaultSourceWord.value.toUpperCase()} ${extractedLocation.toUpperCase()} COMP ${currentYear}`);
+    }
+    
+    return automatedTags;
 };
 
 // ✅ Delete Attendee with Confirmation
@@ -163,8 +234,9 @@ const deleteAttendee = (attendeeId, eventId) => {
                             />
                             <!-- ✅ Export Button -->
                             <button 
-                                @click="exportToCSV" 
+                                @click="showExportModalDialog" 
                                 class="bg-green-500 text-white px-4 py-2 rounded hover:bg-green-700"
+                                title="Export to CSV with Tags"
                             >
                                 <i class="fa-solid fa-file-csv"></i>
                             </button>
@@ -219,6 +291,95 @@ const deleteAttendee = (attendeeId, eventId) => {
                         <div v-if="attendees.length === 0" class="text-gray-600 text-center mt-4">
                             No attendees have registered for this event.
                         </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Export Tags Modal -->
+        <div v-if="showExportModal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+            <div class="bg-white p-6 rounded-lg shadow-xl max-w-md w-full mx-4">
+                <div class="flex justify-between items-center mb-4">
+                    <h3 class="text-lg font-semibold">Export CSV with Tags</h3>
+                    <button @click="closeExportModal" class="text-gray-500 hover:text-gray-700">
+                        <i class="fa-solid fa-times"></i>
+                    </button>
+                </div>
+                
+                <div class="space-y-4">
+                    <p class="text-gray-600">
+                        Configure automated tags and add additional manual tags for the exported CSV file.
+                    </p>
+
+                    <!-- Default Source Word Input -->
+                    <div class="mb-4">
+                        <label class="block text-sm font-medium text-gray-700 mb-2">
+                            Default Source Word
+                        </label>
+                        <input 
+                            type="text" 
+                            v-model="defaultSourceWord"
+                            class="w-full border rounded px-3 py-2"
+                            placeholder="e.g., WM, RUNNATION, etc."
+                        />
+                        <p class="text-sm text-gray-500 mt-1">
+                            This will be used in the SOURCE tag: SOURCE - {WORD} {LOCATION} COMP 2025
+                        </p>
+                    </div>
+
+                    <!-- Automated Tags Preview -->
+                    <div class="mb-4 p-3 bg-blue-50 rounded-lg">
+                        <h4 class="font-semibold text-blue-800 mb-2">Automated Tags Preview:</h4>
+                        <div class="text-sm text-blue-700">
+                            <div v-if="filteredAttendees.length > 0">
+                                <div class="mb-1">
+                                    <strong>SHOW - {LOCATION}</strong> (extracted from Location Name before the dash)
+                                </div>
+                                <div class="mb-1">
+                                    <strong>SOURCE - {{ defaultSourceWord.toUpperCase() }} {LOCATION} COMP 2025</strong>
+                                </div>
+                                <div class="text-xs text-blue-600 mt-2">
+                                    Example: If Location Name is "Melbourne - Classic Cinema", it will generate:
+                                    <br>• SHOW - MELBOURNE
+                                    <br>• SOURCE - {{ defaultSourceWord.toUpperCase() }} MELBOURNE COMP 2025
+                                </div>
+                            </div>
+                            <div v-else class="text-gray-500">
+                                No attendees found to preview
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Manual Tags Input -->
+                    <div class="mb-4">
+                        <label class="block text-sm font-medium text-gray-700 mb-2">
+                            Additional Manual Tags (comma-separated)
+                        </label>
+                        <input 
+                            type="text" 
+                            v-model="exportTags"
+                            class="w-full border rounded px-3 py-2"
+                            placeholder="e.g., 2025, FILM TOUR - WARREN MILLER, SPECIAL EVENT"
+                        />
+                        <p class="text-sm text-gray-500 mt-1">
+                            Enter additional tags separated by commas. These will be added to the automated tags.
+                        </p>
+                    </div>
+
+                    <div class="flex justify-end space-x-3">
+                        <button 
+                            @click="closeExportModal"
+                            class="px-4 py-2 border rounded text-gray-600 hover:bg-gray-50"
+                        >
+                            Cancel
+                        </button>
+                        <button 
+                            @click="exportToCSV"
+                            class="px-4 py-2 bg-green-500 text-white rounded hover:bg-green-600"
+                        >
+                            <i class="fa-solid fa-file-csv mr-2"></i>
+                            Export CSV
+                        </button>
                     </div>
                 </div>
             </div>
