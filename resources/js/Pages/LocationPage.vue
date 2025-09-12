@@ -96,12 +96,15 @@ const generateLocationTags = (locationName) => {
     const tags = [];
     const filmTour = mailchimpSettings.value.film_tour;
     const year = new Date().getFullYear(); // Use next year by default
-    const locationFirstWord = locationName.split(' ')[0].toUpperCase(); // Get first word only
+    
+    // Extract first word before hyphen for both SHOW and SOURCE tags
+    const locationTag = locationName.split(' - ')[0].toUpperCase();
+    
     // Add SHOW tag
-    tags.push(`SHOW - ${locationFirstWord}`);
+    tags.push(`SHOW - ${locationTag}`);
     
     // Add SOURCE tag with configured film tour code
-    tags.push(`SOURCE - ${filmTour.toUpperCase()} ${locationFirstWord} COMP ${year}`);
+    tags.push(`SOURCE - ${filmTour.toUpperCase()} ${locationTag} COMP ${year}`);
     
     return tags;
 };
@@ -138,11 +141,13 @@ const handleMailchimpImport = async () => {
         const filmTour = mailchimpSettings.value.film_tour;
         const year = new Date().getFullYear();
         const locationName = selectedLocation.value.name;
-        const locationFirstWord = locationName.split(' ')[0].toUpperCase(); // Get first word only
+        
+        // Extract first word before hyphen for both SHOW and SOURCE tags
+        const locationTag = locationName.split(' - ')[0].toUpperCase();
         
         // Create the SOURCE tag in the exact format
-        const sourceTag = `SOURCE - ${filmTour.toUpperCase()} ${locationFirstWord} COMP ${year}`;
-        const showTag = `SHOW - ${locationName.toUpperCase()}`; // Keep full name for SHOW tag
+        const sourceTag = `SOURCE - ${filmTour.toUpperCase()} ${locationTag} COMP ${year}`;
+        const showTag = `SHOW - ${locationTag}`;
         
         // Combine with any manual tags
         let allTags = [sourceTag, showTag];
