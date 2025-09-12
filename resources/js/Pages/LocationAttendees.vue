@@ -154,13 +154,15 @@ const generateLocationTags = () => {
     const filmTour = mailchimpSettings.value.film_tour || 'WM';
     const year = new Date().getFullYear();
     const locationName = props.location.name;
-    const locationFirstWord = locationName.split(' ')[0].toUpperCase();
+    
+    // Extract first word before hyphen for both SHOW and SOURCE tags
+    const locationTag = locationName.split(' - ')[0].toUpperCase();
     
     // Add SHOW tag
-    tags.push(`SHOW - ${locationFirstWord}`);
+    tags.push(`SHOW - ${locationTag}`);
     
     // Add SOURCE tag with configured film tour code
-    tags.push(`SOURCE - ${filmTour.toUpperCase()} ${locationFirstWord} COMP ${year}`);
+    tags.push(`SOURCE - ${filmTour.toUpperCase()} ${locationTag} COMP ${year}`);
     
     // Add any default tags if they exist
     if (mailchimpSettings.value.default_tags) {
