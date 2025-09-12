@@ -97,7 +97,7 @@ const generateLocationTags = (locationName) => {
     const filmTour = mailchimpSettings.value.film_tour;
     const year = new Date().getFullYear(); // Use next year by default
     
-    // Extract first word before hyphen for both SHOW and SOURCE tags
+    // Extract everything before hyphen for both SHOW and SOURCE tags
     const locationTag = locationName.split(' - ')[0].toUpperCase();
     
     // Add SHOW tag
@@ -142,7 +142,7 @@ const handleMailchimpImport = async () => {
         const year = new Date().getFullYear();
         const locationName = selectedLocation.value.name;
         
-        // Extract first word before hyphen for both SHOW and SOURCE tags
+        // Extract everything before hyphen for both SHOW and SOURCE tags
         const locationTag = locationName.split(' - ')[0].toUpperCase();
         
         // Create the SOURCE tag in the exact format

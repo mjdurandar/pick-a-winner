@@ -54,10 +54,12 @@ class AutoMailchimpService
             $locationName = $location->name;
             $filmTour = $settings['film_tour'];
             $year = date('Y');
-            $locationFirstWord = explode(' ', $locationName)[0];
             
-            $sourceTag = "SOURCE - " . strtoupper($filmTour) . " " . strtoupper($locationFirstWord) . " COMP " . $year;
-            $showTag = "SHOW - " . strtoupper($locationFirstWord);
+            // Extract everything before hyphen for both SHOW and SOURCE tags
+            $locationTag = explode(' - ', $locationName)[0];
+            
+            $sourceTag = "SOURCE - " . strtoupper($filmTour) . " " . strtoupper($locationTag) . " COMP " . $year;
+            $showTag = "SHOW - " . strtoupper($locationTag);
             
             // Combine with default tags
             $tags = array_merge(
