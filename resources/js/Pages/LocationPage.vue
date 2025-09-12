@@ -42,10 +42,46 @@ const mailchimpSettings = ref({
     default_tags: '',
     enabled_locations: [],
     film_tour: '',  // Default to WM
+    mailchimp_account: 'anz', // Default to ANZ
     event_id: props.event.id  // Add event_id
 });
 const availableLists = ref([]);
+const availableAccounts = ref([]);
 const isSettingsLoading = ref(false);
+
+// Add computed property for tag preview
+const tagPreview = computed(() => {
+    if (!mailchimpSettings.value.film_tour) return [];
+    
+    const filmTour = mailchimpSettings.value.film_tour;
+    const year = new Date().getFullYear();
+    
+    // Sample location names for preview
+    const sampleLocations = [
+        'Melbourne South East - Classic Cinema',
+        'Sydney - Opera House',
+        'Brisbane Central - Convention Centre',
+        'Adelaide - Entertainment Centre'
+    ];
+    
+    const previewTags = [];
+    
+    sampleLocations.forEach(locationName => {
+        // Extract everything before hyphen for both SHOW and SOURCE tags
+        const locationTag = locationName.split(' - ')[0].toUpperCase();
+        
+        const showTag = `SHOW - ${locationTag}`;
+        const sourceTag = `SOURCE - ${filmTour.toUpperCase()} ${locationTag} COMP ${year}`;
+        
+        previewTags.push({
+            location: locationName,
+            showTag: showTag,
+            sourceTag: sourceTag
+        });
+    });
+    
+    return previewTags;
+});
 
 // Add new form for location creation
 const locationForm = useForm({
@@ -906,21 +942,39 @@ const openMailchimpSettingsModal = async () => {
                 event_id: props.event.id
             }
         });
-        const { settings, available_lists } = response.data;
+        const { settings, available_lists, available_accounts } = response.data;
         
         mailchimpSettings.value = {
             ...settings,
             film_tour: settings.film_tour,
             default_tags: Array.isArray(settings.default_tags) ? settings.default_tags.join(', ') : '',
+            mailchimp_account: settings.mailchimp_account || 'anz',
             event_id: props.event.id
         };
         availableLists.value = available_lists;
+        availableAccounts.value = available_accounts;
         showMailchimpSettingsModal.value = true;
     } catch (error) {
         console.error('Failed to fetch Mailchimp settings:', error);
         Swal.fire('Error', 'Failed to load Mailchimp settings', 'error');
     } finally {
         isSettingsLoading.value = false;
+    }
+};
+
+const loadListsForAccount = async (account) => {
+    try {
+        const response = await axios.get(route('mailchimp.autosync.lists'), {
+            params: { account }
+        });
+        availableLists.value = response.data.lists;
+        // Reset selected list when account changes
+        mailchimpSettings.value.default_list_id = '';
+    } catch (error) {
+        console.error('Failed to load lists for account:', error);
+        // Don't show error modal for account changes, just log it
+        console.warn('Account not configured or API error:', error.message);
+        availableLists.value = [];
     }
 };
 
@@ -933,6 +987,7 @@ const saveMailchimpSettings = async () => {
             enabled_locations: Array.isArray(mailchimpSettings.value.enabled_locations) 
                 ? mailchimpSettings.value.enabled_locations 
                 : [],
+            mailchimp_account: mailchimpSettings.value.mailchimp_account,
             event_id: props.event.id
         };
 
@@ -1044,6 +1099,16 @@ watch(
         }
     },
     { immediate: true, deep: true }
+);
+
+// Watch for account changes to load lists
+watch(
+    () => mailchimpSettings.value.mailchimp_account,
+    (newAccount) => {
+        if (newAccount && showMailchimpSettingsModal.value) {
+            loadListsForAccount(newAccount);
+        }
+    }
 );
 
 </script>
@@ -1513,6 +1578,27 @@ Perth,,</pre>
                     </div>
                     <div class="modal-body">
                         <div class="mb-4">
+                            <label class="form-label">Mailchimp Account</label>
+                            <select 
+                                v-model="mailchimpSettings.mailchimp_account"
+                                class="form-select"
+                                @change="loadListsForAccount(mailchimpSettings.mailchimp_account)"
+                            >
+                                <option 
+                                    v-for="(account, key) in availableAccounts" 
+                                    :key="key" 
+                                    :value="key"
+                                    :disabled="!account.enabled"
+                                >
+                                    {{ account.name }} {{ !account.enabled ? '(Not Configured)' : '' }}
+                                </option>
+                            </select>
+                            <div class="form-text">
+                                Select which Mailchimp account to use for auto-sync.
+                            </div>
+                        </div>
+
+                        <div class="mb-4">
                             <label class="form-label">Auto-Sync</label>
                             <div class="form-check">
                                 <input 
@@ -1525,11 +1611,12 @@ Perth,,</pre>
                             </div>
                         </div>
 
-                        <div class="mb-4">
+                        <div class="mb-4" v-if="mailchimpSettings.auto_sync">
                             <label class="form-label">Default Mailchimp Audience</label>
                             <select 
                                 v-model="mailchimpSettings.default_list_id"
                                 class="form-select"
+                                :class="{ 'is-invalid': !mailchimpSettings.default_list_id && mailchimpSettings.auto_sync }"
                             >
                                 <option value="">Select an audience...</option>
                                 <option 
@@ -1540,6 +1627,13 @@ Perth,,</pre>
                                     {{ list.name }} ({{ list.stats.member_count }} members)
                                 </option>
                             </select>
+                            <div v-if="availableLists.length === 0" class="form-text text-warning">
+                                <i class="fa-solid fa-exclamation-triangle me-1"></i>
+                                No audiences found for this account. Please check your API configuration or select a different account.
+                            </div>
+                            <div v-if="!mailchimpSettings.default_list_id && mailchimpSettings.auto_sync" class="invalid-feedback">
+                                Please select a Mailchimp audience when auto-sync is enabled.
+                            </div>
                         </div>
 
                         <div class="mb-4">
@@ -1568,6 +1662,33 @@ Perth,,</pre>
                                 Enter tags separated by commas. Each tag will be added to the subscribers.
                             </div>
                         </div>
+
+                        <!-- Tag Preview Section -->
+                        <!-- <div class="mb-4" v-if="mailchimpSettings.film_tour">
+                            <label class="form-label">Tag Preview</label>
+                            <div class="p-3 bg-light rounded">
+                                <div class="mb-2">
+                                    <strong>Sample tags that will be automatically generated:</strong>
+                                </div>
+                                <div class="row">
+                                    <div class="col-md-6" v-for="(preview, index) in tagPreview" :key="index">
+                                        <div class="mb-3 p-2 border rounded">
+                                            <div class="fw-bold text-primary mb-1">{{ preview.location }}</div>
+                                            <div class="mb-1">
+                                                <span class="badge bg-success me-1">{{ preview.showTag }}</span>
+                                            </div>
+                                            <div class="mb-1">
+                                                <span class="badge bg-info">{{ preview.sourceTag }}</span>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="text-muted small">
+                                    <i class="fa-solid fa-info-circle me-1"></i>
+                                    These tags will be automatically added to subscribers based on their selected location.
+                                </div>
+                            </div>
+                        </div> -->
                     </div>
                     <div class="modal-footer">
                         <button 

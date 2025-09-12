@@ -36,6 +36,15 @@ return [
     ],
 
     'mailchimp' => [
+        'anz' => [
+            'key' => env('MAILCHIMP_API_KEY'),
+            'server' => env('MAILCHIMP_SERVER_PREFIX'),
+        ],
+        'usa' => [
+            'key' => env('MAILCHIMP_USA_API_KEY'),
+            'server' => env('MAILCHIMP_USA_SERVER_PREFIX'),
+        ],
+        // Legacy support
         'key' => env('MAILCHIMP_API_KEY'),
         'server' => env('MAILCHIMP_SERVER_PREFIX'),
     ],

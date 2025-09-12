@@ -111,6 +111,7 @@ Route::middleware(['auth', RoleMiddleware::class . ':admin'])->group(function ()
 // Mailchimp Auto-sync Settings Routes
 Route::get('/mailchimp/autosync/settings', [MailchimpAutoSyncController::class, 'getSettings'])->name('mailchimp.autosync.settings');
 Route::post('/mailchimp/autosync/update', [MailchimpAutoSyncController::class, 'updateSettings'])->name('mailchimp.autosync.update');
+Route::get('/mailchimp/autosync/lists', [MailchimpAutoSyncController::class, 'getListsForAccount'])->name('mailchimp.autosync.lists');
 
 // API Routes
 Route::prefix('api')->middleware(['auth', 'verified'])->group(function () {

@@ -10,16 +10,31 @@ class MailchimpService
     protected $apiKey;
     protected $serverPrefix;
     protected $baseUrl;
+    protected $account;
 
-    public function __construct()
+    public function __construct($account = 'anz')
     {
-        $this->apiKey = Config::get('services.mailchimp.key');
-        $this->serverPrefix = Config::get('services.mailchimp.server');
+        $this->account = $account;
+        
+        // Support both new multi-account structure and legacy single account
+        if ($account === 'anz' || $account === 'usa') {
+            $this->apiKey = Config::get("services.mailchimp.{$account}.key");
+            $this->serverPrefix = Config::get("services.mailchimp.{$account}.server");
+        } else {
+            // Legacy support
+            $this->apiKey = Config::get('services.mailchimp.key');
+            $this->serverPrefix = Config::get('services.mailchimp.server');
+        }
+        
         $this->baseUrl = "https://{$this->serverPrefix}.api.mailchimp.com/3.0";
     }
 
     public function getLists()
     {
+        if (empty($this->apiKey)) {
+            throw new \Exception("Mailchimp API key not configured for account: {$this->account}");
+        }
+
         $response = Http::withBasicAuth('anystring', $this->apiKey)
             ->get("{$this->baseUrl}/lists");
 
@@ -28,6 +43,24 @@ class MailchimpService
         }
 
         throw new \Exception('Failed to fetch Mailchimp lists: ' . $response->body());
+    }
+
+    public static function getAvailableAccounts()
+    {
+        return [
+            'anz' => [
+                'name' => 'Mailchimp ANZ',
+                'key' => Config::get('services.mailchimp.anz.key'),
+                'server' => Config::get('services.mailchimp.anz.server'),
+                'enabled' => !empty(Config::get('services.mailchimp.anz.key'))
+            ],
+            'usa' => [
+                'name' => 'Mailchimp USA',
+                'key' => Config::get('services.mailchimp.usa.key'),
+                'server' => Config::get('services.mailchimp.usa.server'),
+                'enabled' => !empty(Config::get('services.mailchimp.usa.key'))
+            ]
+        ];
     }
 
     public function getListMergeFields($listId)

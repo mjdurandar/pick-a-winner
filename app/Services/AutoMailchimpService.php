@@ -28,6 +28,7 @@ class AutoMailchimpService
             'default_tags' => [],
             'enabled_locations' => [],
             'film_tour' => 'WM',
+            'mailchimp_account' => 'anz', // Default to ANZ
             'event_id' => $eventId
         ]);
     }
@@ -86,8 +87,12 @@ class AutoMailchimpService
                 return;
             }
 
+            // Create MailchimpService instance with selected account
+            $selectedAccount = $settings['mailchimp_account'] ?? 'anz';
+            $mailchimpService = new MailchimpService($selectedAccount);
+            
             // Add to Mailchimp
-            $this->mailchimpService->addSubscriberToList(
+            $mailchimpService->addSubscriberToList(
                 $settings['default_list_id'],
                 [
                     'email_address' => $subscriber->email_address,
