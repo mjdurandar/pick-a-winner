@@ -125,7 +125,58 @@ const exportReport = () => {
     form.submit();
     document.body.removeChild(form);
     
-    Swal.fire('Success', 'Report export initiated', 'success');
+    Swal.fire('Success', 'CSV export initiated', 'success');
+};
+
+const exportPdf = async () => {
+    if (!startDate.value || !endDate.value) {
+        Swal.fire('Error', 'Please select both start and end dates', 'error');
+        return;
+    }
+    
+    try {
+        // Get CSRF token
+        const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || 
+                         document.querySelector('input[name="_token"]')?.value;
+        
+        if (!csrfToken) {
+            throw new Error('CSRF token not found');
+        }
+        
+        // Use fetch to make the request
+        const response = await fetch(route('weekly-report.export-pdf'), {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRF-TOKEN': csrfToken,
+                'Accept': 'application/pdf'
+            },
+            body: JSON.stringify({
+                start_date: startDate.value,
+                end_date: endDate.value
+            })
+        });
+        
+        if (response.ok) {
+            const blob = await response.blob();
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `weekly_report_${startDate.value}_to_${endDate.value}.pdf`;
+            a.style.display = 'none';
+            document.body.appendChild(a);
+            a.click();
+            window.URL.revokeObjectURL(url);
+            document.body.removeChild(a);
+            
+            Swal.fire('Success', 'PDF exported successfully', 'success');
+        } else {
+            throw new Error('PDF export failed');
+        }
+    } catch (error) {
+        console.error('Error exporting PDF:', error);
+        Swal.fire('Error', `Failed to export PDF: ${error.message}`, 'error');
+    }
 };
 
 // Computed properties for better data handling
@@ -221,7 +272,7 @@ const formatTime = (timeString) => {
                                     class="w-full p-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                                 />
                             </div>
-                            <div class="w-full flex justify-end">
+                            <div class="w-full flex justify-end gap-2">
                                 <button
                                     @click="generateReport"
                                     :disabled="isLoading"
@@ -236,6 +287,13 @@ const formatTime = (timeString) => {
                                 >
                                     Export CSV
                                 </button> -->
+                                <button
+                                    @click="exportPdf"
+                                    :disabled="!hasData"
+                                    class="px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                                >
+                                    Export PDF
+                                </button>
                             </div>
                         </div>
                     </div>
@@ -263,7 +321,7 @@ const formatTime = (timeString) => {
                     </div>
                     <div class="bg-white overflow-hidden shadow-sm sm:rounded-lg">
                         <div class="p-6">
-                            <div class="text-sm font-medium text-gray-500">Avg per Event</div>
+                            <div class="text-sm font-medium text-gray-500">Average per Event</div>
                             <div class="text-2xl font-bold text-gray-900">{{ summary.average_signups_per_event }}</div>
                         </div>
                     </div>

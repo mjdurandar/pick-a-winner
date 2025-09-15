@@ -117,6 +117,7 @@ Route::get('/mailchimp/autosync/lists', [MailchimpAutoSyncController::class, 'ge
 Route::get('/weekly-report', [App\Http\Controllers\WeeklyReportController::class, 'index'])->name('weekly-report');
 Route::match(['get', 'post'], '/weekly-report/generate', [App\Http\Controllers\WeeklyReportController::class, 'generate'])->name('weekly-report.generate');
 Route::post('/weekly-report/export', [App\Http\Controllers\WeeklyReportController::class, 'export'])->name('weekly-report.export');
+Route::post('/weekly-report/export-pdf', [App\Http\Controllers\WeeklyReportController::class, 'exportPdf'])->name('weekly-report.export-pdf');
 
 // API Routes
 Route::prefix('api')->middleware(['auth', 'verified'])->group(function () {

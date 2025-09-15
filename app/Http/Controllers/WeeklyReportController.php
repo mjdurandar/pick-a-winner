@@ -9,6 +9,8 @@ use App\Models\SignUpForm;
 use Inertia\Inertia;
 use Illuminate\Support\Facades\DB;
 use Carbon\Carbon;
+use Barryvdh\DomPDF\Facade\Pdf;
+use Illuminate\Support\Facades\Log;
 
 class WeeklyReportController extends Controller
 {
@@ -353,5 +355,206 @@ class WeeklyReportController extends Controller
             'Content-Type' => 'text/csv',
             'Content-Disposition' => 'attachment; filename="' . $filename . '"',
         ]);
+    }
+    
+    public function exportPdf(Request $request)
+    {
+        try {
+            $request->validate([
+                'start_date' => 'required|date',
+                'end_date' => 'required|date|after_or_equal:start_date'
+            ]);
+        } catch (\Exception $e) {
+            Log::error('PDF Export Validation Error: ' . $e->getMessage());
+            return response()->json(['error' => 'Validation failed: ' . $e->getMessage()], 400);
+        }
+        
+        $startDate = Carbon::parse($request->start_date)->startOfDay();
+        $endDate = Carbon::parse($request->end_date)->endOfDay();
+        
+        // Generate the same data as the report
+        $events = Events::whereBetween('created_at', [$startDate, $endDate])
+            ->orWhereHas('locations', function($query) use ($startDate, $endDate) {
+                $query->whereBetween('date', [$startDate->format('Y-m-d'), $endDate->format('Y-m-d')]);
+            })
+            ->with(['locations', 'signUpForm'])
+            ->get();
+        
+        $reportData = [];
+        $totalSignups = 0;
+        $totalEvents = $events->count();
+        $totalLocations = 0;
+        
+        foreach ($events as $event) {
+            $eventData = [
+                'event_id' => $event->id,
+                'event_name' => $event->event_name,
+                'event_date' => $event->event_date,
+                'created_at' => $event->created_at,
+                'locations' => [],
+                'total_signups' => 0,
+                'has_signup_form' => $event->signUpForm ? true : false
+            ];
+            
+            // Get locations for this event within the date range
+            $eventLocations = $event->locations->filter(function($location) use ($startDate, $endDate) {
+                if ($location->date === 'TBA' || $location->date === null || $location->date === '') {
+                    return false;
+                }
+                
+                try {
+                    $locationDate = Carbon::parse($location->date);
+                    return $locationDate->between($startDate, $endDate);
+                } catch (\Exception $e) {
+                    return false;
+                }
+            });
+            
+            foreach ($eventLocations as $location) {
+                $locationSignups = 0;
+                
+                if ($event->signUpForm && $event->signUpForm->table_name) {
+                    $tableName = $event->signUpForm->table_name;
+                    $locationSignups = DB::table($tableName)
+                        ->where('location_id', $location->id)
+                        ->whereBetween('created_at', [$startDate, $endDate])
+                        ->count();
+                }
+                
+                // Format date and time safely
+                $formattedDate = 'TBA';
+                $formattedTime = 'TBA';
+                
+                if ($location->date && $location->date !== 'TBA') {
+                    try {
+                        $formattedDate = Carbon::parse($location->date)->format('M d, Y');
+                    } catch (\Exception $e) {
+                        $formattedDate = $location->date;
+                    }
+                }
+                
+                if ($location->time && $location->time !== 'TBA') {
+                    try {
+                        $formattedTime = Carbon::parse($location->time)->format('g:i A');
+                    } catch (\Exception $e) {
+                        $formattedTime = $location->time;
+                    }
+                }
+                
+                $locationData = [
+                    'location_id' => $location->id,
+                    'location_name' => $location->name,
+                    'date' => $location->date,
+                    'time' => $location->time,
+                    'signups' => $locationSignups,
+                    'formatted_date' => $formattedDate,
+                    'formatted_time' => $formattedTime
+                ];
+                
+                $eventData['locations'][] = $locationData;
+                $eventData['total_signups'] += $locationSignups;
+                $totalSignups += $locationSignups;
+            }
+            
+            $totalLocations += count($eventData['locations']);
+            $reportData[] = $eventData;
+        }
+        
+        // Get all events summary
+        $allEvents = Events::with(['locations', 'signUpForm'])->get();
+        $allEventsSummary = [];
+        $allEventsTotalSignups = 0;
+        $allEventsTotalLocations = 0;
+        
+        foreach ($allEvents as $event) {
+            $eventTotalSignups = 0;
+            $eventLocations = Location::where('event_id', $event->id)->get();
+            
+            if ($event->signUpForm && $event->signUpForm->table_name) {
+                $tableName = $event->signUpForm->table_name;
+                $eventTotalSignups = DB::table($tableName)
+                    ->whereIn('location_id', $eventLocations->pluck('id'))
+                    ->count();
+            }
+            
+            // Determine event status
+            $eventStatus = 'No Locations';
+            if ($eventLocations->count() > 0) {
+                $today = Carbon::now()->startOfDay();
+                
+                $locationDates = $eventLocations->filter(function($location) {
+                    return $location->date && $location->date !== 'TBA';
+                })->map(function($location) {
+                    try {
+                        return Carbon::parse($location->date);
+                    } catch (\Exception $e) {
+                        return null;
+                    }
+                })->filter();
+                
+                if ($locationDates->count() > 0) {
+                    $earliestDate = $locationDates->min();
+                    $latestDate = $locationDates->max();
+                    
+                    if ($today->lt($earliestDate)) {
+                        $eventStatus = 'Upcoming';
+                    } elseif ($today->gte($earliestDate) && $today->lte($latestDate)) {
+                        $eventStatus = 'Ongoing';
+                    } else {
+                        $eventStatus = 'Completed';
+                    }
+                } else {
+                    $eventStatus = 'TBA';
+                }
+            }
+            
+            $allEventsSummary[] = [
+                'event_id' => $event->id,
+                'event_name' => $event->event_name,
+                'total_locations' => $eventLocations->count(),
+                'total_signups' => $eventTotalSignups,
+                'average_per_location' => $eventLocations->count() > 0 ? round($eventTotalSignups / $eventLocations->count(), 2) : 0,
+                'status' => $eventStatus,
+                'has_signup_form' => $event->signUpForm ? true : false
+            ];
+            
+            $allEventsTotalSignups += $eventTotalSignups;
+            $allEventsTotalLocations += $eventLocations->count();
+        }
+        
+        $dateRange = [
+            'start_date' => $startDate->format('Y-m-d'),
+            'end_date' => $endDate->format('Y-m-d'),
+            'start_formatted' => $startDate->format('M d, Y'),
+            'end_formatted' => $endDate->format('M d, Y')
+        ];
+        
+        $summary = [
+            'total_events' => $totalEvents,
+            'total_locations' => $totalLocations,
+            'total_signups' => $totalSignups,
+            'average_signups_per_event' => $totalEvents > 0 ? round($totalSignups / $totalEvents, 2) : 0,
+            'average_signups_per_location' => $totalLocations > 0 ? round($totalSignups / $totalLocations, 2) : 0
+        ];
+        
+        $allEventsTotals = [
+            'total_events' => $allEvents->count(),
+            'total_locations' => $allEventsTotalLocations,
+            'total_signups' => $allEventsTotalSignups,
+            'average_per_event' => $allEvents->count() > 0 ? round($allEventsTotalSignups / $allEvents->count(), 2) : 0,
+            'average_per_location' => $allEventsTotalLocations > 0 ? round($allEventsTotalSignups / $allEventsTotalLocations, 2) : 0
+        ];
+        
+        try {
+            $pdf = Pdf::loadView('reports.weekly-pdf', compact('reportData', 'dateRange', 'summary', 'allEventsSummary', 'allEventsTotals'));
+            $pdf->setPaper('A4', 'portrait');
+            
+            $filename = 'weekly_report_' . $startDate->format('Y-m-d') . '_to_' . $endDate->format('Y-m-d') . '.pdf';
+            
+            return $pdf->download($filename);
+        } catch (\Exception $e) {
+            Log::error('PDF Generation Error: ' . $e->getMessage());
+            return response()->json(['error' => 'PDF generation failed: ' . $e->getMessage()], 500);
+        }
     }
 }
