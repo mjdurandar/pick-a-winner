@@ -37,4 +37,9 @@ class Events extends Model
     {
         return $this->hasOne(SignUpForm::class, 'event_id');
     }
+
+    public function locations()
+    {
+        return $this->hasMany(Location::class, 'event_id');
+    }
 }

@@ -113,6 +113,11 @@ Route::get('/mailchimp/autosync/settings', [MailchimpAutoSyncController::class, 
 Route::post('/mailchimp/autosync/update', [MailchimpAutoSyncController::class, 'updateSettings'])->name('mailchimp.autosync.update');
 Route::get('/mailchimp/autosync/lists', [MailchimpAutoSyncController::class, 'getListsForAccount'])->name('mailchimp.autosync.lists');
 
+// Weekly Report Routes
+Route::get('/weekly-report', [App\Http\Controllers\WeeklyReportController::class, 'index'])->name('weekly-report');
+Route::match(['get', 'post'], '/weekly-report/generate', [App\Http\Controllers\WeeklyReportController::class, 'generate'])->name('weekly-report.generate');
+Route::post('/weekly-report/export', [App\Http\Controllers\WeeklyReportController::class, 'export'])->name('weekly-report.export');
+
 // API Routes
 Route::prefix('api')->middleware(['auth', 'verified'])->group(function () {
     Route::get('/location/mailchimp/lists', [LocationController::class, 'getMailchimpLists'])->name('location.mailchimpLists');

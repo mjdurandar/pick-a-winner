@@ -76,6 +76,13 @@ const userRole = computed(() => user.value?.role);
                                 >
                                     Users
                                 </NavLink>
+                                <NavLink
+                                    v-if="userRole === 'admin' || userRole === 'host'"
+                                    :href="route('weekly-report')"
+                                    :active="route().current('weekly-report')"
+                                >
+                                    Report
+                                </NavLink>
                             </div>
                         </div>
 
@@ -212,6 +219,13 @@ const userRole = computed(() => user.value?.role);
                                     :active="route().current('users.index')"
                                 >
                                     Users
+                        </ResponsiveNavLink>
+                        <ResponsiveNavLink
+                                v-if="userRole === 'admin' || userRole === 'host'"
+                                    :href="route('weekly-report')"
+                                    :active="route().current('weekly-report')"
+                                >
+                                    Weekly Report
                         </ResponsiveNavLink>
                     </div>
 
