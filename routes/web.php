@@ -14,6 +14,8 @@ use Illuminate\Support\Facades\Route;
 use Inertia\Inertia;
 use App\Http\Middleware\RoleMiddleware;
 
+//testing push
+
 // Public Pick a Winner Routes
 Route::get('/pickawinner', [PickaWinnerController::class, 'index'])->name('pickawinner.index');
 Route::get('/pickawinner/{eventId}', [PickaWinnerController::class, 'pickawinner'])->name('pickawinner.page');
