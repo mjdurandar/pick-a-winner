@@ -17,18 +17,31 @@ class DashboardController extends Controller
         
         // Get combined data for all events
         $allEventsData = $this->getAllEventsData();
+        
+        // Get today's, tomorrow's, and this week's events
+        $todayEvents = $this->getTodayEvents();
+        $tomorrowEvents = $this->getTomorrowEvents();
+        $thisWeekEvents = $this->getThisWeekEvents();
     
         return Inertia::render('Dashboard', [
             'events' => $events,
             'eventCount' => $eventCount,
             'selectedEventId' => 'all',
             'attendeesChartData' => $allEventsData['attendeesChartData'],
-            'allDataAttendees' => $allEventsData['allDataAttendees']
+            'allDataAttendees' => $allEventsData['allDataAttendees'],
+            'todayEvents' => $todayEvents,
+            'tomorrowEvents' => $tomorrowEvents,
+            'thisWeekEvents' => $thisWeekEvents
         ]);
     }
     
     public function filter(Request $request, $event, $location = null) {
         $events = Events::all();
+        
+        // Get today's, tomorrow's, and this week's events filtered by selected event
+        $todayEvents = $this->getTodayEvents($event);
+        $tomorrowEvents = $this->getTomorrowEvents($event);
+        $thisWeekEvents = $this->getThisWeekEvents($event);
         
         // Handle "All Events" case
         if ($event === 'all') {
@@ -42,7 +55,10 @@ class DashboardController extends Controller
                 'attendeesSelectedLocation' => 0,
                 'allDataAttendees' => $allEventsData['allDataAttendees'],
                 'selectedLocationId' => null,
-                'attendeesChartData' => $allEventsData['attendeesChartData']
+                'attendeesChartData' => $allEventsData['attendeesChartData'],
+                'todayEvents' => $todayEvents,
+                'tomorrowEvents' => $tomorrowEvents,
+                'thisWeekEvents' => $thisWeekEvents
             ]);
         }
         
@@ -104,7 +120,10 @@ class DashboardController extends Controller
             'attendeesSelectedLocation' => $attendeesSelectedLocation ?? 0,
             'allDataAttendees' => $allDataAttendees ?? 0,
             'selectedLocationId' => $request->location,
-            'attendeesChartData' => $attendeesChartData // ✅ Pass data to frontend
+            'attendeesChartData' => $attendeesChartData, // ✅ Pass data to frontend
+            'todayEvents' => $todayEvents,
+            'tomorrowEvents' => $tomorrowEvents,
+            'thisWeekEvents' => $thisWeekEvents
         ]);
     }
     
@@ -153,5 +172,143 @@ class DashboardController extends Controller
         $allEventsData['allDataAttendees'] = $totalAttendees;
         
         return $allEventsData;
+    }
+    
+    private function getTodayEvents($eventId = null) {
+        $today = now()->format('Y-m-d');
+        
+        // Get locations for today
+        $query = Location::with('event')
+            ->whereDate('date', $today)
+            ->orderBy('time');
+            
+        // Filter by event if specified
+        if ($eventId && $eventId !== 'all') {
+            $query->where('event_id', $eventId);
+        }
+        
+        $todayLocations = $query->get();
+        
+        $todayData = [];
+        $totalAttendees = 0;
+        
+        foreach ($todayLocations as $location) {
+            $attendees = 0;
+            
+            // Get attendees count if signup form exists
+            if ($location->event->signUpForm && $location->event->signUpForm->table_name) {
+                $tableName = $location->event->signUpForm->table_name;
+                $attendees = DB::table($tableName)
+                    ->where('location_id', $location->id)
+                    ->count();
+                $totalAttendees += $attendees;
+            }
+            
+            $todayData[] = [
+                'location_name' => $location->name,
+                'event_name' => $location->event->event_name,
+                'time' => date('g:i A', strtotime($location->time)),
+                'attendees' => $attendees
+            ];
+        }
+        
+        return [
+            'locations' => $todayData,
+            'total_attendees' => $totalAttendees,
+            'date' => now()->format('F d, Y')
+        ];
+    }
+    
+    private function getTomorrowEvents($eventId = null) {
+        $tomorrow = now()->addDay()->format('Y-m-d');
+        
+        // Get locations for tomorrow
+        $query = Location::with('event')
+            ->whereDate('date', $tomorrow)
+            ->orderBy('time');
+            
+        // Filter by event if specified
+        if ($eventId && $eventId !== 'all') {
+            $query->where('event_id', $eventId);
+        }
+        
+        $tomorrowLocations = $query->get();
+        
+        $tomorrowData = [];
+        $totalAttendees = 0;
+        
+        foreach ($tomorrowLocations as $location) {
+            $attendees = 0;
+            
+            // Get attendees count if signup form exists
+            if ($location->event->signUpForm && $location->event->signUpForm->table_name) {
+                $tableName = $location->event->signUpForm->table_name;
+                $attendees = DB::table($tableName)
+                    ->where('location_id', $location->id)
+                    ->count();
+                $totalAttendees += $attendees;
+            }
+            
+            $tomorrowData[] = [
+                'location_name' => $location->name,
+                'event_name' => $location->event->event_name,
+                'time' => date('g:i A', strtotime($location->time)),
+                'attendees' => $attendees
+            ];
+        }
+        
+        return [
+            'locations' => $tomorrowData,
+            'total_attendees' => $totalAttendees,
+            'date' => now()->addDay()->format('F d, Y')
+        ];
+    }
+    
+    private function getThisWeekEvents($eventId = null) {
+        $startOfWeek = now()->startOfWeek()->format('Y-m-d');
+        $endOfWeek = now()->endOfWeek()->format('Y-m-d');
+        
+        // Get locations for this week
+        $query = Location::with('event')
+            ->whereBetween('date', [$startOfWeek, $endOfWeek])
+            ->orderBy('date')
+            ->orderBy('time');
+            
+        // Filter by event if specified
+        if ($eventId && $eventId !== 'all') {
+            $query->where('event_id', $eventId);
+        }
+        
+        $weekLocations = $query->get();
+        
+        $weekData = [];
+        $totalAttendees = 0;
+        
+        foreach ($weekLocations as $location) {
+            $attendees = 0;
+            
+            // Get attendees count if signup form exists
+            if ($location->event->signUpForm && $location->event->signUpForm->table_name) {
+                $tableName = $location->event->signUpForm->table_name;
+                $attendees = DB::table($tableName)
+                    ->where('location_id', $location->id)
+                    ->count();
+                $totalAttendees += $attendees;
+            }
+            
+            $weekData[] = [
+                'location_name' => $location->name,
+                'event_name' => $location->event->event_name,
+                'date' => date('M d', strtotime($location->date)),
+                'time' => date('g:i A', strtotime($location->time)),
+                'attendees' => $attendees
+            ];
+        }
+        
+        return [
+            'locations' => $weekData,
+            'total_attendees' => $totalAttendees,
+            'week_range' => now()->startOfWeek()->format('M d') . ' - ' . now()->endOfWeek()->format('M d, Y')
+        ];
     }
 }
