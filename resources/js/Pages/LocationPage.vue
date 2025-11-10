@@ -339,18 +339,29 @@ const parseCSV = (csvText) => {
     const convertTo24Hour = (timeStr) => {
         if (!timeStr) return '';
         
-        const [time, period] = timeStr.toLowerCase().split(' ');
-        if (!time || !period) return '';
+        const normalized = timeStr
+            .normalize('NFKC')
+            .replace(/[\u202f\u00a0]/g, ' ') // replace narrow & non-breaking spaces
+            .replace(/\s+/g, ' ')
+            .trim();
 
-        let [hours, minutes] = time.split(':');
+        if (!normalized) return '';
+
+        const match = normalized.match(/^(\d{1,2})(?::(\d{2}))?\s*([ap])\.?m\.?$/i);
+        if (!match) return '';
+
+        let hours = parseInt(match[1], 10);
+        const minutes = match[2] ?? '00';
+        const period = match[3].toLowerCase();
+
         if (!hours || !minutes) return '';
 
-        hours = parseInt(hours);
+        hours = parseInt(hours, 10);
         if (isNaN(hours)) return '';
 
-        if (period === 'pm' && hours !== 12) {
+        if (period === 'p' && hours !== 12) {
             hours += 12;
-        } else if (period === 'am' && hours === 12) {
+        } else if (period === 'a' && hours === 12) {
             hours = 0;
         }
 
@@ -1122,7 +1133,10 @@ watch(
                 <div class="overflow-hidden bg-white shadow-sm sm:rounded-lg">
                     <div class="p-6 text-gray-900 text-center">
                         <div class="flex flex-col sm:flex-row justify-between items-center gap-4 mb-4">
-                            <h3 class="text-lg font-semibold text-center sm:text-left">{{ event.event_name }}</h3>
+                            <div class="text-center sm:text-left">
+                                <h3 class="text-lg font-semibold">{{ event.event_name }}</h3>
+                                <p class="text-sm text-gray-600 mt-1">Locations: {{ filteredLocations.length }}</p>
+                            </div>
                             <div class="flex gap-2">
                                 <!-- CSV Import Button with Help Text -->
                                 <div class="relative group">
