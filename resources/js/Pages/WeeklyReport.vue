@@ -207,6 +207,63 @@ const exportPdf = async () => {
     }
 };
 
+const exportEventBreakdownPdf = async () => {
+    if (!selectedEventId.value) {
+        Swal.fire('Error', 'Please select an event first', 'error');
+        return;
+    }
+    
+    if (!eventBreakdown.value) {
+        Swal.fire('Error', 'Please load the event breakdown first', 'error');
+        return;
+    }
+    
+    try {
+        // Get CSRF token
+        const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || 
+                         document.querySelector('input[name="_token"]')?.value;
+        
+        if (!csrfToken) {
+            throw new Error('CSRF token not found');
+        }
+        
+        // Use fetch to make the request
+        const response = await fetch(route('weekly-report.event-breakdown.export-pdf'), {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRF-TOKEN': csrfToken,
+                'Accept': 'application/pdf'
+            },
+            body: JSON.stringify({
+                event_id: selectedEventId.value
+            })
+        });
+        
+        if (response.ok) {
+            const blob = await response.blob();
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            const eventName = eventBreakdown.value.event.name.replace(/[^a-z0-9]/gi, '_').toLowerCase();
+            a.download = `event_breakdown_${eventName}_${new Date().toISOString().split('T')[0]}.pdf`;
+            a.style.display = 'none';
+            document.body.appendChild(a);
+            a.click();
+            window.URL.revokeObjectURL(url);
+            document.body.removeChild(a);
+            
+            Swal.fire('Success', 'PDF exported successfully', 'success');
+        } else {
+            const errorData = await response.json();
+            throw new Error(errorData.error || 'PDF export failed');
+        }
+    } catch (error) {
+        console.error('Error exporting event breakdown PDF:', error);
+        Swal.fire('Error', `Failed to export PDF: ${error.message}`, 'error');
+    }
+};
+
 // Computed properties for better data handling
 const hasData = computed(() => props.reportData && props.reportData.length > 0);
 const totalSignups = computed(() => props.summary.total_signups || 0);
@@ -860,13 +917,20 @@ watch(() => eventBreakdown.value, async () => {
                                         </option>
                                     </select>
                                 </div>
-                                <div>
+                                <div class="flex gap-2">
                                     <button
                                         @click="loadEventBreakdown"
                                         :disabled="!selectedEventId || isLoadingBreakdown"
-                                        class="w-full px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                                        class="flex-1 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
                                     >
                                         {{ isLoadingBreakdown ? 'Loading...' : 'Load Breakdown' }}
+                                    </button>
+                                    <button
+                                        @click="exportEventBreakdownPdf"
+                                        :disabled="!selectedEventId || !eventBreakdown || isLoadingBreakdown"
+                                        class="px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                                    >
+                                        Export PDF
                                     </button>
                                 </div>
                             </div>

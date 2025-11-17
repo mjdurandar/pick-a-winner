@@ -121,6 +121,7 @@ Route::match(['get', 'post'], '/weekly-report/generate', [App\Http\Controllers\W
 Route::post('/weekly-report/export', [App\Http\Controllers\WeeklyReportController::class, 'export'])->name('weekly-report.export');
 Route::post('/weekly-report/export-pdf', [App\Http\Controllers\WeeklyReportController::class, 'exportPdf'])->name('weekly-report.export-pdf');
 Route::get('/weekly-report/event-breakdown', [App\Http\Controllers\WeeklyReportController::class, 'getEventBreakdown'])->name('weekly-report.event-breakdown');
+Route::post('/weekly-report/event-breakdown/export-pdf', [App\Http\Controllers\WeeklyReportController::class, 'exportEventBreakdownPdf'])->name('weekly-report.event-breakdown.export-pdf');
 
 // API Routes
 Route::prefix('api')->middleware(['auth', 'verified'])->group(function () {

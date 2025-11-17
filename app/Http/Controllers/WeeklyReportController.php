@@ -11,6 +11,7 @@ use Illuminate\Support\Facades\DB;
 use Carbon\Carbon;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Str;
 
 class WeeklyReportController extends Controller
 {
@@ -902,5 +903,291 @@ class WeeklyReportController extends Controller
             'breakdown' => $breakdown,
             'location_breakdown' => $locationBreakdown
         ]);
+    }
+    
+    public function exportEventBreakdownPdf(Request $request)
+    {
+        try {
+            $request->validate([
+                'event_id' => 'required|exists:events,id'
+            ]);
+        } catch (\Exception $e) {
+            Log::error('Event Breakdown PDF Export Validation Error: ' . $e->getMessage());
+            return response()->json(['error' => 'Validation failed: ' . $e->getMessage()], 400);
+        }
+        
+        // Reuse the same logic as getEventBreakdown to get the data
+        $event = Events::with(['signUpForm', 'locations'])->findOrFail($request->event_id);
+        
+        if (!$event->signUpForm || !$event->signUpForm->table_name) {
+            return response()->json([
+                'error' => 'This event does not have a signup form'
+            ], 404);
+        }
+        
+        $tableName = $event->signUpForm->table_name;
+        $questions = json_decode($event->signUpForm->questions, true) ?? [];
+        
+        // Get all signups for this event
+        $allSignups = DB::table($tableName)
+            ->where('event_id', $event->id)
+            ->get();
+        
+        $totalSignups = $allSignups->count();
+        $breakdown = [];
+        
+        // Helper function to detect phone number country (same as getEventBreakdown)
+        $detectPhoneCountry = function($phoneNumber) {
+            if (empty($phoneNumber)) return 'Other';
+            $cleaned = preg_replace('/\D+/', '', $phoneNumber);
+            if (empty($cleaned)) return 'Other';
+            if (preg_match('/^(\+61|61)/', $phoneNumber)) {
+                $withoutCountry = preg_replace('/^(\+61|61)/', '', $cleaned);
+                if (strlen($withoutCountry) >= 9 && strlen($withoutCountry) <= 10) {
+                    return 'Australian';
+                }
+            }
+            if (preg_match('/^(\+64|64)/', $phoneNumber)) {
+                $withoutCountry = preg_replace('/^(\+64|64)/', '', $cleaned);
+                if (strlen($withoutCountry) >= 8 && strlen($withoutCountry) <= 9) {
+                    return 'New Zealand';
+                }
+            }
+            if (preg_match('/^(04|02|03|07|08)/', $cleaned) && strlen($cleaned) === 10) {
+                return 'Australian';
+            }
+            if (preg_match('/^(02|03|04|06|07|09)/', $cleaned) && strlen($cleaned) >= 8 && strlen($cleaned) <= 9) {
+                return 'New Zealand';
+            }
+            return 'Other';
+        };
+        
+        // Process each question (same logic as getEventBreakdown)
+        foreach ($questions as $question) {
+            $columnName = $question['column_name'] ?? null;
+            if (!$columnName) continue;
+            
+            // Skip email, first name, last name, date of birth, text fields
+            if ($question['type'] === 'email' || $columnName === 'email_address' ||
+                $columnName === 'first_name' || $columnName === 'last_name' ||
+                stripos($columnName, 'date_of_birth') !== false || 
+                stripos($columnName, 'dateofbirth') !== false ||
+                stripos($columnName, 'dob') !== false ||
+                (strtolower($question['text'] ?? '') === 'date of birth') ||
+                $question['type'] === 'text') {
+                continue;
+            }
+            
+            $questionBreakdown = [
+                'question_text' => $question['text'] ?? $columnName,
+                'question_type' => $question['type'] ?? 'text',
+                'column_name' => $columnName,
+                'total_responses' => 0,
+                'responses' => []
+            ];
+            
+            // Handle mobile_number
+            if ($columnName === 'mobile_number') {
+                $allPhones = DB::table($tableName)
+                    ->where('event_id', $event->id)
+                    ->whereNotNull($columnName)
+                    ->where($columnName, '!=', '')
+                    ->pluck($columnName);
+                
+                $phoneBreakdown = ['Australian' => 0, 'New Zealand' => 0, 'Other' => 0];
+                foreach ($allPhones as $phone) {
+                    $country = $detectPhoneCountry($phone);
+                    $phoneBreakdown[$country]++;
+                }
+                
+                $questionBreakdown['total_responses'] = array_sum($phoneBreakdown);
+                foreach ($phoneBreakdown as $country => $count) {
+                    if ($count > 0) {
+                        $questionBreakdown['responses'][] = [
+                            'value' => $country,
+                            'count' => $count,
+                            'percentage' => $totalSignups > 0 ? round(($count / $totalSignups) * 100, 2) : 0
+                        ];
+                    }
+                }
+            } else {
+                // Get question options
+                $questionOptions = isset($question['options']) && is_array($question['options']) ? $question['options'] : [];
+                $hasOtherOption = isset($question['hasOtherOption']) && $question['hasOtherOption'];
+                
+                // Get responses
+                $responses = DB::table($tableName)
+                    ->where('event_id', $event->id)
+                    ->whereNotNull($columnName)
+                    ->where($columnName, '!=', '')
+                    ->select($columnName, DB::raw('count(*) as count'))
+                    ->groupBy($columnName)
+                    ->orderByDesc('count')
+                    ->get();
+                
+                $questionBreakdown['total_responses'] = $responses->sum('count');
+                
+                // Handle multi-select dropdowns
+                if ($question['type'] === 'dropdown' && isset($question['allowMultiple']) && $question['allowMultiple']) {
+                    $individualCounts = [];
+                    $otherCount = 0;
+                    
+                    foreach ($responses as $response) {
+                        $value = $response->{$columnName};
+                        $count = $response->count;
+                        
+                        $decoded = json_decode($value, true);
+                        if (is_array($decoded) && count($decoded) > 0) {
+                            foreach ($decoded as $item) {
+                                $item = trim($item);
+                                if (!empty($item)) {
+                                    if (!empty($questionOptions) && !in_array($item, $questionOptions) && $item !== 'Other') {
+                                        $otherCount += $count;
+                                    } else {
+                                        if (!isset($individualCounts[$item])) {
+                                            $individualCounts[$item] = 0;
+                                        }
+                                        $individualCounts[$item] += $count;
+                                    }
+                                }
+                            }
+                        } elseif (!empty($value)) {
+                            if (!empty($questionOptions)) {
+                                $matchedOptions = [];
+                                $remainingValue = $value;
+                                $sortedOptions = $questionOptions;
+                                usort($sortedOptions, function($a, $b) {
+                                    return strlen($b) - strlen($a);
+                                });
+                                
+                                foreach ($sortedOptions as $option) {
+                                    if (strpos($remainingValue, $option) !== false) {
+                                        $matchedOptions[] = $option;
+                                        $remainingValue = str_replace($option, '', $remainingValue);
+                                    }
+                                }
+                                
+                                foreach ($matchedOptions as $option) {
+                                    if (!isset($individualCounts[$option])) {
+                                        $individualCounts[$option] = 0;
+                                    }
+                                    $individualCounts[$option] += $count;
+                                }
+                                
+                                if (empty($matchedOptions)) {
+                                    $otherCount += $count;
+                                }
+                            } else {
+                                if ($hasOtherOption && $value !== 'Other' && !in_array($value, $questionOptions)) {
+                                    $otherCount += $count;
+                                } else {
+                                    if (!isset($individualCounts[$value])) {
+                                        $individualCounts[$value] = 0;
+                                    }
+                                    $individualCounts[$value] += $count;
+                                }
+                            }
+                        }
+                    }
+                    
+                    if ($otherCount > 0) {
+                        $individualCounts['Other'] = $otherCount;
+                    }
+                    
+                    $sortedCounts = $individualCounts;
+                    arsort($sortedCounts);
+                    
+                    foreach ($sortedCounts as $item => $count) {
+                        $questionBreakdown['responses'][] = [
+                            'value' => $item,
+                            'count' => $count,
+                            'percentage' => $totalSignups > 0 ? round(($count / $totalSignups) * 100, 2) : 0
+                        ];
+                    }
+                } else {
+                    // Single-select
+                    $otherCount = 0;
+                    
+                    foreach ($responses as $response) {
+                        $value = $response->{$columnName};
+                        $count = $response->count;
+                        
+                        if ($hasOtherOption && !empty($questionOptions) && !in_array($value, $questionOptions) && $value !== 'Other') {
+                            $otherCount += $count;
+                        } else {
+                            $questionBreakdown['responses'][] = [
+                                'value' => $value,
+                                'count' => $count,
+                                'percentage' => $totalSignups > 0 ? round(($count / $totalSignups) * 100, 2) : 0
+                            ];
+                        }
+                    }
+                    
+                    if ($otherCount > 0) {
+                        $questionBreakdown['responses'][] = [
+                            'value' => 'Other',
+                            'count' => $otherCount,
+                            'percentage' => $totalSignups > 0 ? round(($otherCount / $totalSignups) * 100, 2) : 0
+                        ];
+                    }
+                }
+                
+                // Add chart data for dropdowns
+                if ($question['type'] === 'dropdown' && count($questionBreakdown['responses']) > 0) {
+                    $chartData = [];
+                    foreach ($questionBreakdown['responses'] as $resp) {
+                        if (!empty($resp['value']) && $resp['count'] > 0) {
+                            $chartData[$resp['value']] = $resp['count'];
+                        }
+                    }
+                    
+                    if (!empty($chartData)) {
+                        $chartType = ($columnName === 'country') ? 'pie' : 'bar';
+                        $questionBreakdown['chart_data'] = [
+                            'type' => $chartType,
+                            'data' => $chartData
+                        ];
+                    }
+                }
+            }
+            
+            usort($questionBreakdown['responses'], function($a, $b) {
+                return $b['count'] - $a['count'];
+            });
+            
+            $breakdown[] = $questionBreakdown;
+        }
+        
+        // Get location breakdown
+        $locationBreakdown = [];
+        foreach ($event->locations as $location) {
+            $locationSignups = DB::table($tableName)
+                ->where('event_id', $event->id)
+                ->where('location_id', $location->id)
+                ->count();
+            
+            $locationBreakdown[] = [
+                'location_id' => $location->id,
+                'location_name' => $location->name,
+                'signups' => $locationSignups,
+                'percentage' => $totalSignups > 0 ? round(($locationSignups / $totalSignups) * 100, 2) : 0
+            ];
+        }
+        
+        usort($locationBreakdown, function($a, $b) {
+            return $b['signups'] - $a['signups'];
+        });
+        
+        try {
+            $pdf = Pdf::loadView('reports.event-breakdown-pdf', compact('event', 'totalSignups', 'breakdown', 'locationBreakdown'));
+            $pdf->setPaper('A4', 'portrait');
+            
+            $filename = 'event_breakdown_' . Str::slug($event->event_name) . '_' . date('Y-m-d') . '.pdf';
+            
+            return $pdf->download($filename);
+        } catch (\Exception $e) {
+            Log::error('Event Breakdown PDF Generation Error: ' . $e->getMessage());
+            return response()->json(['error' => 'PDF generation failed: ' . $e->getMessage()], 500);
+        }
     }
 }
