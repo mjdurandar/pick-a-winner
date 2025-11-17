@@ -1,8 +1,27 @@
 <script setup>
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout.vue';
 import { Head, router } from '@inertiajs/vue3';
-import { ref, computed, onMounted } from 'vue';
+import { ref, computed, onMounted, nextTick, watch } from 'vue';
 import Swal from 'sweetalert2';
+import axios from 'axios';
+
+// Lazy load Chart.js to avoid build issues
+let Chart = null;
+let ChartInitialized = false;
+
+const initChart = async () => {
+    if (ChartInitialized) return;
+    
+    try {
+        const chartModule = await import('chart.js');
+        Chart = chartModule.Chart;
+        const { registerables } = chartModule;
+        Chart.register(...registerables);
+        ChartInitialized = true;
+    } catch (error) {
+        console.error('Failed to load Chart.js:', error);
+    }
+};
 
 const props = defineProps({
     reportData: { type: Array, default: () => [] },
@@ -15,6 +34,15 @@ const props = defineProps({
 const startDate = ref(props.dateRange.start_date || '');
 const endDate = ref(props.dateRange.end_date || '');
 const isLoading = ref(false);
+
+// Tab management
+const activeTab = ref('weekly-report');
+const selectedEventId = ref(null);
+const eventBreakdown = ref(null);
+const isLoadingBreakdown = ref(false);
+const availableEvents = computed(() => {
+    return props.allEventsSummary.filter(e => e.has_signup_form);
+});
 
 // Set default dates if not provided
 onMounted(() => {
@@ -220,6 +248,318 @@ const formatTime = (timeString) => {
         return timeString;
     }
 };
+
+// Event breakdown functions
+const loadEventBreakdown = async () => {
+    if (!selectedEventId.value) {
+        Swal.fire('Error', 'Please select an event', 'error');
+        return;
+    }
+    
+    isLoadingBreakdown.value = true;
+    eventBreakdown.value = null;
+    
+    // Clear existing charts
+    Object.values(chartInstances.value).forEach(chart => {
+        if (chart) chart.destroy();
+    });
+    chartInstances.value = {};
+    
+    try {
+        const response = await axios.get(route('weekly-report.event-breakdown'), {
+            params: {
+                event_id: selectedEventId.value
+            }
+        });
+        
+        eventBreakdown.value = response.data;
+        
+        // Create charts after data loads
+        await nextTick();
+        createChartsForBreakdown();
+    } catch (error) {
+        console.error('Error loading event breakdown:', error);
+        Swal.fire('Error', error.response?.data?.error || 'Failed to load event breakdown', 'error');
+    } finally {
+        isLoadingBreakdown.value = false;
+    }
+};
+
+const switchTab = (tab) => {
+    // Clean up charts when switching tabs
+    Object.values(chartInstances.value).forEach(chart => {
+        if (chart) {
+            try {
+                chart.destroy();
+            } catch (e) {
+                // Ignore destroy errors
+            }
+        }
+    });
+    chartInstances.value = {};
+    
+    activeTab.value = tab;
+    if (tab === 'event-breakdown') {
+        // Reset when switching to breakdown tab
+        selectedEventId.value = null;
+        eventBreakdown.value = null;
+    }
+};
+
+// Format response value to handle objects and ensure it's a string
+const formatResponseValue = (value) => {
+    if (!value) return '(Empty)';
+    if (typeof value === 'object') {
+        // If it's an array, join it
+        if (Array.isArray(value)) {
+            return value.join(', ');
+        }
+        // If it's an object, try to get a meaningful string
+        return JSON.stringify(value);
+    }
+    return String(value);
+};
+
+// Chart creation functions
+const chartInstances = ref({});
+
+const createChart = async (canvasId, chartData, chartType) => {
+    // Initialize Chart.js if not already done
+    await initChart();
+    
+    if (!Chart) {
+        console.error('Chart.js is not available');
+        return;
+    }
+    
+    // Destroy existing chart if it exists
+    if (chartInstances.value[canvasId]) {
+        try {
+            chartInstances.value[canvasId].destroy();
+        } catch (e) {
+            // Ignore destroy errors
+        }
+        delete chartInstances.value[canvasId];
+    }
+    
+    // Wait for DOM to be ready
+    await nextTick();
+    
+    // Try to find canvas with retry
+    let canvas = document.getElementById(canvasId);
+    let retries = 0;
+    while (!canvas && retries < 10) {
+        await new Promise(resolve => setTimeout(resolve, 100));
+        canvas = document.getElementById(canvasId);
+        retries++;
+    }
+    
+    if (!canvas) {
+        console.warn(`Canvas element not found: ${canvasId}`);
+        return;
+    }
+    
+    // Verify canvas is still in the DOM
+    if (!canvas.isConnected) {
+        console.warn(`Canvas element not connected to DOM: ${canvasId}`);
+        return;
+    }
+    
+    const ctx = canvas.getContext('2d');
+    if (!ctx) {
+        console.error(`Could not get 2d context for canvas: ${canvasId}`);
+        return;
+    }
+    
+    // Verify context is valid
+    try {
+        ctx.save();
+        ctx.restore();
+    } catch (e) {
+        console.error(`Canvas context is invalid: ${canvasId}`, e);
+        return;
+    }
+    
+    const labels = Object.keys(chartData.data);
+    const data = Object.values(chartData.data);
+    
+    if (labels.length === 0 || data.length === 0) {
+        console.warn(`No data for chart: ${canvasId}`);
+        return;
+    }
+    
+    // Filter out any zero or null values
+    const validData = [];
+    const validLabels = [];
+    labels.forEach((label, index) => {
+        const value = data[index];
+        if (value != null && value > 0) {
+            validLabels.push(label);
+            validData.push(value);
+        }
+    });
+    
+    if (validLabels.length === 0 || validData.length === 0) {
+        console.warn(`No valid data for chart: ${canvasId}`);
+        return;
+    }
+    
+    // Color schemes
+    const pieColors = [
+        '#3B82F6', // blue
+        '#10B981', // green
+        '#F59E0B', // amber
+        '#EF4444', // red
+        '#8B5CF6', // purple
+        '#EC4899', // pink
+        '#06B6D4', // cyan
+        '#84CC16', // lime
+    ];
+    
+    const barColors = [
+        '#3B82F6', // blue
+        '#10B981', // green
+        '#F59E0B', // amber
+        '#EF4444', // red
+        '#8B5CF6', // purple
+    ];
+    
+    try {
+    const config = {
+        type: chartType,
+        data: {
+            labels: validLabels,
+            datasets: [{
+                label: 'Count',
+                data: validData,
+                backgroundColor: chartType === 'pie' ? pieColors.slice(0, validLabels.length) : barColors.slice(0, validLabels.length),
+                borderColor: chartType === 'pie' ? '#ffffff' : barColors.slice(0, validLabels.length),
+                borderWidth: chartType === 'pie' ? 2 : 1
+            }]
+        },
+            options: {
+                responsive: true,
+                maintainAspectRatio: true,
+                animation: {
+                    duration: 0 // Disable animation to avoid timing issues
+                },
+                layout: {
+                    padding: chartType === 'pie' ? {
+                        top: 10,
+                        bottom: 40,
+                        left: 10,
+                        right: 10
+                    } : {}
+                },
+                plugins: {
+                    legend: {
+                        position: 'bottom',
+                        align: 'center',
+                    },
+                    tooltip: {
+                        callbacks: {
+                            label: function(context) {
+                                const label = context.label || '';
+                                const value = context.parsed?.y !== undefined ? context.parsed.y : context.raw;
+                                
+                                if (value == null || isNaN(value)) {
+                                    return label + ': ' + (value || 0);
+                                }
+                                
+                                const total = validData.reduce((a, b) => a + b, 0);
+                                const percentage = total > 0 ? ((value / total) * 100).toFixed(1) : '0.0';
+                                return `${label}: ${value} (${percentage}%)`;
+                            }
+                        }
+                    }
+                },
+                scales: chartType === 'bar' ? {
+                    x: {
+                        ticks: {
+                            display: false // Hide x-axis labels
+                        },
+                        grid: {
+                            display: false
+                        }
+                    },
+                    y: {
+                        beginAtZero: true,
+                        ticks: {
+                            stepSize: 1,
+                            precision: 0
+                        }
+                    }
+                } : undefined
+            }
+        };
+        
+        // Double-check canvas is still valid before creating chart
+        if (!canvas.isConnected || !canvas.parentElement) {
+            console.warn(`Canvas removed before chart creation: ${canvasId}`);
+            return;
+        }
+        
+        chartInstances.value[canvasId] = new Chart(ctx, config);
+    } catch (error) {
+        console.error(`Error creating chart ${canvasId}:`, error);
+        // Clean up on error
+        if (chartInstances.value[canvasId]) {
+            delete chartInstances.value[canvasId];
+        }
+    }
+};
+
+// Watch for event breakdown changes and create charts
+const createChartsForBreakdown = async () => {
+    if (!eventBreakdown.value || !eventBreakdown.value.breakdown) return;
+    
+    // Initialize Chart.js first
+    await initChart();
+    
+    if (!Chart) {
+        console.error('Chart.js is not available');
+        return;
+    }
+    
+    // Wait for DOM to update - give it more time
+    await nextTick();
+    await new Promise(resolve => setTimeout(resolve, 200));
+    
+    // Verify we're still on the breakdown tab
+    if (activeTab.value !== 'event-breakdown') {
+        return;
+    }
+    
+    for (const [index, question] of eventBreakdown.value.breakdown.entries()) {
+        // Check again if we're still on the right tab
+        if (activeTab.value !== 'event-breakdown') {
+            break;
+        }
+        
+        if (question.chart_data && question.chart_data.data) {
+            const canvasId = `chart-${question.column_name}-${index}`;
+            
+            // Verify canvas exists before trying to create chart
+            const canvas = document.getElementById(canvasId);
+            if (!canvas) {
+                console.warn(`Canvas not found, skipping: ${canvasId}`);
+                continue;
+            }
+            
+            const chartType = question.chart_data.type === 'pie' || question.chart_data.type === 'phone' ? 'pie' : 'bar';
+            await createChart(canvasId, question.chart_data, chartType);
+            // Small delay between charts
+            await new Promise(resolve => setTimeout(resolve, 100));
+        }
+    }
+};
+
+// Watch eventBreakdown to create charts when data loads
+watch(() => eventBreakdown.value, async () => {
+    if (eventBreakdown.value) {
+        await createChartsForBreakdown();
+    }
+}, { deep: true });
 </script>
 
 <template>
@@ -234,6 +574,38 @@ const formatTime = (timeString) => {
 
         <div class="py-4 px-2">
             <div class="mx-auto max-w-7xl sm:px-6 lg:px-8">
+                <!-- Tabs -->
+                <div class="mb-6 bg-white shadow-sm sm:rounded-lg">
+                    <div class="border-b border-gray-200">
+                        <nav class="-mb-px flex space-x-8 px-6" aria-label="Tabs">
+                            <button
+                                @click="switchTab('weekly-report')"
+                                :class="[
+                                    activeTab === 'weekly-report'
+                                        ? 'border-blue-500 text-blue-600'
+                                        : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300',
+                                    'whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm'
+                                ]"
+                            >
+                                Weekly Report
+                            </button>
+                            <button
+                                @click="switchTab('event-breakdown')"
+                                :class="[
+                                    activeTab === 'event-breakdown'
+                                        ? 'border-blue-500 text-blue-600'
+                                        : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300',
+                                    'whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm'
+                                ]"
+                            >
+                                Event Breakdown
+                            </button>
+                        </nav>
+                    </div>
+                </div>
+
+                <!-- Weekly Report Tab Content -->
+                <div v-show="activeTab === 'weekly-report'">
                 <!-- Date Range Selection -->
                 <div class="overflow-hidden bg-white shadow-sm sm:rounded-lg mb-6">
                     <div class="p-6">
@@ -459,6 +831,156 @@ const formatTime = (timeString) => {
                         <div class="text-gray-500 text-lg mb-2">No data found</div>
                         <div class="text-gray-400 text-sm">
                             No events or signups found for the selected date range.
+                        </div>
+                    </div>
+                </div>
+                </div>
+
+                <!-- Event Breakdown Tab Content -->
+                <div v-show="activeTab === 'event-breakdown'">
+                    <div class="overflow-hidden bg-white shadow-sm sm:rounded-lg mb-6">
+                        <div class="p-6">
+                            <h3 class="text-lg font-semibold mb-4">Event Breakdown Report</h3>
+                            
+                            <div class="grid grid-cols-1 md:grid-cols-2 gap-4 items-end mb-4">
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700 mb-2">Select Event</label>
+                                    <select
+                                        v-model="selectedEventId"
+                                        class="w-full p-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                                        @change="loadEventBreakdown"
+                                    >
+                                        <option value="">-- Select an event --</option>
+                                        <option
+                                            v-for="event in availableEvents"
+                                            :key="event.event_id"
+                                            :value="event.event_id"
+                                        >
+                                            {{ event.event_name }} ({{ event.total_signups }} signups)
+                                        </option>
+                                    </select>
+                                </div>
+                                <div>
+                                    <button
+                                        @click="loadEventBreakdown"
+                                        :disabled="!selectedEventId || isLoadingBreakdown"
+                                        class="w-full px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                                    >
+                                        {{ isLoadingBreakdown ? 'Loading...' : 'Load Breakdown' }}
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Event Breakdown Results -->
+                    <div v-if="eventBreakdown && !isLoadingBreakdown" class="space-y-6">
+                        <!-- Event Summary -->
+                        <div class="overflow-hidden bg-white shadow-sm sm:rounded-lg">
+                            <div class="p-6">
+                                <h3 class="text-lg font-semibold mb-4">{{ eventBreakdown.event.name }}</h3>
+                                <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                                    <div>
+                                        <div class="text-sm font-medium text-gray-500">Total Signups</div>
+                                        <div class="text-2xl font-bold text-blue-600">{{ eventBreakdown.event.total_signups }}</div>
+                                    </div>
+                                    <div>
+                                        <div class="text-sm font-medium text-gray-500">Total Questions</div>
+                                        <div class="text-2xl font-bold text-gray-900">{{ eventBreakdown.breakdown.length }}</div>
+                                    </div>
+                                    <div>
+                                        <div class="text-sm font-medium text-gray-500">Total Locations</div>
+                                        <div class="text-2xl font-bold text-gray-900">{{ eventBreakdown.location_breakdown.length }}</div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Location Breakdown -->
+                        <div v-if="eventBreakdown.location_breakdown.length > 0" class="overflow-hidden bg-white shadow-sm sm:rounded-lg">
+                            <div class="p-6">
+                                <h4 class="text-md font-semibold mb-4">Location Breakdown</h4>
+                                <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                                    <div
+                                        v-for="location in eventBreakdown.location_breakdown"
+                                        :key="location.location_id"
+                                        class="border border-gray-200 rounded-lg p-4"
+                                    >
+                                        <div class="flex justify-between items-start mb-2">
+                                            <h5 class="font-medium text-gray-900">{{ location.location_name }}</h5>
+                                            <span class="text-lg font-bold text-blue-600">{{ location.signups }}</span>
+                                        </div>
+                                        <div class="w-full bg-gray-200 rounded-full h-2">
+                                            <div
+                                                class="bg-blue-600 h-2 rounded-full"
+                                                :style="{ width: location.percentage + '%' }"
+                                            ></div>
+                                        </div>
+                                        <div class="text-sm text-gray-500 mt-1">{{ location.percentage }}% of total</div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Question Breakdown -->
+                        <div v-for="(question, index) in eventBreakdown.breakdown" :key="index" class="overflow-hidden bg-white shadow-sm sm:rounded-lg">
+                            <div class="p-6">
+                                <h4 class="text-md font-semibold mb-4">{{ question.question_text }}</h4>
+                                <div class="text-sm text-gray-500 mb-4">
+                                    Type: {{ question.question_type }} | 
+                                    Responses: {{ question.total_responses }} / {{ eventBreakdown.event.total_signups }}
+                                    <span v-if="eventBreakdown.event.total_signups > 0">
+                                        ({{ ((question.total_responses / eventBreakdown.event.total_signups) * 100).toFixed(1) }}%)
+                                    </span>
+                                </div>
+                                
+                                <!-- Chart for Country, Mobile Number, Age, Gender -->
+                                <div v-if="question.chart_data && question.chart_data.data" class="mb-6 flex justify-center items-center">
+                                    <div class="w-full max-w-2xl flex justify-center" style="max-height: 400px;">
+                                        <canvas :id="`chart-${question.column_name}-${index}`"></canvas>
+                                    </div>
+                                </div>
+                                
+                                <div v-if="question.responses.length > 0" class="space-y-3">
+                                    <div
+                                        v-for="(response, respIndex) in question.responses"
+                                        :key="respIndex"
+                                        class="border border-gray-200 rounded-lg p-4"
+                                    >
+                                        <div class="flex justify-between items-center mb-2">
+                                            <span class="font-medium text-gray-900">{{ formatResponseValue(response.value) }}</span>
+                                            <span class="text-lg font-bold text-blue-600">{{ response.count || 0 }}</span>
+                                        </div>
+                                        <div class="w-full bg-gray-200 rounded-full h-2">
+                                            <div
+                                                class="bg-blue-600 h-2 rounded-full"
+                                                :style="{ width: (response.percentage || 0) + '%' }"
+                                            ></div>
+                                        </div>
+                                        <div class="text-sm text-gray-500 mt-1">{{ response.percentage || 0 }}% of total signups</div>
+                                    </div>
+                                </div>
+                                <div v-else class="text-gray-500 text-sm italic">
+                                    No responses for this question
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Loading State -->
+                    <div v-if="isLoadingBreakdown" class="overflow-hidden bg-white shadow-sm sm:rounded-lg">
+                        <div class="p-6 text-center">
+                            <div class="text-gray-500">Loading event breakdown...</div>
+                        </div>
+                    </div>
+
+                    <!-- No Event Selected -->
+                    <div v-if="!eventBreakdown && !isLoadingBreakdown && !selectedEventId" class="overflow-hidden bg-white shadow-sm sm:rounded-lg">
+                        <div class="p-6 text-center">
+                            <div class="text-gray-500 text-lg mb-2">Select an event to view breakdown</div>
+                            <div class="text-gray-400 text-sm">
+                                Choose an event from the dropdown above to see detailed question responses and statistics.
+                            </div>
                         </div>
                     </div>
                 </div>
