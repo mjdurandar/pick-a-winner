@@ -49,4 +49,8 @@ return [
         'server' => env('MAILCHIMP_SERVER_PREFIX'),
     ],
 
+    'eventbrite' => [
+        'api_token' => env('EVENTBRITE_API_TOKEN'),
+    ],
+
 ];

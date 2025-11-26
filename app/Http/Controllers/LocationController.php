@@ -11,6 +11,7 @@ use App\Services\AutoMailchimpService;
 use Illuminate\Support\Str;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Http;
 use App\Services\MailchimpLogService;
 use App\Services\SpreadsheetLogService;
 
@@ -46,9 +47,35 @@ class LocationController extends Controller
             ->distinct()
             ->pluck('location_id');
 
+        // Check which locations have Eventbrite data imported (check for TIX in SOURCE tag)
+        // Get all successful logs and filter in PHP for better compatibility
+        $allLogs = DB::table('mailchimp_logs')
+            ->whereIn('location_id', $locationIds)
+            ->where('status', 'Success')
+            ->select('location_id', 'tags')
+            ->get();
+
+        $eventbriteImportedLocationIds = $allLogs
+            ->filter(function($log) {
+                $tags = json_decode($log->tags, true);
+                if (!is_array($tags)) {
+                    return false;
+                }
+                // Check if any tag contains "TIX" which indicates Eventbrite import
+                foreach ($tags as $tag) {
+                    if (is_string($tag) && strpos($tag, 'TIX') !== false) {
+                        return true;
+                    }
+                }
+                return false;
+            })
+            ->pluck('location_id')
+            ->unique();
+
         // Add import status to each location
-        $locationsWithImportStatus = $locations->map(function ($location) use ($importedLocationIds) {
+        $locationsWithImportStatus = $locations->map(function ($location) use ($importedLocationIds, $eventbriteImportedLocationIds) {
             $location->imported_to_mailchimp = $importedLocationIds->contains($location->id);
+            $location->imported_eventbrite = $eventbriteImportedLocationIds->contains($location->id);
             return $location;
         });
 
@@ -654,6 +681,298 @@ class LocationController extends Controller
             return response()->json([
                 'error' => 'Failed to generate spreadsheet data',
                 'details' => $e->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
+     * Fetch attendees from Eventbrite API
+     */
+    public function fetchEventbriteAttendees(Request $request)
+    {
+        $request->validate([
+            'event_id' => 'required|string',
+            'location_id' => 'required|exists:locations,id'
+        ]);
+
+        $eventId = $request->event_id;
+        $apiToken = env('EVENTBRITE_API_TOKEN');
+
+        if (!$apiToken) {
+            return response()->json([
+                'error' => 'Eventbrite API token is not configured. Please set EVENTBRITE_API_TOKEN in your .env file.'
+            ], 500);
+        }
+
+        try {
+            $attendees = [];
+            $page = 1;
+            $hasMore = true;
+            $seenEmails = []; // Track unique emails
+
+            // Eventbrite API endpoint for attendees
+            $baseUrl = "https://www.eventbriteapi.com/v3/events/{$eventId}/attendees/";
+
+            while ($hasMore) {
+                $response = Http::withHeaders([
+                    'Authorization' => 'Bearer ' . $apiToken,
+                    'Accept' => 'application/json'
+                ])->get($baseUrl, [
+                    'page' => $page,
+                    'status' => 'attending', // Only get confirmed attendees
+                    'expand' => 'order,profile'
+                ]);
+
+                if (!$response->successful()) {
+                    $errorData = $response->json();
+                    $errorMessage = $errorData['error_description'] ?? $errorData['error'] ?? 'Failed to fetch attendees from Eventbrite';
+                    
+                    Log::error('Eventbrite API Error', [
+                        'status' => $response->status(),
+                        'error' => $errorMessage,
+                        'event_id' => $eventId
+                    ]);
+
+                    return response()->json([
+                        'error' => $errorMessage
+                    ], $response->status());
+                }
+
+                $data = $response->json();
+                $attendeesData = $data['attendees'] ?? [];
+
+                foreach ($attendeesData as $attendee) {
+                    $profile = $attendee['profile'] ?? [];
+                    $email = strtolower(trim($profile['email'] ?? ''));
+
+                    // Skip if no email or duplicate email
+                    if (empty($email) || isset($seenEmails[$email])) {
+                        continue;
+                    }
+
+                    // Mark email as seen
+                    $seenEmails[$email] = true;
+
+                    // Extract attendee information
+                    $attendeeData = [
+                        'email' => $email,
+                        'first_name' => $profile['first_name'] ?? '',
+                        'last_name' => $profile['last_name'] ?? '',
+                        'phone' => $profile['cell_phone'] ?? $profile['home_phone'] ?? '',
+                        'city' => $profile['city'] ?? '',
+                        'state' => $profile['region'] ?? '',
+                        'country' => $profile['country'] ?? '',
+                    ];
+
+                    $attendees[] = $attendeeData;
+                }
+
+                // Check if there are more pages
+                $pagination = $data['pagination'] ?? [];
+                $hasMore = ($pagination['has_more_items'] ?? false) && $page < 100; // Safety limit
+                $page++;
+            }
+
+            Log::info('Eventbrite attendees fetched', [
+                'event_id' => $eventId,
+                'location_id' => $request->location_id,
+                'total_attendees' => count($attendees),
+                'unique_emails' => count($seenEmails)
+            ]);
+
+            return response()->json([
+                'attendees' => $attendees,
+                'total' => count($attendees),
+                'event_id' => $eventId
+            ]);
+
+        } catch (\Exception $e) {
+            Log::error('Error fetching Eventbrite attendees', [
+                'error' => $e->getMessage(),
+                'event_id' => $eventId,
+                'trace' => $e->getTraceAsString()
+            ]);
+
+            return response()->json([
+                'error' => 'Failed to fetch attendees: ' . $e->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
+     * Import Eventbrite attendees to Mailchimp
+     */
+    public function importEventbriteToMailchimp(Request $request, MailchimpLogService $logService)
+    {
+        // Log incoming request for debugging
+        Log::info('Eventbrite import request received', [
+            'has_subscribers' => $request->has('subscribers'),
+            'subscribers_count' => $request->has('subscribers') ? count($request->subscribers) : 0,
+            'location_id' => $request->location_id,
+            'event_id' => $request->event_id,
+            'list_id' => $request->list_id,
+            'mailchimp_account' => $request->mailchimp_account,
+            'has_tags' => $request->has('tags'),
+            'tags' => $request->tags,
+            'tags_type' => gettype($request->tags),
+            'tags_is_array' => is_array($request->tags),
+        ]);
+
+        try {
+            $request->validate([
+                'subscribers' => 'required|array',
+                'location_id' => 'required|integer|exists:locations,id',
+                'event_id' => 'required|integer|exists:events,id',
+                'list_id' => 'required|string',
+                'mailchimp_account' => 'required|string|in:anz,usa',
+                'tags' => 'required|array'
+            ]);
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            Log::error('Eventbrite import validation failed', [
+                'errors' => $e->errors(),
+                'request_data' => [
+                    'has_subscribers' => $request->has('subscribers'),
+                    'subscribers_count' => $request->has('subscribers') ? count($request->subscribers) : 0,
+                    'location_id' => $request->location_id,
+                    'location_id_type' => gettype($request->location_id),
+                    'event_id' => $request->event_id,
+                    'event_id_type' => gettype($request->event_id),
+                    'list_id' => $request->list_id,
+                    'mailchimp_account' => $request->mailchimp_account,
+                    'has_tags' => $request->has('tags'),
+                    'tags' => $request->tags,
+                    'tags_type' => gettype($request->tags),
+                    'tags_is_array' => is_array($request->tags),
+                ]
+            ]);
+            return response()->json([
+                'error' => 'Validation failed',
+                'errors' => $e->errors()
+            ], 422);
+        }
+
+        try {
+            $location = Location::with('event')->findOrFail($request->location_id);
+            $autoMailchimpService = app(AutoMailchimpService::class);
+            $settings = $autoMailchimpService->getSettings($request->event_id);
+
+            $listId = $request->list_id;
+            $mailchimpAccount = $request->mailchimp_account;
+
+            // Use tags from request (already includes default tags from frontend)
+            $tags = $request->tags;
+
+            // Create MailchimpService instance with selected account
+            $mailchimpService = new MailchimpService($mailchimpAccount);
+
+            $results = [
+                'success' => 0,
+                'failed' => 0,
+                'new' => 0,
+                'updated' => 0,
+                'errors' => []
+            ];
+
+            $totalSubscribers = count($request->subscribers);
+            $chunkSize = min(10, $totalSubscribers);
+            $totalChunks = ceil($totalSubscribers / $chunkSize);
+            $importedSubscribers = [];
+
+            // Process in chunks
+            for ($i = 0; $i < $totalChunks; $i++) {
+                $start = $i * $chunkSize;
+                $chunk = array_slice($request->subscribers, $start, $chunkSize);
+
+                foreach ($chunk as $subscriber) {
+                    try {
+                        if (empty($subscriber['email_address'])) {
+                            $results['failed']++;
+                            $results['errors'][] = "Skipped subscriber: Missing email address";
+                            continue;
+                        }
+
+                        // Import only: first name, last name, email, phone
+                        // Use manualImportSubscriber to get new/updated counts
+                        $result = $mailchimpService->manualImportSubscriber(
+                            $listId,
+                            [
+                                'email_address' => $subscriber['email_address'],
+                                'first_name' => $subscriber['first_name'] ?? '',
+                                'last_name' => $subscriber['last_name'] ?? '',
+                                'mobile_number' => $subscriber['mobile_number'] ?? '',
+                            ],
+                            $tags
+                        );
+
+                        $results['success']++;
+                        $importedSubscribers[] = $subscriber;
+                        
+                        // Track new vs updated
+                        if (isset($result['import_type'])) {
+                            if ($result['import_type'] === 'new') {
+                                $results['new']++;
+                            } else if ($result['import_type'] === 'updated') {
+                                $results['updated']++;
+                            }
+                        }
+
+                        // Log each successful import
+                        $logService->logImport($location->id, $location->name, [
+                            'success' => true,
+                            'email' => $subscriber['email_address'],
+                            'tags' => $tags,
+                            'source' => 'eventbrite'
+                        ]);
+
+                    } catch (\Exception $e) {
+                        $results['failed']++;
+                        $errorMessage = "Failed to import {$subscriber['email_address']}: " . substr($e->getMessage(), 0, 200);
+                        $results['errors'][] = $errorMessage;
+
+                        // Log failed import
+                        $logService->logImport($location->id, $location->name, [
+                            'success' => false,
+                            'email' => $subscriber['email_address'] ?? 'unknown',
+                            'error' => $e->getMessage(),
+                            'tags' => $tags,
+                            'source' => 'eventbrite'
+                        ]);
+
+                        Log::error('Eventbrite Mailchimp import error', [
+                            'email' => $subscriber['email_address'] ?? 'unknown',
+                            'error' => $e->getMessage()
+                        ]);
+                    }
+                }
+            }
+
+            Log::info('Eventbrite attendees imported to Mailchimp', [
+                'location_id' => $location->id,
+                'total' => $totalSubscribers,
+                'success' => $results['success'],
+                'failed' => $results['failed']
+            ]);
+
+            return response()->json([
+                'message' => "Import completed. Success: {$results['success']}, Failed: {$results['failed']}, New: {$results['new']}, Updated: {$results['updated']}",
+                'details' => [
+                    'success' => $results['success'],
+                    'failed' => $results['failed'],
+                    'new' => $results['new'],
+                    'updated' => $results['updated'],
+                    'total' => $totalSubscribers,
+                    'errors' => array_slice($results['errors'], 0, 10) // Limit errors in response
+                ]
+            ]);
+
+        } catch (\Exception $e) {
+            Log::error('Error importing Eventbrite to Mailchimp', [
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString()
+            ]);
+
+            return response()->json([
+                'error' => 'Failed to import to Mailchimp: ' . $e->getMessage()
             ], 500);
         }
     }

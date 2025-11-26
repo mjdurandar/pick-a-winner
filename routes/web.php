@@ -76,6 +76,10 @@ Route::middleware(['auth', RoleMiddleware::class . ':admin,host'])->group(functi
     Route::get('/api/location/mailchimp/lists', [LocationController::class, 'getMailchimpLists'])->name('location.mailchimpLists');
     Route::get('/api/location/mailchimp/merge-fields', [LocationController::class, 'getMailchimpMergeFields'])->name('location.mailchimpMergeFields');
     Route::get('/api/location/subscribers', [LocationController::class, 'getSubscribers'])->name('location.getSubscribers');
+    
+    //EVENTBRITE ROUTES
+    Route::post('/location/fetch-eventbrite-attendees', [LocationController::class, 'fetchEventbriteAttendees'])->name('location.fetchEventbriteAttendees');
+    Route::post('/location/import-eventbrite-to-mailchimp', [LocationController::class, 'importEventbriteToMailchimp'])->name('location.importEventbriteToMailchimp');
 });
 
 Route::middleware(['auth', RoleMiddleware::class . ':admin'])->group(function () {  

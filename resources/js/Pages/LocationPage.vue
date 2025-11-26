@@ -48,6 +48,20 @@ const mailchimpSettings = ref({
 const availableLists = ref([]);
 const availableAccounts = ref([]);
 const isSettingsLoading = ref(false);
+const showEventbriteModal = ref(false);
+const eventbriteLink = ref('');
+const isFetchingEventbrite = ref(false);
+const eventbriteAttendees = ref([]);
+const eventbriteEventId = ref('');
+const isImportingEventbrite = ref(false);
+const showEventbriteMailchimpModal = ref(false);
+const eventbriteMailchimpAccount = ref('');
+const eventbriteMailchimpLists = ref([]);
+const eventbriteSelectedList = ref('');
+const eventbriteAvailableAccounts = ref([]);
+const isLoadingEventbriteLists = ref(false);
+const eventbriteTags = ref('');
+const eventbriteDefaultTags = ref([]);
 
 // Add computed property for tag preview
 const tagPreview = computed(() => {
@@ -250,7 +264,24 @@ const handleMailchimpImport = async () => {
                 console.log('Processed', processed);
             } catch (error) {
                 console.error('Chunk import error:', error);
-                errors.push(`Chunk ${i + 1} failed: ${error.message}`);
+                console.error('Error response:', error.response);
+                
+                // Get detailed error message
+                let errorMessage = error.message;
+                if (error.response?.data?.message) {
+                    errorMessage = error.response.data.message;
+                } else if (error.response?.data?.errors) {
+                    // Laravel validation errors
+                    const validationErrors = Object.entries(error.response.data.errors)
+                        .map(([field, messages]) => `${field}: ${Array.isArray(messages) ? messages.join(', ') : messages}`)
+                        .join('; ');
+                    errorMessage = `Validation failed: ${validationErrors}`;
+                } else if (error.response?.data?.error) {
+                    errorMessage = error.response.data.error;
+                }
+                
+                errors.push(`Chunk ${i + 1} failed: ${errorMessage}`);
+                failureCount += chunk.length;
             }
         }
 
@@ -691,6 +722,803 @@ const viewLocationAttendees = (location) => {
     router.get(route('attendees.location', { eventId: props.event.id, locationId: location.id }));
 };
 
+const openEventbriteModal = (location) => {
+    selectedLocation.value = location;
+    eventbriteLink.value = '';
+    eventbriteAttendees.value = [];
+    eventbriteEventId.value = '';
+    showEventbriteModal.value = true;
+};
+
+const closeEventbriteModal = () => {
+    showEventbriteModal.value = false;
+    eventbriteLink.value = '';
+    eventbriteAttendees.value = [];
+    eventbriteEventId.value = '';
+    selectedLocation.value = null;
+};
+
+const extractEventIdFromLink = (link) => {
+    // Eventbrite links can be in various formats:
+    // https://www.eventbrite.com/e/event-name-tickets-1234567890
+    // https://eventbrite.com/e/event-name-tickets-1234567890
+    // https://www.eventbrite.com/event/1234567890
+    // https://eventbrite.com/event/1234567890
+    
+    try {
+        // Try to extract from URL path
+        const url = new URL(link);
+        const pathParts = url.pathname.split('/');
+        
+        // Look for event ID in path (usually the last numeric part)
+        for (let i = pathParts.length - 1; i >= 0; i--) {
+            const part = pathParts[i];
+            // Check if it's a numeric ID
+            if (/^\d+$/.test(part)) {
+                return part;
+            }
+            // Check if it ends with a numeric ID (e.g., "tickets-1234567890")
+            const match = part.match(/-(\d+)$/);
+            if (match) {
+                return match[1];
+            }
+        }
+        
+        return null;
+    } catch (error) {
+        console.error('Error extracting event ID:', error);
+        return null;
+    }
+};
+
+const fetchEventbriteAttendees = async () => {
+    if (!eventbriteLink.value.trim()) {
+        Swal.fire('Error', 'Please enter an Eventbrite link', 'error');
+        return;
+    }
+
+    const eventId = extractEventIdFromLink(eventbriteLink.value);
+    if (!eventId) {
+        Swal.fire('Error', 'Could not extract event ID from the link. Please check the link format.', 'error');
+        return;
+    }
+
+    eventbriteEventId.value = eventId;
+    isFetchingEventbrite.value = true;
+
+    try {
+        Swal.fire({
+            title: 'Fetching Attendees',
+            html: 'Please wait while we fetch attendee data from Eventbrite...',
+            allowOutsideClick: false,
+            allowEscapeKey: false,
+            showConfirmButton: false,
+            didOpen: () => {
+                Swal.showLoading();
+            }
+        });
+
+        const response = await axios.post(route('location.fetchEventbriteAttendees'), {
+            event_id: eventId,
+            location_id: selectedLocation.value.id
+        });
+
+        eventbriteAttendees.value = response.data.attendees;
+        
+        await Swal.close();
+        
+        if (eventbriteAttendees.value.length === 0) {
+            Swal.fire('Info', 'No attendees found for this event.', 'info');
+        } else {
+            Swal.fire('Success', `Found ${eventbriteAttendees.value.length} unique attendees`, 'success');
+        }
+    } catch (error) {
+        await Swal.close();
+        console.error('Error fetching Eventbrite attendees:', error);
+        Swal.fire('Error', error.response?.data?.error || 'Failed to fetch attendees from Eventbrite', 'error');
+    } finally {
+        isFetchingEventbrite.value = false;
+    }
+};
+
+const exportEventbriteAttendees = () => {
+    if (eventbriteAttendees.value.length === 0) {
+        Swal.fire('Error', 'No attendees to export', 'error');
+        return;
+    }
+
+    // Create CSV content
+    const headers = ['Email', 'First Name', 'Last Name', 'Phone', 'City', 'State', 'Country'];
+    const rows = eventbriteAttendees.value.map(attendee => [
+        attendee.email || '',
+        attendee.first_name || '',
+        attendee.last_name || '',
+        attendee.phone || '',
+        attendee.city || '',
+        attendee.state || '',
+        attendee.country || ''
+    ]);
+
+    const csvContent = [
+        headers.join(','),
+        ...rows.map(row => row.map(cell => `"${cell}"`).join(','))
+    ].join('\n');
+
+    // Create and download file
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement('a');
+    const url = URL.createObjectURL(blob);
+    link.setAttribute('href', url);
+    link.setAttribute('download', `eventbrite_attendees_${selectedLocation.value.name}_${new Date().toISOString().split('T')[0]}.csv`);
+    link.style.visibility = 'hidden';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+
+    Swal.fire('Success', 'Attendees exported successfully', 'success');
+};
+
+const openEventbriteMailchimpModal = async () => {
+    if (eventbriteAttendees.value.length === 0) {
+        Swal.fire('Error', 'No attendees to import', 'error');
+        return;
+    }
+
+    // Show loading spinner
+    Swal.fire({
+            title: 'Loading...',
+            html: 'Preparing Mailchimp import...',
+            allowOutsideClick: false,
+            allowEscapeKey: false,
+            showConfirmButton: false,
+            didOpen: () => {
+                Swal.showLoading();
+            }
+        });
+
+    try {
+        // Get available accounts and settings
+        const settingsResponse = await axios.get(route('mailchimp.autosync.settings'), {
+            params: {
+                event_id: props.event.id
+            }
+        });
+
+        const { available_accounts, settings } = settingsResponse.data;
+        eventbriteAvailableAccounts.value = available_accounts;
+        
+        // Set default account from settings
+        eventbriteMailchimpAccount.value = settings.mailchimp_account || 'anz';
+        
+        // Generate default tags
+        generateEventbriteDefaultTags(settings);
+        
+        // Load lists for default account
+        await loadEventbriteLists(eventbriteMailchimpAccount.value);
+        
+        // Close loading spinner
+        await Swal.close();
+        
+        showEventbriteMailchimpModal.value = true;
+    } catch (error) {
+        await Swal.close();
+        console.error('Error opening Mailchimp modal:', error);
+        Swal.fire('Error', 'Failed to load Mailchimp settings', 'error');
+    }
+};
+
+const generateEventbriteDefaultTags = (settings) => {
+    const tags = [];
+    const filmTour = settings.film_tour || 'WM';
+    const year = new Date().getFullYear();
+    const locationName = selectedLocation.value.name;
+    
+    // Extract everything before hyphen for both SHOW and SOURCE tags
+    const locationTag = locationName.split(' - ')[0].toUpperCase();
+    
+    // Add SHOW tag
+    tags.push(`SHOW - ${locationTag}`);
+    
+    // Add SOURCE tag with configured film tour code (TIX instead of COMP)
+    tags.push(`SOURCE - ${filmTour.toUpperCase()} ${locationTag} TIX ${year}`);
+    
+    // Add default tags from settings
+    if (settings.default_tags && Array.isArray(settings.default_tags) && settings.default_tags.length > 0) {
+        tags.push(...settings.default_tags);
+    } else if (settings.default_tags && typeof settings.default_tags === 'string') {
+        const defaultTagsArray = settings.default_tags
+            .split(',')
+            .map(tag => tag.trim())
+            .filter(tag => tag);
+        if (defaultTagsArray.length > 0) {
+            tags.push(...defaultTagsArray);
+        }
+    }
+    
+    eventbriteDefaultTags.value = tags;
+    eventbriteTags.value = tags.join(', ');
+};
+
+const loadEventbriteLists = async (account) => {
+    if (!account) return;
+    
+    isLoadingEventbriteLists.value = true;
+    eventbriteSelectedList.value = '';
+    
+    try {
+        const response = await axios.get(route('mailchimp.autosync.lists'), {
+            params: { account }
+        });
+        eventbriteMailchimpLists.value = response.data.lists;
+    } catch (error) {
+        console.error('Failed to load lists:', error);
+        eventbriteMailchimpLists.value = [];
+        Swal.fire('Error', 'Failed to load Mailchimp lists for this account', 'error');
+    } finally {
+        isLoadingEventbriteLists.value = false;
+    }
+};
+
+const closeEventbriteMailchimpModal = () => {
+    showEventbriteMailchimpModal.value = false;
+    eventbriteMailchimpAccount.value = '';
+    eventbriteSelectedList.value = '';
+    eventbriteMailchimpLists.value = [];
+    eventbriteTags.value = '';
+    eventbriteDefaultTags.value = [];
+};
+
+const importEventbriteToMailchimp = async () => {
+    // Validate before starting
+    if (!eventbriteSelectedList.value || eventbriteSelectedList.value.trim() === '') {
+        Swal.fire('Error', 'Please select a Mailchimp audience', 'error');
+        return;
+    }
+
+    if (!eventbriteMailchimpAccount.value || eventbriteMailchimpAccount.value.trim() === '') {
+        Swal.fire('Error', 'Please select a Mailchimp account', 'error');
+        return;
+    }
+
+    isImportingEventbrite.value = true;
+
+    try {
+        // Capture values BEFORE closing modal (important! - closeEventbriteMailchimpModal resets them)
+        const selectedListId = String(eventbriteSelectedList.value).trim();
+        const selectedAccount = String(eventbriteMailchimpAccount.value).trim();
+        
+        // Double-check we have valid values
+        if (!selectedListId || selectedListId === '' || !selectedAccount || selectedAccount === '') {
+            Swal.fire('Error', 'Please select both Mailchimp account and audience', 'error');
+            isImportingEventbrite.value = false;
+            return;
+        }
+        
+        console.log('Captured values for import:', {
+            selectedListId,
+            selectedAccount,
+            location_id: selectedLocation.value.id,
+            event_id: props.event.id
+        });
+
+        // Parse tags from the input field
+        let tags = eventbriteTags.value
+            .split(',')
+            .map(tag => tag.trim())
+            .filter(tag => tag);
+        
+        // Ensure tags is always an array (even if empty)
+        if (!Array.isArray(tags) || tags.length === 0) {
+            tags = [];
+        }
+
+        // Prepare attendees data (only first name, last name, email, phone)
+        const subscribers = eventbriteAttendees.value.map(attendee => ({
+            email_address: attendee.email,
+            first_name: attendee.first_name || '',
+            last_name: attendee.last_name || '',
+            mobile_number: attendee.phone || ''
+        }));
+
+        const totalAttendees = subscribers.length;
+        const chunkSize = totalAttendees <= 10 ? totalAttendees : 10;
+        const totalChunks = Math.ceil(subscribers.length / chunkSize);
+        let successCount = 0;
+        let failureCount = 0;
+        let updateCount = 0;
+        let newCount = 0;
+        let errors = [];
+        let importedAttendees = [];
+        let updatedAttendees = [];
+        let newAttendees = [];
+        let errorDetails = [];
+
+        // Close the selection modal AFTER capturing values
+        closeEventbriteMailchimpModal();
+
+        // Show progress modal
+        Swal.fire({
+            title: 'Importing Attendees to Mailchimp',
+            html: `
+                <div class="text-left">
+                    <div class="mb-3">
+                        <div class="flex justify-between mb-1">
+                            <span>Processing:</span>
+                            <span class="font-semibold">0 / ${totalAttendees}</span>
+                        </div>
+                        <div class="w-full bg-gray-200 rounded-full h-2">
+                            <div id="progress-bar" class="bg-blue-600 h-2 rounded-full transition-all duration-300" style="width: 0%"></div>
+                        </div>
+                    </div>
+                    <div class="grid grid-cols-2 gap-2 text-sm mt-3">
+                        <div>✅ Success: <span id="success-count" class="font-semibold text-green-600">0</span></div>
+                        <div>❌ Failed: <span id="failed-count" class="font-semibold text-red-600">0</span></div>
+                        <div>🆕 New: <span id="new-count" class="font-semibold text-blue-600">0</span></div>
+                        <div>🔄 Updated: <span id="update-count" class="font-semibold text-orange-600">0</span></div>
+                    </div>
+                </div>
+            `,
+            allowOutsideClick: false,
+            allowEscapeKey: false,
+            showConfirmButton: false,
+            didOpen: () => {
+                Swal.showLoading();
+            }
+        });
+
+        // Process each chunk
+        for (let i = 0; i < totalChunks; i++) {
+            const start = i * chunkSize;
+            const end = Math.min(start + chunkSize, subscribers.length);
+            const chunk = subscribers.slice(start, end);
+            
+            try {
+                console.log('Sending chunk to Eventbrite import:', {
+                    chunkSize: chunk.length,
+                    location_id: selectedLocation.value.id,
+                    event_id: props.event.id,
+                    list_id: selectedListId,
+                    mailchimp_account: selectedAccount,
+                    tags: tags,
+                    firstSubscriber: chunk[0]
+                });
+                
+                // Validate we have required values
+                if (!selectedListId || !selectedAccount) {
+                    throw new Error(`Missing required values: list_id=${selectedListId}, account=${selectedAccount}`);
+                }
+                
+                const response = await axios.post(route('location.importEventbriteToMailchimp'), {
+                    subscribers: chunk,
+                    location_id: parseInt(selectedLocation.value.id),
+                    event_id: parseInt(props.event.id),
+                    list_id: selectedListId,
+                    mailchimp_account: selectedAccount,
+                    tags: tags
+                });
+
+                // Process response details
+                if (response.data.details.success > 0) {
+                    importedAttendees = importedAttendees.concat(chunk);
+                }
+
+                if (response.data.details.updated !== undefined) {
+                    updateCount += response.data.details.updated || 0;
+                    // Track which attendees were updated
+                    if (response.data.details.updated > 0) {
+                        updatedAttendees = updatedAttendees.concat(chunk.slice(0, response.data.details.updated));
+                    }
+                }
+
+                if (response.data.details.new !== undefined) {
+                    newCount += response.data.details.new || 0;
+                }
+
+                successCount += response.data.details.success || 0;
+                failureCount += response.data.details.failed || 0;
+                errors = errors.concat(response.data.details.errors || []);
+
+                // Update progress
+                const processed = Math.min((i + 1) * chunkSize, totalAttendees);
+                const progressPercent = (processed / totalAttendees) * 100;
+                
+                await Swal.update({
+                    html: `
+                        <div class="text-left">
+                            <div class="mb-3">
+                                <div class="flex justify-between mb-1">
+                                    <span>Processing:</span>
+                                    <span class="font-semibold">${processed} / ${totalAttendees}</span>
+                                </div>
+                                <div class="w-full bg-gray-200 rounded-full h-2">
+                                    <div id="progress-bar" class="bg-blue-600 h-2 rounded-full transition-all duration-300" style="width: ${progressPercent}%"></div>
+                                </div>
+                            </div>
+                            <div class="grid grid-cols-2 gap-2 text-sm mt-3">
+                                <div>✅ Success: <span id="success-count" class="font-semibold text-green-600">${successCount}</span></div>
+                                <div>❌ Failed: <span id="failed-count" class="font-semibold text-red-600">${failureCount}</span></div>
+                                <div>🆕 New: <span id="new-count" class="font-semibold text-blue-600">${newCount}</span></div>
+                                <div>🔄 Updated: <span id="update-count" class="font-semibold text-orange-600">${updateCount}</span></div>
+                            </div>
+                        </div>
+                    `
+                });
+            } catch (error) {
+                console.error('Chunk import error:', error);
+                errors.push(`Chunk ${i + 1} failed: ${error.message}`);
+                failureCount += chunk.length;
+            }
+        }
+
+        // Close progress modal
+        await Swal.close();
+
+        // Generate and download log file
+        await generateImportLog({
+            totalSubscribers: totalAttendees,
+            successCount,
+            failureCount,
+            updateCount,
+            newCount,
+            errors,
+            errorDetails
+        }, importedAttendees);
+
+        // Generate copy-paste data using the same service as regular import
+        let copyPasteData = null;
+        try {
+            const importDataForSpreadsheet = {
+                totalSubscribers: totalAttendees,
+                successCount: successCount,
+                failureCount: failureCount,
+                updateCount: updateCount,
+                newCount: newCount,
+                errors: errors,
+                errorDetails: errorDetails
+            };
+            
+            const response = await axios.post(route('location.generateSpreadsheetData'), {
+                location_id: selectedLocation.value.id,
+                import_data: importDataForSpreadsheet,
+                tags: tags
+            });
+            
+            if (response.data.copy_paste_data) {
+                copyPasteData = response.data.copy_paste_data;
+            }
+        } catch (error) {
+            console.error('Failed to generate copy-paste data:', error);
+        }
+
+        // Show detailed results
+        await showEventbriteDetailedResults({
+            totalAttendees,
+            successCount,
+            failureCount,
+            updateCount,
+            newCount,
+            errors,
+            errorDetails,
+            importedAttendees,
+            updatedAttendees,
+            copyPasteData,
+            tags
+        });
+
+        // Close modal and reload page to update button color
+        closeEventbriteModal();
+        router.reload();
+
+    } catch (error) {
+        await Swal.close();
+        console.error('Error importing to Mailchimp:', error);
+        Swal.fire('Error', error.response?.data?.error || 'Failed to import attendees to Mailchimp', 'error');
+    } finally {
+        isImportingEventbrite.value = false;
+    }
+};
+
+// Show detailed results modal for Eventbrite import
+const showEventbriteDetailedResults = async (results) => {
+    const {
+        totalAttendees,
+        successCount,
+        failureCount,
+        updateCount,
+        newCount,
+        errors,
+        errorDetails,
+        importedAttendees,
+        updatedAttendees,
+        copyPasteData,
+        tags
+    } = results;
+
+    // Create tabs content - matching LocationAttendees.vue exactly
+    const summaryTab = `
+        <div class="text-left space-y-4">
+            <div class="grid grid-cols-2 gap-4">
+                <div class="bg-blue-50 p-4 rounded-lg">
+                    <h4 class="font-semibold text-blue-800 mb-2">📊 Import Summary</h4>
+                    <div class="space-y-1 text-sm">
+                        <div class="flex justify-between">
+                            <span>Total Processed:</span>
+                            <span class="font-medium">${totalAttendees}</span>
+                        </div>
+                        <div class="flex justify-between">
+                            <span>✅ Successfully Imported:</span>
+                            <span class="font-medium text-green-600">${successCount}</span>
+                        </div>
+                        <div class="flex justify-between">
+                            <span>❌ Failed:</span>
+                            <span class="font-medium text-red-600">${failureCount}</span>
+                        </div>
+                        <div class="flex justify-between">
+                            <span>📈 Success Rate:</span>
+                            <span class="font-medium">${totalAttendees > 0 ? ((successCount / totalAttendees) * 100).toFixed(1) : 0}%</span>
+                        </div>
+                    </div>
+                </div>
+                <div class="bg-green-50 p-4 rounded-lg">
+                    <h4 class="font-semibold text-green-800 mb-2">🎯 Import Breakdown</h4>
+                    <div class="space-y-1 text-sm">
+                        <div class="flex justify-between">
+                            <span>🆕 New Subscribers:</span>
+                            <span class="font-medium text-blue-600">${newCount}</span>
+                        </div>
+                        <div class="flex justify-between">
+                            <span>🔄 Updated Existing:</span>
+                            <span class="font-medium text-orange-600">${updateCount}</span>
+                        </div>
+                        <div class="flex justify-between">
+                            <span>📍 Location:</span>
+                            <span class="font-medium">${selectedLocation.value.name}</span>
+                        </div>
+                        <div class="flex justify-between">
+                            <span>📋 Tags Applied:</span>
+                            <span class="font-medium">${tags.length}</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    `;
+
+    const successTab = `
+        <div class="text-left">
+            <h4 class="font-semibold text-green-800 mb-3">✅ Successfully Imported (${successCount})</h4>
+            <div class="max-h-60 overflow-y-auto">
+                ${importedAttendees.length > 0 ? `
+                    <div class="space-y-2">
+                        ${importedAttendees.slice(0, 50).map((attendee, index) => `
+                            <div class="bg-green-50 p-2 rounded text-sm">
+                                <div class="font-medium">${attendee.first_name || 'N/A'} ${attendee.last_name || 'N/A'}</div>
+                                <div class="text-gray-600">${attendee.email_address || 'No email'}</div>
+                                ${attendee.mobile_number ? `<div class="text-gray-500">${attendee.mobile_number}</div>` : ''}
+                            </div>
+                        `).join('')}
+                        ${importedAttendees.length > 50 ? `<div class="text-center text-gray-500 text-sm mt-2">... and ${importedAttendees.length - 50} more</div>` : ''}
+                    </div>
+                ` : '<div class="text-gray-500 text-center py-4">No successful imports</div>'}
+            </div>
+        </div>
+    `;
+
+    const updatesTab = `
+        <div class="text-left">
+            <h4 class="font-semibold text-orange-800 mb-3">🔄 Updated Subscribers (${updateCount})</h4>
+            <div class="max-h-60 overflow-y-auto">
+                ${updatedAttendees && updatedAttendees.length > 0 ? `
+                    <div class="space-y-2">
+                        ${updatedAttendees.slice(0, 50).map((attendee, index) => `
+                            <div class="bg-orange-50 p-2 rounded text-sm">
+                                <div class="font-medium">${attendee.first_name || 'N/A'} ${attendee.last_name || 'N/A'}</div>
+                                <div class="text-gray-600">${attendee.email_address || 'No email'}</div>
+                                <div class="text-orange-600 text-xs">Updated existing subscriber</div>
+                            </div>
+                        `).join('')}
+                        ${updatedAttendees.length > 50 ? `<div class="text-center text-gray-500 text-sm mt-2">... and ${updatedAttendees.length - 50} more</div>` : ''}
+                    </div>
+                ` : '<div class="text-gray-500 text-center py-4">No existing subscribers were updated</div>'}
+            </div>
+        </div>
+    `;
+
+    const errorsTab = `
+        <div class="text-left">
+            <h4 class="font-semibold text-red-800 mb-3">❌ Import Errors (${failureCount})</h4>
+            <div class="max-h-60 overflow-y-auto">
+                ${errors.length > 0 ? `
+                    <div class="space-y-2">
+                        ${errors.slice(0, 20).map((error, index) => `
+                            <div class="bg-red-50 p-2 rounded text-sm">
+                                <div class="text-red-700">${error}</div>
+                            </div>
+                        `).join('')}
+                        ${errors.length > 20 ? `<div class="text-center text-gray-500 text-sm mt-2">... and ${errors.length - 20} more errors</div>` : ''}
+                    </div>
+                ` : '<div class="text-gray-500 text-center py-4">No errors occurred</div>'}
+            </div>
+        </div>
+    `;
+
+    // Show the comprehensive results modal - matching LocationAttendees.vue exactly
+    await Swal.fire({
+        title: 'Import Results',
+        html: `
+            <div class="text-left">
+                <div class="border-b border-gray-200 mb-4">
+                    <nav class="-mb-px flex space-x-8">
+                        <button onclick="showEventbriteTab('summary')" id="tab-summary" class="tab-button active border-b-2 border-blue-500 py-2 px-1 text-sm font-medium text-blue-600">
+                            📊 Summary
+                        </button>
+                        <button onclick="showEventbriteTab('success')" id="tab-success" class="tab-button border-b-2 border-transparent py-2 px-1 text-sm font-medium text-gray-500 hover:text-gray-700">
+                            ✅ Success (${successCount})
+                        </button>
+                        <button onclick="showEventbriteTab('updates')" id="tab-updates" class="tab-button border-b-2 border-transparent py-2 px-1 text-sm font-medium text-gray-500 hover:text-gray-700">
+                            🔄 Updates (${updateCount})
+                        </button>
+                        <button onclick="showEventbriteTab('errors')" id="tab-errors" class="tab-button border-b-2 border-transparent py-2 px-1 text-sm font-medium text-gray-500 hover:text-gray-700">
+                            ❌ Errors (${failureCount})
+                        </button>
+                    </nav>
+                </div>
+                <div id="tab-content-summary" class="tab-content">${summaryTab}</div>
+                <div id="tab-content-success" class="tab-content hidden">${successTab}</div>
+                <div id="tab-content-updates" class="tab-content hidden">${updatesTab}</div>
+                <div id="tab-content-errors" class="tab-content hidden">${errorsTab}</div>
+                <div class="mt-4 text-center">
+                    <div class="text-sm text-gray-600">
+                        📥 A detailed log file has been downloaded with complete import details.
+                    </div>
+                </div>
+                
+                <!-- Copy-Paste Data Section -->
+                <div class="mt-6 p-4 bg-gray-50 rounded-lg">
+                    <h4 class="font-semibold text-gray-800 mb-3">📋 Spreadsheet Data</h4>
+                    <div class="mb-4 p-3 bg-white border rounded-lg">
+                        <div class="text-sm text-gray-600 mb-2">Copy-paste data for spreadsheet:</div>
+                        <div class="select-all cursor-pointer hover:bg-gray-100 transition-colors p-2 bg-gray-50 rounded font-mono text-xs whitespace-pre-wrap" id="spreadsheet-data">${copyPasteData || 'No data available'}</div>
+                    </div>
+                    <div class="flex justify-center">
+                        <button onclick="copyEventbriteTabSeparated()" class="bg-blue-500 hover:bg-blue-600 text-white px-6 py-3 rounded-lg text-sm font-medium transition-colors shadow-md">
+                            📋 Copy Separated Data
+                        </button>
+                    </div>
+                </div>
+            </div>
+        `,
+        width: '800px',
+        confirmButtonText: 'Close',
+        confirmButtonColor: '#059669',
+        allowOutsideClick: false,
+        allowEscapeKey: false,
+        didOpen: () => {
+            // Add tab switching functionality
+            window.showEventbriteTab = (tabName) => {
+                // Hide all tab content
+                document.querySelectorAll('.tab-content').forEach(el => el.classList.add('hidden'));
+                document.querySelectorAll('.tab-button').forEach(el => {
+                    el.classList.remove('active', 'border-blue-500', 'text-blue-600');
+                    el.classList.add('border-transparent', 'text-gray-500');
+                });
+                
+                // Show selected tab
+                const contentEl = document.getElementById('tab-content-' + tabName);
+                if (contentEl) {
+                    contentEl.classList.remove('hidden');
+                }
+                const button = document.getElementById('tab-' + tabName);
+                if (button) {
+                    button.classList.add('active', 'border-blue-500', 'text-blue-600');
+                    button.classList.remove('border-transparent', 'text-gray-500');
+                }
+            };
+            
+            // Add click handler for spreadsheet data selection
+            const spreadsheetDataElement = document.getElementById('spreadsheet-data');
+            if (spreadsheetDataElement) {
+                spreadsheetDataElement.addEventListener('click', function() {
+                    const range = document.createRange();
+                    range.selectNodeContents(this);
+                    const selection = window.getSelection();
+                    selection.removeAllRanges();
+                    selection.addRange(range);
+                });
+            }
+            
+            // Add copy function - matching LocationAttendees.vue logic
+            window.copyEventbriteTabSeparated = function() {
+                const dataElement = document.getElementById('spreadsheet-data');
+                const copyButton = document.querySelector('button[onclick="copyEventbriteTabSeparated()"]');
+                
+                if (dataElement) {
+                    const text = dataElement.textContent;
+                    const lines = text.split('\n');
+                    
+                    // Find the line that contains "COPY THIS LINE"
+                    const copyLineIndex = lines.findIndex(line => line.includes('COPY THIS LINE'));
+                    if (copyLineIndex !== -1 && copyLineIndex + 1 < lines.length) {
+                        // Get the line after "COPY THIS LINE" which contains the tab-separated data
+                        const tabLine = lines[copyLineIndex + 1].trim();
+                        const hasTabs = tabLine.includes('\t');
+                        const hasCommas = tabLine.includes(',');
+                        const tabSplit = tabLine.split('\t');
+                        const commaSplit = tabLine.split(',');
+                        
+                        let dataToCopy = tabLine;
+                        
+                        if (hasTabs && tabSplit.length > 1) {
+                            dataToCopy = tabLine;
+                        } else if (hasCommas && commaSplit.length > 1) {
+                            // Convert comma-separated to tab-separated
+                            dataToCopy = commaSplit.join('\t');
+                        }
+                        
+                        navigator.clipboard.writeText(dataToCopy).then(() => {
+                            // Change button to show checkmark
+                            if (copyButton) {
+                                const originalHTML = copyButton.innerHTML;
+                                copyButton.innerHTML = '✅ Copied!';
+                                copyButton.classList.remove('bg-blue-500', 'hover:bg-blue-600');
+                                copyButton.classList.add('bg-green-500', 'hover:bg-green-600');
+                                copyButton.disabled = true;
+                                
+                                // Reset after 2 seconds
+                                setTimeout(() => {
+                                    copyButton.innerHTML = originalHTML;
+                                    copyButton.classList.remove('bg-green-500', 'hover:bg-green-600');
+                                    copyButton.classList.add('bg-blue-500', 'hover:bg-blue-600');
+                                    copyButton.disabled = false;
+                                }, 2000);
+                            }
+                        }).catch(err => {
+                            console.error('Failed to copy to clipboard:', err);
+                            Swal.fire({
+                                title: 'Copy Failed',
+                                html: `
+                                    <div class="text-left">
+                                        <p class="mb-3">Please manually copy this data:</p>
+                                        <div class="bg-gray-100 p-3 rounded text-sm font-mono break-all">
+                                            ${dataToCopy}
+                                        </div>
+                                    </div>
+                                `,
+                                confirmButtonText: 'OK',
+                                allowOutsideClick: false,
+                                allowEscapeKey: false
+                            });
+                        });
+                    } else {
+                        // Fallback: copy the entire content
+                        navigator.clipboard.writeText(text).then(() => {
+                            // Change button to show checkmark
+                            if (copyButton) {
+                                const originalHTML = copyButton.innerHTML;
+                                copyButton.innerHTML = '✅ Copied!';
+                                copyButton.classList.remove('bg-blue-500', 'hover:bg-blue-600');
+                                copyButton.classList.add('bg-green-500', 'hover:bg-green-600');
+                                copyButton.disabled = true;
+                                
+                                // Reset after 2 seconds
+                                setTimeout(() => {
+                                    copyButton.innerHTML = originalHTML;
+                                    copyButton.classList.remove('bg-green-500', 'hover:bg-green-600');
+                                    copyButton.classList.add('bg-blue-500', 'hover:bg-blue-600');
+                                    copyButton.disabled = false;
+                                }, 2000);
+                            }
+                        }).catch(err => {
+                            console.error('Failed to copy:', err);
+                        });
+                    }
+                }
+            };
+            
+        }
+    });
+};
+
 
 // Function to open location creation modal
 const openLocationModal = (location = null) => {
@@ -1122,6 +1950,16 @@ watch(
     }
 );
 
+// Watch for Eventbrite Mailchimp account changes
+watch(
+    () => eventbriteMailchimpAccount.value,
+    (newAccount) => {
+        if (newAccount && showEventbriteMailchimpModal.value) {
+            loadEventbriteLists(newAccount);
+        }
+    }
+);
+
 </script>
 
 <template>
@@ -1249,6 +2087,21 @@ watch(
                                     title="View Password"
                                 >
                                     <i class="fa-solid fa-key"></i>
+                                </button>
+                                <!-- Ticket/Eventbrite Button -->
+                                <button 
+                                    @click="openEventbriteModal(location)"
+                                    class="text-white px-3 py-2 rounded"
+                                    :style="{
+                                        backgroundColor: location.imported_eventbrite ? '#10B981' : '#F05537',
+                                        color: 'white',
+                                        borderRadius: '5px',
+                                        padding: '10px 20px',
+                                        cursor: 'pointer'
+                                    }"
+                                    :title="location.imported_eventbrite ? 'Eventbrite Data Imported' : 'Import from Eventbrite'"
+                                >
+                                    <i class="fa-solid fa-ticket"></i>
                                 </button>
                                 <!-- Delete Button -->
                                 <button 
@@ -1724,5 +2577,275 @@ Perth,,</pre>
             </div>
         </div>
         <div v-if="showMailchimpSettingsModal" class="modal-backdrop fade show"></div>
+
+        <!-- Eventbrite Import Modal -->
+        <div v-if="showEventbriteModal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+            <div class="bg-white p-6 rounded-lg shadow-xl max-w-4xl w-full mx-4 max-h-[90vh] overflow-y-auto">
+                <div class="flex justify-between items-center mb-4">
+                    <h3 class="text-lg font-semibold">Import Attendees from Eventbrite</h3>
+                    <button @click="closeEventbriteModal" class="text-gray-500 hover:text-gray-700">
+                        <i class="fa-solid fa-times"></i>
+                    </button>
+                </div>
+                
+                <div class="space-y-4">
+                    <p class="text-gray-600">
+                        Import attendees from Eventbrite for <strong>{{ selectedLocation?.name }}</strong>
+                    </p>
+
+                    <div class="mb-4">
+                        <label class="block text-sm font-medium text-gray-700 mb-2">
+                            Eventbrite Event Link
+                        </label>
+                        <input 
+                            type="text" 
+                            v-model="eventbriteLink"
+                            class="w-full border rounded px-3 py-2"
+                            placeholder="https://www.eventbrite.com/e/event-name-tickets-1234567890"
+                            :disabled="isFetchingEventbrite"
+                        />
+                        <p class="text-sm text-gray-500 mt-1">
+                            Paste the Eventbrite event URL. The system will extract the event ID and fetch all attendees.
+                        </p>
+                    </div>
+
+                    <div class="flex justify-end space-x-3 mb-4">
+                        <button 
+                            @click="closeEventbriteModal"
+                            class="px-4 py-2 border rounded text-gray-600 hover:bg-gray-50"
+                            :disabled="isFetchingEventbrite"
+                        >
+                            Cancel
+                        </button>
+                        <button 
+                            @click="fetchEventbriteAttendees"
+                            class="px-4 py-2 bg-orange-500 text-white rounded hover:bg-orange-600"
+                            :disabled="isFetchingEventbrite || !eventbriteLink.trim()"
+                        >
+                            <span v-if="isFetchingEventbrite">
+                                <i class="fa-solid fa-spinner fa-spin mr-2"></i>
+                                Fetching...
+                            </span>
+                            <span v-else>
+                                <i class="fa-solid fa-download mr-2"></i>
+                                Fetch Attendees
+                            </span>
+                        </button>
+                    </div>
+
+                    <!-- Attendees List -->
+                    <div v-if="eventbriteAttendees.length > 0" class="mt-6">
+                        <div class="flex justify-between items-center mb-4">
+                            <h4 class="text-md font-semibold">
+                                Found {{ eventbriteAttendees.length }} unique attendee(s)
+                            </h4>
+                            <div class="flex gap-2">
+                                <button 
+                                    @click="exportEventbriteAttendees"
+                                    class="px-4 py-2 bg-green-500 text-white rounded hover:bg-green-600"
+                                    :disabled="isImportingEventbrite"
+                                >
+                                    <i class="fa-solid fa-file-export mr-2"></i>
+                                    Export CSV
+                                </button>
+                                <button 
+                                    @click="openEventbriteMailchimpModal"
+                                    class="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600"
+                                    :disabled="isImportingEventbrite"
+                                >
+                                    <i class="fa-solid fa-upload mr-2"></i>
+                                    Import to Mailchimp
+                                </button>
+                            </div>
+                        </div>
+                        
+                        <div class="overflow-x-auto">
+                            <table class="min-w-full divide-y divide-gray-200">
+                                <thead class="bg-gray-50">
+                                    <tr>
+                                        <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Email</th>
+                                        <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">First Name</th>
+                                        <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Last Name</th>
+                                        <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Phone</th>
+                                        <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">City</th>
+                                        <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">State</th>
+                                        <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Country</th>
+                                    </tr>
+                                </thead>
+                                <tbody class="bg-white divide-y divide-gray-200">
+                                    <tr v-for="(attendee, index) in eventbriteAttendees" :key="index" class="hover:bg-gray-50">
+                                        <td class="px-4 py-2 text-sm">{{ attendee.email || '-' }}</td>
+                                        <td class="px-4 py-2 text-sm">{{ attendee.first_name || '-' }}</td>
+                                        <td class="px-4 py-2 text-sm">{{ attendee.last_name || '-' }}</td>
+                                        <td class="px-4 py-2 text-sm">{{ attendee.phone || '-' }}</td>
+                                        <td class="px-4 py-2 text-sm">{{ attendee.city || '-' }}</td>
+                                        <td class="px-4 py-2 text-sm">{{ attendee.state || '-' }}</td>
+                                        <td class="px-4 py-2 text-sm">{{ attendee.country || '-' }}</td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Eventbrite Mailchimp Import Modal -->
+        <div v-if="showEventbriteMailchimpModal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+            <div class="bg-white p-6 rounded-lg shadow-xl max-w-4xl w-full mx-4 max-h-[90vh] overflow-y-auto">
+                <div class="flex justify-between items-center mb-4">
+                    <h3 class="text-lg font-semibold">Import Eventbrite Attendees to Mailchimp</h3>
+                    <button @click="closeEventbriteMailchimpModal" class="text-gray-500 hover:text-gray-700">
+                        <i class="fa-solid fa-times"></i>
+                    </button>
+                </div>
+                
+                <div class="space-y-4">
+                    <p class="text-gray-600">
+                        Import <strong>{{ eventbriteAttendees.length }}</strong> attendees from Eventbrite for <strong>{{ selectedLocation?.name }}</strong>
+                    </p>
+
+                    <!-- Mailchimp Account Selection -->
+                    <div class="mb-4">
+                        <label class="block text-sm font-medium text-gray-700 mb-2">
+                            Mailchimp Account
+                        </label>
+                        <select 
+                            v-model="eventbriteMailchimpAccount"
+                            @change="loadEventbriteLists(eventbriteMailchimpAccount)"
+                            class="w-full border rounded px-3 py-2"
+                            :disabled="isLoadingEventbriteLists"
+                        >
+                            <option value="">Select an account...</option>
+                            <option 
+                                v-for="(account, key) in eventbriteAvailableAccounts" 
+                                :key="key" 
+                                :value="key"
+                                :disabled="!account.enabled"
+                            >
+                                {{ account.name }} {{ !account.enabled ? '(Not Configured)' : '' }}
+                            </option>
+                        </select>
+                    </div>
+
+                    <!-- Mailchimp Audience Selection -->
+                    <div class="mb-4">
+                        <label class="block text-sm font-medium text-gray-700 mb-2">
+                            Mailchimp Audience
+                        </label>
+                        <select 
+                            v-model="eventbriteSelectedList"
+                            class="w-full border rounded px-3 py-2"
+                            :disabled="isLoadingEventbriteLists || !eventbriteMailchimpAccount"
+                        >
+                            <option value="">Select an audience...</option>
+                            <option 
+                                v-for="list in eventbriteMailchimpLists" 
+                                :key="list.id" 
+                                :value="list.id"
+                            >
+                                {{ list.name }} ({{ list.stats.member_count }} members)
+                            </option>
+                        </select>
+                        <div v-if="isLoadingEventbriteLists" class="mt-2 text-sm text-gray-500">
+                            <i class="fa-solid fa-spinner fa-spin mr-1"></i>
+                            Loading audiences...
+                        </div>
+                    </div>
+
+                    <!-- Preview of Columns to Import -->
+                    <div v-if="eventbriteAttendees.length > 0" class="mb-4">
+                        <h4 class="text-md font-semibold mb-2">Preview - Columns to Import</h4>
+                        <div class="bg-gray-50 p-4 rounded-lg mb-3">
+                            <p class="text-sm text-gray-600 mb-2">The following columns will be imported:</p>
+                            <div class="flex flex-wrap gap-2">
+                                <span class="px-3 py-1 bg-blue-100 text-blue-800 rounded text-sm font-medium">Email</span>
+                                <span class="px-3 py-1 bg-blue-100 text-blue-800 rounded text-sm font-medium">First Name</span>
+                                <span class="px-3 py-1 bg-blue-100 text-blue-800 rounded text-sm font-medium">Last Name</span>
+                                <span class="px-3 py-1 bg-blue-100 text-blue-800 rounded text-sm font-medium">Phone Number</span>
+                            </div>
+                        </div>
+                        
+                        <div class="bg-white border rounded-lg overflow-hidden">
+                            <div class="max-h-64 overflow-y-auto">
+                                <table class="min-w-full divide-y divide-gray-200">
+                                    <thead class="bg-gray-50 sticky top-0">
+                                        <tr>
+                                            <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Email</th>
+                                            <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">First Name</th>
+                                            <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Last Name</th>
+                                            <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Phone</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody class="bg-white divide-y divide-gray-200">
+                                        <tr v-for="(attendee, index) in eventbriteAttendees.slice(0, 10)" :key="index" class="hover:bg-gray-50">
+                                            <td class="px-4 py-2 text-sm">{{ attendee.email || '-' }}</td>
+                                            <td class="px-4 py-2 text-sm">{{ attendee.first_name || '-' }}</td>
+                                            <td class="px-4 py-2 text-sm">{{ attendee.last_name || '-' }}</td>
+                                            <td class="px-4 py-2 text-sm">{{ attendee.phone || '-' }}</td>
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                            <div v-if="eventbriteAttendees.length > 10" class="px-4 py-2 bg-gray-50 text-sm text-gray-600 border-t">
+                                Showing first 10 of {{ eventbriteAttendees.length }} attendees
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Tags Section -->
+                    <div class="mb-4">
+                        <label class="block text-sm font-medium text-gray-700 mb-2">
+                            Tags to Apply
+                        </label>
+                        <div class="bg-gray-50 p-4 rounded-lg mb-3">
+                            <p class="text-sm text-gray-600 mb-2">Default tags (editable):</p>
+                            <div class="flex flex-wrap gap-2 mb-3">
+                                <span 
+                                    v-for="(tag, index) in eventbriteDefaultTags" 
+                                    :key="index"
+                                    class="px-3 py-1 bg-blue-100 text-blue-800 rounded text-sm font-medium"
+                                >
+                                    {{ tag }}
+                                </span>
+                            </div>
+                        </div>
+                        <input 
+                            type="text" 
+                            v-model="eventbriteTags"
+                            class="w-full border rounded px-3 py-2"
+                            placeholder="SHOW - LOCATION, SOURCE - WM LOCATION COMP 2025, EVENTBRITE, ..."
+                        />
+                        <p class="text-sm text-gray-500 mt-1">
+                            Edit tags separated by commas. Default tags are pre-filled but you can add or modify them.
+                        </p>
+                    </div>
+
+                    <div class="flex justify-end space-x-3 mt-6">
+                        <button 
+                            @click="closeEventbriteMailchimpModal"
+                            class="px-4 py-2 border rounded text-gray-600 hover:bg-gray-50"
+                            :disabled="isImportingEventbrite"
+                        >
+                            Cancel
+                        </button>
+                        <button 
+                            @click="importEventbriteToMailchimp"
+                            class="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600"
+                            :disabled="isImportingEventbrite || !eventbriteSelectedList || !eventbriteMailchimpAccount"
+                        >
+                            <span v-if="isImportingEventbrite">
+                                <i class="fa-solid fa-spinner fa-spin mr-2"></i>
+                                Importing...
+                            </span>
+                            <span v-else>
+                                <i class="fa-solid fa-upload mr-2"></i>
+                                Import to Mailchimp
+                            </span>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
     </AuthenticatedLayout>
 </template>
