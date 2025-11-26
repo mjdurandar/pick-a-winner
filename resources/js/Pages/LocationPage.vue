@@ -1153,16 +1153,10 @@ const importEventbriteToMailchimp = async () => {
         // Close progress modal
         await Swal.close();
 
-        // Generate and download log file
-        await generateImportLog({
-            totalSubscribers: totalAttendees,
-            successCount,
-            failureCount,
-            updateCount,
-            newCount,
-            errors,
-            errorDetails
-        }, importedAttendees);
+        // Generate and download CSV file instead of log file
+        if (importedAttendees.length > 0) {
+            await downloadEventbriteImportCSV(importedAttendees, selectedLocation.value.name);
+        }
 
         // Generate copy-paste data using the same service as regular import
         let copyPasteData = null;
@@ -1369,7 +1363,7 @@ const showEventbriteDetailedResults = async (results) => {
                 <div id="tab-content-errors" class="tab-content hidden">${errorsTab}</div>
                 <div class="mt-4 text-center">
                     <div class="text-sm text-gray-600">
-                        📥 A detailed log file has been downloaded with complete import details.
+                        📥 A CSV file has been downloaded with the imported attendees.
                     </div>
                 </div>
                 
@@ -1909,6 +1903,39 @@ const downloadLogFile = (content, filename) => {
     link.click();
     document.body.removeChild(link);
     window.URL.revokeObjectURL(url);
+};
+
+// Download CSV file for Eventbrite import
+const downloadEventbriteImportCSV = (attendees, locationName) => {
+    try {
+        // Create CSV content
+        const headers = ['Email', 'First Name', 'Last Name', 'Phone'];
+        const rows = attendees.map(attendee => [
+            attendee.email_address || '',
+            attendee.first_name || '',
+            attendee.last_name || '',
+            attendee.mobile_number || ''
+        ]);
+
+        const csvContent = [
+            headers.join(','),
+            ...rows.map(row => row.map(cell => `"${cell}"`).join(','))
+        ].join('\n');
+
+        // Create and download file
+        const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+        const link = document.createElement('a');
+        const url = URL.createObjectURL(blob);
+        link.setAttribute('href', url);
+        link.setAttribute('download', `eventbrite-import-${locationName.replace(/[^a-z0-9]/gi, '_')}-${new Date().toISOString().split('T')[0]}.csv`);
+        link.style.visibility = 'hidden';
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        URL.revokeObjectURL(url);
+    } catch (error) {
+        console.error('Failed to generate CSV file:', error);
+    }
 };
 
 // Add the download function
