@@ -62,6 +62,8 @@ const eventbriteAvailableAccounts = ref([]);
 const isLoadingEventbriteLists = ref(false);
 const eventbriteTags = ref('');
 const eventbriteDefaultTags = ref([]);
+const selectedCountry = ref(null);
+const selectedCategory = ref('');
 
 // Add computed property for tag preview
 const tagPreview = computed(() => {
@@ -121,25 +123,75 @@ const formatLocationDateTime = (date, time) => {
         } else if (date === 'TBA') {
             result = `Date TBA, ${time}`;
         } else if (time === 'TBA') {
-            const dateObj = new Date(date);
-            result = `${dateObj.toLocaleDateString('en-US', {
-                year: 'numeric',
-                month: 'long',
-                day: 'numeric'
-            })} - Time TBA`;
+            try {
+                // Try to parse date - handle YYYY-MM-DD format or other formats
+                let dateObj;
+                if (date.match(/^\d{4}-\d{2}-\d{2}$/)) {
+                    // Already in YYYY-MM-DD format
+                    dateObj = new Date(date);
+                } else {
+                    // Try to parse other formats
+                    dateObj = new Date(date);
+                }
+                
+                if (isNaN(dateObj.getTime())) {
+                    return `${date} - Time TBA`;
+                }
+                
+                result = `${dateObj.toLocaleDateString('en-US', {
+                    year: 'numeric',
+                    month: 'long',
+                    day: 'numeric'
+                })} - Time TBA`;
+            } catch (e) {
+                return `${date} - Time TBA`;
+            }
         }
         return result;
     }
 
-    const datetime = new Date(`${date}T${time}`);
-    return datetime.toLocaleString('en-US', {
-        year: 'numeric',
-        month: 'long',
-        day: 'numeric',
-        hour: 'numeric',
-        minute: '2-digit',
-        hour12: true,
-    });
+    try {
+        // Parse date - handle YYYY-MM-DD format or other formats
+        let dateObj;
+        if (date.match(/^\d{4}-\d{2}-\d{2}$/)) {
+            // Already in YYYY-MM-DD format - combine with time
+            dateObj = new Date(`${date}T${time}`);
+        } else {
+            // Try to parse other formats
+            // First try combining date and time
+            dateObj = new Date(`${date}T${time}`);
+            
+            // If that fails, try parsing date alone
+            if (isNaN(dateObj.getTime())) {
+                dateObj = new Date(date);
+                if (!isNaN(dateObj.getTime()) && time) {
+                    // If date parsed successfully, try to add time
+                    const [hours, minutes] = time.split(':').map(Number);
+                    if (!isNaN(hours) && !isNaN(minutes)) {
+                        dateObj.setHours(hours, minutes || 0);
+                    }
+                }
+            }
+        }
+        
+        // Check if date is valid
+        if (isNaN(dateObj.getTime())) {
+            // If date parsing failed, return a fallback format
+            return `${date} ${time}`;
+        }
+        
+        return dateObj.toLocaleString('en-US', {
+            year: 'numeric',
+            month: 'long',
+            day: 'numeric',
+            hour: 'numeric',
+            minute: '2-digit',
+            hour12: true,
+        });
+    } catch (e) {
+        // Fallback to simple display if parsing fails
+        return `${date} ${time}`;
+    }
 };
 
 const generateLocationTags = (locationName) => {
@@ -593,7 +645,127 @@ const importLocations = async (locations) => {
     }
 };
 
-// ✅ Computed Property to Filter Locations
+// Helper function to sort locations by date and time
+const sortLocationsByDateTime = (locations) => {
+    return locations.sort((a, b) => {
+        // Handle TBA dates - put them at the end
+        if (a.date === 'TBA' && b.date !== 'TBA') return 1;
+        if (a.date !== 'TBA' && b.date === 'TBA') return -1;
+        if (a.date === 'TBA' && b.date === 'TBA') return 0;
+        
+        // Handle TBA times - put them at the end
+        if (a.time === 'TBA' && b.time !== 'TBA') return 1;
+        if (a.time !== 'TBA' && b.time === 'TBA') return -1;
+        if (a.time === 'TBA' && b.time === 'TBA') return 0;
+        
+        // Try to create Date objects for comparison
+        try {
+            const dateA = new Date(`${a.date}T${a.time}`);
+            const dateB = new Date(`${b.date}T${b.time}`);
+            
+            // Check if dates are valid
+            if (isNaN(dateA.getTime()) && isNaN(dateB.getTime())) return 0;
+            if (isNaN(dateA.getTime())) return 1;
+            if (isNaN(dateB.getTime())) return -1;
+            
+            return dateA - dateB;
+        } catch (e) {
+            // If date parsing fails, compare as strings
+            return `${a.date} ${a.time}`.localeCompare(`${b.date} ${b.time}`);
+        }
+    });
+};
+
+// ✅ Computed Property to Filter and Group Locations by Country
+const locationsByCountry = computed(() => {
+    let locations = props.locations;
+    
+    // Filter by search query if exists
+    if (searchQuery.value) {
+        locations = locations.filter(location =>
+            location.name.toLowerCase().includes(searchQuery.value.toLowerCase())
+        );
+    }
+    
+    // Group by country
+    const grouped = {};
+    locations.forEach(location => {
+        const country = location.country || 'Other';
+        if (!grouped[country]) {
+            grouped[country] = [];
+        }
+        grouped[country].push(location);
+    });
+    
+    // Sort locations within each country by date and time
+    Object.keys(grouped).forEach(country => {
+        grouped[country] = sortLocationsByDateTime(grouped[country]);
+    });
+    
+    // Sort countries alphabetically
+    const sortedCountries = Object.keys(grouped).sort();
+    const result = {};
+    sortedCountries.forEach(country => {
+        result[country] = grouped[country];
+    });
+    
+    return result;
+});
+
+// ✅ Computed Property for Country List (for tabs)
+const countryList = computed(() => {
+    return Object.keys(locationsByCountry.value).sort();
+});
+
+// ✅ Computed Property for Available Categories
+const availableCategories = computed(() => {
+    const categories = new Set();
+    if (selectedCountry.value && locationsByCountry.value[selectedCountry.value]) {
+        locationsByCountry.value[selectedCountry.value].forEach(location => {
+            if (location.category) {
+                categories.add(location.category);
+            }
+        });
+    }
+    return Array.from(categories).sort();
+});
+
+// ✅ Computed Property for Selected Country Locations (filtered by category)
+const selectedCountryLocations = computed(() => {
+    if (!selectedCountry.value) {
+        return [];
+    }
+    let locations = locationsByCountry.value[selectedCountry.value] || [];
+    
+    // Filter by category if selected
+    if (selectedCategory.value) {
+        locations = locations.filter(location => location.category === selectedCategory.value);
+    }
+    
+    return locations;
+});
+
+// ✅ Initialize selected country on mount or when locations change
+watch(
+    () => locationsByCountry.value,
+    (newValue) => {
+        if (!selectedCountry.value && Object.keys(newValue).length > 0) {
+            // Set first country as default
+            selectedCountry.value = Object.keys(newValue).sort()[0];
+        }
+    },
+    { immediate: true }
+);
+
+// ✅ Reset category filter when country changes
+watch(
+    () => selectedCountry.value,
+    () => {
+        selectedCategory.value = '';
+    }
+);
+
+// ✅ Computed Property to Filter Locations (for backward compatibility)
 const filteredLocations = computed(() => {
     let locations = props.locations;
     
@@ -605,14 +777,7 @@ const filteredLocations = computed(() => {
     }
     
     // Sort by date and time
-    return locations.sort((a, b) => {
-        // Create Date objects for comparison
-        const dateA = new Date(`${a.date}T${a.time}`);
-        const dateB = new Date(`${b.date}T${b.time}`);
-        
-        // Compare dates
-        return dateA - dateB;
-    });
+    return sortLocationsByDateTime(locations);
 });
 
 const openPasswordModal = (location) => {
@@ -2062,24 +2227,107 @@ watch(
                                 <i class="fa-solid fa-key"></i> Event Password
                             </button>
                         </div> -->
-                        <!-- ✅ Search Bar -->
-                        <input 
-                            v-model="searchQuery" 
-                            type="text" 
-                            placeholder="Search location..."
-                            class="w-full border p-2 rounded mb-4 focus:ring focus:ring-blue-300"
-                        />
+                        <!-- ✅ Search Bar and Category Filter -->
+                        <div class="mb-4 space-y-3">
+                            <input 
+                                v-model="searchQuery" 
+                                type="text" 
+                                placeholder="Search location..."
+                                class="w-full border p-2 rounded focus:ring focus:ring-blue-300"
+                            />
+                            
+                            <!-- Category Filter -->
+                            <div v-if="selectedCountry && availableCategories.length > 0" class="flex items-center gap-2">
+                                <label class="text-sm font-medium text-gray-700 whitespace-nowrap">Filter by Category:</label>
+                                <select 
+                                    v-model="selectedCategory"
+                                    class="border rounded px-3 py-2 text-sm focus:ring focus:ring-blue-300"
+                                    style="min-width: 200px;"
+                                >
+                                    <option value="">All Categories</option>
+                                    <option 
+                                        v-for="category in availableCategories" 
+                                        :key="category" 
+                                        :value="category"
+                                    >
+                                        {{ category }}
+                                    </option>
+                                </select>
+                                <button 
+                                    v-if="selectedCategory"
+                                    @click="selectedCategory = ''"
+                                    class="px-3 py-2 text-sm text-gray-600 hover:text-gray-800 underline"
+                                >
+                                    Clear Filter
+                                </button>
+                            </div>
+                        </div>
 
-                        <!-- ✅ Locations List -->
-                        <div v-if="filteredLocations.length > 0" class="space-y-2">
+                        <!-- ✅ Country Tabs -->
+                        <div v-if="countryList.length > 0" class="mb-4">
+                            <div class="border-b border-gray-200">
+                                <nav class="-mb-px flex space-x-4 overflow-x-auto" style="flex-wrap: wrap;">
+                                    <button
+                                        v-for="country in countryList"
+                                        :key="country"
+                                        @click="selectedCountry = country"
+                                        :class="[
+                                            'px-4 py-2 text-sm font-medium border-b-2 transition-colors whitespace-nowrap',
+                                            selectedCountry === country
+                                                ? 'border-blue-500 text-blue-600'
+                                                : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                                        ]"
+                                        :style="selectedCountry === country ? 'background-color: #EFF6FF;' : ''"
+                                    >
+                                        {{ country }}
+                                        <span class="ml-2 px-2 py-0.5 rounded-full text-xs"
+                                            :style="selectedCountry === country 
+                                                ? 'background-color: #3B82F6; color: white;' 
+                                                : 'background-color: #E5E7EB; color: #6B7280;'"
+                                        >
+                                            {{ locationsByCountry[country].length }}
+                                        </span>
+                                    </button>
+                                </nav>
+                            </div>
+                        </div>
+
+                        <!-- ✅ Filter Info -->
+                        <div v-if="selectedCountry" class="mb-3 text-sm text-gray-600">
+                            <span v-if="selectedCategory">
+                                Showing {{ selectedCountryLocations.length }} location(s) in <strong>{{ selectedCountry }}</strong> with category <strong>{{ selectedCategory }}</strong>
+                            </span>
+                            <span v-else>
+                                Showing {{ selectedCountryLocations.length }} location(s) in <strong>{{ selectedCountry }}</strong>
+                            </span>
+                        </div>
+
+                        <!-- ✅ Locations List for Selected Country -->
+                        <div v-if="selectedCountry && selectedCountryLocations.length > 0" class="space-y-2">
                             <div 
-                                v-for="(location, index) in filteredLocations" 
-                                :key="index" 
+                                v-for="(location, index) in selectedCountryLocations" 
+                                :key="`${selectedCountry}-${index}`" 
                                 class="flex items-center space-x-2 w-full"
                             >
-                                <div class=" px-4 py-2 rounded w-full text-left truncate" 
+                                <div class="px-4 py-2 rounded w-full text-left" 
                                 style="background-color: white; border: 2px solid black; font-weight: bold; color: black; border-radius: 5px; padding: 10px 20px; cursor: pointer;">
-                                    {{ location.name }} <br> {{ formatLocationDateTime(location.date, location.time) }}
+                                    <div class="flex items-center justify-between">
+                                        <div>
+                                            <div class="font-semibold">{{ location.name }}</div>
+                                            <div class="text-sm font-normal text-gray-600 mt-1">
+                                                {{ formatLocationDateTime(location.date, location.time) }}
+                                            </div>
+                                        </div>
+                                        <!-- Category Badge -->
+                                        <div v-if="location.category" class="ml-3">
+                                            <span 
+                                                class="px-3 py-1 rounded-full text-xs font-semibold"
+                                                style="background-color: #16C3D9; color: white;"
+                                            >
+                                                {{ location.category }}
+                                            </span>
+                                        </div>
+                                    </div>
                                 </div>
                                 <!-- Users/Attendees Button -->
                                 <button 
@@ -2143,6 +2391,19 @@ watch(
                         </div>
 
                         <!-- ✅ If No Locations Found -->
+                        <div v-else-if="selectedCountry && selectedCountryLocations.length === 0">
+                            <p class="text-gray-600 mt-3">
+                                <span v-if="selectedCategory">
+                                    No locations found in <strong>{{ selectedCountry }}</strong> with category <strong>{{ selectedCategory }}</strong>.
+                                </span>
+                                <span v-else>
+                                    No locations found in <strong>{{ selectedCountry }}</strong>.
+                                </span>
+                            </p>
+                        </div>
+                        <div v-else-if="!selectedCountry">
+                            <p class="text-gray-600 mt-3">Please select a country to view locations.</p>
+                        </div>
                         <div v-else>
                             <p class="text-gray-600 mt-3">No locations found.</p>
                         </div>

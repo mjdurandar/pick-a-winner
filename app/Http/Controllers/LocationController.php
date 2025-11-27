@@ -14,6 +14,7 @@ use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Http;
 use App\Services\MailchimpLogService;
 use App\Services\SpreadsheetLogService;
+use Carbon\Carbon;
 
 class LocationController extends Controller
 {
@@ -973,6 +974,338 @@ class LocationController extends Controller
 
             return response()->json([
                 'error' => 'Failed to import to Mailchimp: ' . $e->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
+     * Get locations for sheets modal (formatted for display)
+     */
+    public function getSheetsData($eventId)
+    {
+        try {
+            $locations = Location::where('event_id', $eventId)
+                ->orderBy('id', 'asc')
+                ->get();
+
+            $sheetsData = $locations->map(function ($location) {
+                // Parse the name field: "Location State (if any) - Cinema"
+                $name = $location->name ?? '';
+                $locationName = '';
+                $state = '';
+                $cinema = '';
+
+                // Check if name contains " - " (separator for cinema)
+                if (strpos($name, ' - ') !== false) {
+                    $parts = explode(' - ', $name, 2);
+                    $locationPart = trim($parts[0]);
+                    $cinema = trim($parts[1] ?? '');
+                    
+                    // Check if location part contains state (2-3 letter abbreviation at the end)
+                    // Pattern: "Location ST" where ST is 2-3 uppercase letters
+                    if (preg_match('/^(.+?)\s+([A-Z]{2,3})$/', $locationPart, $matches)) {
+                        $locationName = trim($matches[1]);
+                        $state = trim($matches[2]);
+                    } else {
+                        $locationName = $locationPart;
+                    }
+                } else {
+                    // No cinema, check for state
+                    if (preg_match('/^(.+?)\s+([A-Z]{2,3})$/', $name, $matches)) {
+                        $locationName = trim($matches[1]);
+                        $state = trim($matches[2]);
+                    } else {
+                        $locationName = $name;
+                    }
+                }
+
+                return [
+                    'id' => $location->id,
+                    'Location' => $locationName,
+                    'Cinema' => $cinema,
+                    'State' => $state,
+                    'Country' => $location->country ?? '',
+                    'Date' => $location->date ?? '',
+                    'Time' => $location->time ?? '',
+                    'Category' => $location->category ?? ''
+                ];
+            });
+
+            return response()->json([
+                'success' => true,
+                'data' => $sheetsData
+            ]);
+        } catch (\Exception $e) {
+            return response()->json([
+                'error' => 'Failed to load locations: ' . $e->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
+     * Parse time string to 24-hour format (HH:MM) like "20:00", "19:00", "18:30"
+     * Handles formats like:
+     * - "7:00PM" or "7:00 PM" → "19:00"
+     * - "7pm" or "7PM" → "19:00"
+     * - "7:00pm" or "7:00 pm" → "19:00"
+     * - "7:00AM" or "7:00 AM" → "07:00"
+     * - "7am" or "7AM" → "07:00"
+     * - "19:00" (already in 24-hour format) → "19:00"
+     * - "7:00" (assumes PM if no AM/PM specified and hour < 12)
+     */
+    private function parseTime($timeString)
+    {
+        if (empty($timeString)) {
+            return null;
+        }
+
+        $timeString = trim($timeString);
+        
+        // Check if already in 24-hour format "HH:MM" or "H:MM"
+        if (preg_match('/^(\d{1,2}):(\d{2})$/', $timeString, $matches)) {
+            $hour24 = (int)$matches[1];
+            $minutes = (int)$matches[2];
+            
+            // Validate
+            if ($hour24 < 0 || $hour24 > 23 || $minutes < 0 || $minutes > 59) {
+                Log::warning('Invalid 24-hour time format', ['time' => $timeString]);
+                return null;
+            }
+            
+            // Return in HH:MM format
+            return sprintf('%02d:%02d', $hour24, $minutes);
+        }
+        
+        // Handle formats like "7pm", "7PM", "7:00pm", "7:00 pm", "7:00PM", "7:00 PM"
+        if (preg_match('/^(\d{1,2})(?::(\d{2}))?\s*(AM|PM)$/i', $timeString, $matches)) {
+            $hour = (int)$matches[1];
+            $minutes = isset($matches[2]) ? (int)$matches[2] : 0;
+            $ampm = strtoupper($matches[3]);
+            
+            // Validate hour
+            if ($hour < 1 || $hour > 12) {
+                Log::warning('Invalid hour in time string', ['time' => $timeString, 'hour' => $hour]);
+                return null;
+            }
+            
+            // Validate minutes
+            if ($minutes < 0 || $minutes > 59) {
+                Log::warning('Invalid minutes in time string', ['time' => $timeString, 'minutes' => $minutes]);
+                return null;
+            }
+            
+            // Convert to 24-hour format
+            $hour24 = $hour;
+            if ($ampm === 'PM' && $hour != 12) {
+                $hour24 = $hour + 12;
+            } elseif ($ampm === 'AM' && $hour == 12) {
+                $hour24 = 0;
+            }
+            
+            // Return in HH:MM format
+            return sprintf('%02d:%02d', $hour24, $minutes);
+        }
+        
+        // If no format matches, try to parse with Carbon as fallback
+        try {
+            // Try to parse as time
+            $time = Carbon::createFromTimeString($timeString);
+            // Return in 24-hour format HH:MM
+            return $time->format('H:i');
+        } catch (\Exception $e) {
+            Log::warning('Unable to parse time string', [
+                'time_string' => $timeString,
+                'error' => $e->getMessage()
+            ]);
+            
+            // Return original if we can't parse it
+            return $timeString;
+        }
+    }
+
+    /**
+     * Parse date string to YYYY-MM-DD format
+     * Handles formats like:
+     * - "Friday, January 23, 2026"
+     * - "Sunday, 31 May 2026"
+     * - "Saturday, January 24, 2026"
+     * - "Wednesday, 27 May 2026"
+     * - "January 24, 2026"
+     * - "27 May 2026"
+     * - "2026-01-24" (already in correct format)
+     */
+    private function parseDate($dateString)
+    {
+        if (empty($dateString)) {
+            return null;
+        }
+
+        $dateString = trim($dateString);
+        
+        // Check if already in YYYY-MM-DD format
+        if (preg_match('/^\d{4}-\d{2}-\d{2}$/', $dateString)) {
+            return $dateString;
+        }
+        
+        // Remove day name if present (e.g., "Friday, " or "Sunday, ")
+        $cleanedDate = preg_replace('/^(Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday),\s*/i', '', $dateString);
+        
+        // Try manual parsing first for specific formats
+        
+        // Format 1: "31 May 2026" or "27 May 2026" (UK/Australian - day month year)
+        if (preg_match('/^(\d{1,2})\s+(January|February|March|April|May|June|July|August|September|October|November|December)\s+(\d{4})$/i', $cleanedDate, $matches)) {
+            $day = str_pad($matches[1], 2, '0', STR_PAD_LEFT);
+            $monthName = ucfirst(strtolower($matches[2]));
+            $year = $matches[3];
+            
+            // Convert month name to number
+            $monthNum = date('m', strtotime($monthName . ' 1'));
+            if ($monthNum === false) {
+                Log::error('Failed to convert month name', ['month' => $monthName]);
+                return null;
+            }
+            
+            return "$year-$monthNum-$day";
+        }
+        
+        // Format 2: "January 23, 2026" or "January 24, 2026" (US - month day, year)
+        if (preg_match('/^(January|February|March|April|May|June|July|August|September|October|November|December)\s+(\d{1,2}),?\s+(\d{4})$/i', $cleanedDate, $matches)) {
+            $monthName = ucfirst(strtolower($matches[1]));
+            $day = str_pad($matches[2], 2, '0', STR_PAD_LEFT);
+            $year = $matches[3];
+            
+            // Convert month name to number
+            $monthNum = date('m', strtotime($monthName . ' 1'));
+            if ($monthNum === false) {
+                Log::error('Failed to convert month name', ['month' => $monthName]);
+                return null;
+            }
+            
+            return "$year-$monthNum-$day";
+        }
+        
+        // Try Carbon as fallback for other formats
+        try {
+            $date = Carbon::parse($cleanedDate);
+            return $date->format('Y-m-d');
+        } catch (\Exception $e) {
+            // If Carbon can't parse it, log and return null
+            Log::error('Unable to parse date string', [
+                'original_date' => $dateString,
+                'cleaned_date' => $cleanedDate,
+                'error' => $e->getMessage()
+            ]);
+            
+            return null;
+        }
+    }
+
+    /**
+     * Save locations from sheets modal
+     */
+    public function saveSheetsData(Request $request)
+    {
+        try {
+            $request->validate([
+                'event_id' => 'required|exists:events,id',
+                'data' => 'required|array',
+                'data.*.Location' => 'required|string',
+                'data.*.Cinema' => 'nullable|string',
+                'data.*.State' => 'nullable|string',
+                'data.*.Country' => 'nullable|string',
+                'data.*.Date' => 'nullable|string',
+                'data.*.Time' => 'nullable|string',
+                'data.*.Category' => 'nullable|string',
+            ]);
+
+            $eventId = $request->event_id;
+            $rows = $request->data;
+            $created = 0;
+            $updated = 0;
+
+            // Get existing locations for password logic
+            $existingLocations = Location::where('event_id', $eventId)->get();
+            $passwordCounts = $existingLocations->groupBy('password')->map(function ($group) {
+                return $group->count();
+            });
+            $commonPassword = null;
+            $maxCount = 0;
+            foreach ($passwordCounts as $password => $count) {
+                if ($count >= 3 && $count > $maxCount) {
+                    $commonPassword = $password;
+                    $maxCount = $count;
+                }
+            }
+
+            foreach ($rows as $row) {
+                // Skip empty rows (all fields empty)
+                if (empty($row['Location']) && empty($row['Cinema']) && empty($row['State'])) {
+                    continue;
+                }
+
+                // Build the name: "Location State (if any) - Cinema"
+                $locationName = trim($row['Location'] ?? '');
+                $state = trim($row['State'] ?? '');
+                $cinema = trim($row['Cinema'] ?? '');
+
+                $name = $locationName;
+                if (!empty($state)) {
+                    $name .= ' ' . strtoupper($state);
+                }
+                if (!empty($cinema)) {
+                    $name .= ' - ' . $cinema;
+                }
+
+                // Parse and convert date to YYYY-MM-DD format
+                $parsedDate = $this->parseDate($row['Date'] ?? null);
+                
+                // Parse and convert time to standardized format
+                $parsedTime = $this->parseTime($row['Time'] ?? null);
+                
+                // Check if this is an update (has id) or create (no id)
+                if (!empty($row['id'])) {
+                    // Update existing location
+                    $location = Location::find($row['id']);
+                    if ($location && $location->event_id == $eventId) {
+                        $location->update([
+                            'name' => $name,
+                            'date' => $parsedDate,
+                            'time' => $parsedTime,
+                            'country' => $row['Country'] ?? null,
+                            'category' => $row['Category'] ?? null,
+                        ]);
+                        $updated++;
+                    }
+                } else {
+                    // Create new location
+                    $password = $commonPassword ?: Str::random(10);
+                    Location::create([
+                        'name' => $name,
+                        'event_id' => $eventId,
+                        'date' => $parsedDate,
+                        'time' => $parsedTime,
+                        'country' => $row['Country'] ?? null,
+                        'category' => $row['Category'] ?? null,
+                        'password' => $password
+                    ]);
+                    $created++;
+                }
+            }
+
+            return response()->json([
+                'success' => true,
+                'message' => "Successfully saved. Created: {$created}, Updated: {$updated}",
+                'created' => $created,
+                'updated' => $updated
+            ]);
+        } catch (\Exception $e) {
+            Log::error('Failed to save sheets data', [
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString()
+            ]);
+
+            return response()->json([
+                'error' => 'Failed to save locations: ' . $e->getMessage()
             ], 500);
         }
     }

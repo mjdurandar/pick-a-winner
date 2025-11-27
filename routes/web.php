@@ -14,8 +14,6 @@ use Illuminate\Support\Facades\Route;
 use Inertia\Inertia;
 use App\Http\Middleware\RoleMiddleware;
 
-//testing push
-
 // Public Pick a Winner Routes
 Route::get('/pickawinner', [PickaWinnerController::class, 'index'])->name('pickawinner.index');
 Route::get('/pickawinner/{eventId}', [PickaWinnerController::class, 'pickawinner'])->name('pickawinner.page');
@@ -80,6 +78,10 @@ Route::middleware(['auth', RoleMiddleware::class . ':admin,host'])->group(functi
     //EVENTBRITE ROUTES
     Route::post('/location/fetch-eventbrite-attendees', [LocationController::class, 'fetchEventbriteAttendees'])->name('location.fetchEventbriteAttendees');
     Route::post('/location/import-eventbrite-to-mailchimp', [LocationController::class, 'importEventbriteToMailchimp'])->name('location.importEventbriteToMailchimp');
+    
+    //SHEETS DATA ROUTES
+    Route::get('/location/sheets-data/{eventId}', [LocationController::class, 'getSheetsData'])->name('location.getSheetsData');
+    Route::post('/location/save-sheets-data', [LocationController::class, 'saveSheetsData'])->name('location.saveSheetsData');
 });
 
 Route::middleware(['auth', RoleMiddleware::class . ':admin'])->group(function () {  

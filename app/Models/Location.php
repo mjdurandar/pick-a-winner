@@ -14,7 +14,9 @@ class Location extends Model
         'event_id',
         'date',
         'time',
-        'password'
+        'password',
+        'country',
+        'category'
     ];
 
     /**
