@@ -16,7 +16,18 @@ const props = defineProps({
 const isEditing = ref(false);
 const page = usePage();
 const user = computed(() => page.props.auth.user || null);
-const userRole = computed(() => user.value?.role); 
+const userRole = computed(() => user.value?.role);
+
+// Film filter
+const selectedFilmFilter = ref(null);
+
+// Computed property to filter events by selected film
+const filteredEvents = computed(() => {
+    if (!selectedFilmFilter.value) {
+        return props.events;
+    }
+    return props.events.filter(event => event.film_id === selectedFilmFilter.value);
+}); 
 
 // Sheets modal state
 const showSheetsModal = ref(false);
@@ -504,16 +515,32 @@ const closeSheetsModal = () => {
         <template #header>
             <div class="d-flex justify-content-between align-items-center">
                 <h2 class="text-xl font-semibold leading-tight text-gray-800">Events</h2>
-                <button @click="openCreateModal" class="btn" style="background-color: black; color: white;" v-if="userRole === 'admin'">
-                    <i class="fa-solid fa-plus"></i> Create Event
-                </button>
+                <div class="d-flex align-items-center gap-2">
+                    <select 
+                        v-model="selectedFilmFilter" 
+                        class="form-select" 
+                        style="width: auto; min-width: 200px;"
+                    >
+                        <option :value="null">All Films</option>
+                        <option 
+                            v-for="film in props.films" 
+                            :key="film.id" 
+                            :value="film.id"
+                        >
+                            {{ film.name }}
+                        </option>
+                    </select>
+                    <button @click="openCreateModal" class="btn" style="background-color: #16C3D9; color: white;" v-if="userRole === 'admin'">
+                        <i class="fa-solid fa-plus"></i> Create Event
+                    </button>
+                </div>
             </div>
         </template>
 
         <div class="p-4">
             <div class="mx-auto max-w-7xl sm:px-6 lg:px-8">
                 <div class="row">
-                    <div v-for="event in props.events" :key="event.id" class="col-md-4 mb-4">
+                    <div v-for="event in filteredEvents" :key="event.id" class="col-md-4 mb-4">
                         <div class="card">
                             <img style="height: 200px;" :src="'/storage/' + event.event_banner" class="card-img-top" alt="Event Banner" />
                             <div class="card-body">
