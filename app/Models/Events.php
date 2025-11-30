@@ -11,7 +11,6 @@ class Events extends Model
     use HasFactory;
     protected $fillable = [
         'event_name',
-        'event_description',
         'event_date',
         'event_year',
         'event_banner',
@@ -19,7 +18,8 @@ class Events extends Model
         'event_coordinator',
         'event_coordinator_email',
         'event_country',
-        'event_uuid'
+        'event_uuid',
+        'film_id'
     ];
 
     protected static function boot()
@@ -41,5 +41,10 @@ class Events extends Model
     public function locations()
     {
         return $this->hasMany(Location::class, 'event_id');
+    }
+
+    public function film()
+    {
+        return $this->belongsTo(Films::class, 'film_id');
     }
 }

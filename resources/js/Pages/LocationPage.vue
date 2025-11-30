@@ -138,11 +138,11 @@ const formatLocationDateTime = (date, time) => {
                     return `${date} - Time TBA`;
                 }
                 
-                result = `${dateObj.toLocaleDateString('en-US', {
-                    year: 'numeric',
-                    month: 'long',
-                    day: 'numeric'
-                })} - Time TBA`;
+            result = `${dateObj.toLocaleDateString('en-US', {
+                year: 'numeric',
+                month: 'long',
+                day: 'numeric'
+            })} - Time TBA`;
             } catch (e) {
                 return `${date} - Time TBA`;
             }
@@ -181,13 +181,13 @@ const formatLocationDateTime = (date, time) => {
         }
         
         return dateObj.toLocaleString('en-US', {
-            year: 'numeric',
-            month: 'long',
-            day: 'numeric',
-            hour: 'numeric',
-            minute: '2-digit',
-            hour12: true,
-        });
+        year: 'numeric',
+        month: 'long',
+        day: 'numeric',
+        hour: 'numeric',
+        minute: '2-digit',
+        hour12: true,
+    });
     } catch (e) {
         // Fallback to simple display if parsing fails
         return `${date} ${time}`;
@@ -756,7 +756,7 @@ watch(
     },
     { immediate: true }
 );
-
+        
 // ✅ Reset category filter when country changes
 watch(
     () => selectedCountry.value,
@@ -2229,10 +2229,10 @@ watch(
                         </div> -->
                         <!-- ✅ Search Bar and Category Filter -->
                         <div class="mb-4 space-y-3">
-                            <input 
-                                v-model="searchQuery" 
-                                type="text" 
-                                placeholder="Search location..."
+                        <input 
+                            v-model="searchQuery" 
+                            type="text" 
+                            placeholder="Search location..."
                                 class="w-full border p-2 rounded focus:ring focus:ring-blue-300"
                             />
                             

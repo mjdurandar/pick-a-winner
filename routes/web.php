@@ -10,6 +10,7 @@ use App\Http\Controllers\SignUpFormController;
 use App\Http\Controllers\PrizeController;
 use App\Http\Controllers\LocationController;
 use App\Http\Controllers\MailchimpAutoSyncController;
+use App\Http\Controllers\FilmsController;
 use Illuminate\Support\Facades\Route;
 use Inertia\Inertia;
 use App\Http\Middleware\RoleMiddleware;
@@ -45,6 +46,9 @@ Route::post('/form/{event_uuid}', [SignUpFormController::class, 'storeEmbeddedDa
 Route::middleware(['auth', RoleMiddleware::class . ':admin,host'])->group(function () {
     //events page
     Route::get('/events', [EventsController::class, 'index'])->name('events.index');
+    
+    //films page
+    Route::get('/films', [FilmsController::class, 'index'])->name('films.index');
 
     //ATTENDEES ROUTES
     Route::get('/attendees/{eventId}', [AttendeesController::class, 'index'])->name('attendees.index');
@@ -110,6 +114,11 @@ Route::middleware(['auth', RoleMiddleware::class . ':admin'])->group(function ()
     Route::get('/users', [UsersController::class, 'index'])->name('users.index');
     Route::patch('/users/{userId}', [UsersController::class, 'update'])->name('users.update');
     Route::delete('/users/{userId}', [UsersController::class, 'destroy'])->name('users.destroy');
+
+    //FILMS ROUTES
+    Route::post('/films', [FilmsController::class, 'store'])->name('films.store');
+    Route::patch('/films/{film}', [FilmsController::class, 'update'])->name('films.update');
+    Route::delete('/films/{film}', [FilmsController::class, 'destroy'])->name('films.destroy');
 
     Route::get('/profile', [ProfileController::class, 'edit'])->name('profile.edit');
     Route::patch('/profile', [ProfileController::class, 'update'])->name('profile.update');

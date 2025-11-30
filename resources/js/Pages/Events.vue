@@ -7,15 +7,16 @@ import { Head } from '@inertiajs/vue3';
 import axios from 'axios';
 
 // Props from Laravel
-defineProps({
-    events: Array
+const props = defineProps({
+    events: Array,
+    films: Array
 });
 
 // Track if we are editing an event
 const isEditing = ref(false);
 const page = usePage();
 const user = computed(() => page.props.auth.user || null);
-const userRole = computed(() => user.value?.role);
+const userRole = computed(() => user.value?.role); 
 
 // Sheets modal state
 const showSheetsModal = ref(false);
@@ -27,20 +28,20 @@ const rowsToAdd = ref(1);
 // Undo/Redo functionality
 const sheetsHistory = ref([]);
 const historyIndex = ref(-1);
-const maxHistorySize = 50; 
+const maxHistorySize = 50;
 
 // Form state
 const form = useForm({
     id: null,
     event_name: '',
-    event_description: '',
     event_date: '',
     event_year: '',
     event_logo: null,
     event_banner: null, // File input
     event_coordinator: '',
     event_coordinator_email: '',
-    event_country: ''
+    event_country: '',
+    film_id: null
 });
 
 // File input reference
@@ -56,25 +57,33 @@ const handleLogoChange = (event) => {
 const openCreateModal = () => {
     isEditing.value = false;
     form.reset(); // Clear form
+    existingBanner.value = null;
+    existingLogo.value = null;
     document.getElementById('event_banner').value = '';
     document.getElementById('event_logo').value = '';
     let modalElement = new bootstrap.Modal(document.getElementById('createEventModal'));
     modalElement.show();
 };
 
+// Track existing files when editing
+const existingBanner = ref(null);
+const existingLogo = ref(null);
+
 // Open Modal for Editing an Existing Event
 const openEditModal = (event) => {
     isEditing.value = true;
     form.id = event.id;
     form.event_name = event.event_name;
-    form.event_description = event.event_description;
     form.event_year = event.event_year;
     form.event_date = event.event_date;
     form.event_coordinator = event.event_coordinator;
     form.event_coordinator_email = event.event_coordinator_email;
     form.event_country = event.event_country;
-    form.event_banner = null; // Reset file input
-    form.event_logo = null; // Reset file input
+    form.film_id = event.film_id ? parseInt(event.film_id) : null;
+    form.event_banner = null; // Reset file input - new file will override
+    form.event_logo = null; // Reset file input - new file will override
+    existingBanner.value = event.event_banner; // Store existing banner path
+    existingLogo.value = event.event_logo; // Store existing logo path
 
     let modalElement = new bootstrap.Modal(document.getElementById('createEventModal'));
     modalElement.show();
@@ -86,9 +95,14 @@ const attendeesPage = (event) => {
 
 // Submit the form (Create or Update)
 const saveEvent = () => {
+    // Validate film_id is selected before submitting
+    if (!form.film_id || form.film_id === null) {
+        Swal.fire('Error!', 'Please select a film.', 'error');
+        return;
+    }
+
     const data = new FormData();
     data.append('event_name', form.event_name);
-    data.append('event_description', form.event_description);
     data.append('event_year', form.event_year);
     data.append('event_date', form.event_date);
     if (form.event_banner) {
@@ -100,6 +114,8 @@ const saveEvent = () => {
     data.append('event_coordinator', form.event_coordinator);
     data.append('event_coordinator_email', form.event_coordinator_email);
     data.append('event_country', form.event_country);
+    // Always append film_id as integer
+    data.append('film_id', parseInt(form.film_id));
 
     if (isEditing.value) {
         data.append('_method', 'PATCH'); // Use PATCH for updating
@@ -497,7 +513,7 @@ const closeSheetsModal = () => {
         <div class="p-4">
             <div class="mx-auto max-w-7xl sm:px-6 lg:px-8">
                 <div class="row">
-                    <div v-for="event in events" :key="event.id" class="col-md-4 mb-4">
+                    <div v-for="event in props.events" :key="event.id" class="col-md-4 mb-4">
                         <div class="card">
                             <img style="height: 200px;" :src="'/storage/' + event.event_banner" class="card-img-top" alt="Event Banner" />
                             <div class="card-body">
@@ -505,26 +521,28 @@ const closeSheetsModal = () => {
                                 <p class="card-text mb-1" style="font-size: 14px; font-weight: 500;">{{ event.event_country }}</p>
                                 <p class="text-muted">📅 {{ event.event_date }}</p>
                                 <p class="text-muted">👤 {{ event.event_coordinator }}</p>
-                                <div class="d-flex justify-content-between mt-3">
-                                    <button @click="goToSignUpForm(event.id)" class="btn btn-sm me-2" style="background-color: #16C3D9; color: white;" v-if="userRole === 'admin' || userRole === 'host'">
-                                        Sign Up Form
-                                    </button>
-                                    <div>
-                                        <button target="_blank" @click="allLocationsPage(event)" class="btn btn-sm me-2" style="background-color: #16C3D9; color: white;" v-if="userRole === 'admin' || userRole === 'host'">
-                                            <i class="fa-solid fa-users"></i>
+                                <div class="d-flex justify-content-between align-items-center mt-3" v-if="userRole === 'admin' || userRole === 'host'">
+                                    <div class="d-flex align-items-center gap-2">
+                                        <button @click="openSheetsModal(event)" class="btn btn-sm" style="background-color: #16C3D9; color: white;">
+                                            Master Sheet
                                         </button>
-                                        <button @click="attendeesPage(event)" class="btn btn-sm me-2" style="background-color: #16C3D9; color: white;" v-if="userRole === 'admin' || userRole === 'host'">
-                                            <i class="fa-solid fa-database"></i>
-                                        </button>
-                                        <button @click="openSheetsModal(event)" class="btn btn-sm me-2" style="background-color: #16C3D9; color: white;" v-if="userRole === 'admin' || userRole === 'host'">
+                                        <button @click="goToSignUpForm(event.id)" class="btn btn-sm" style="background-color: #16C3D9; color: white;">
                                             <i class="fa-solid fa-file-lines"></i>
                                         </button>
-                                        <button @click="openEditModal(event)" class="btn btn-sm me-2" style="background-color: #16C3D9; color: white;" v-if="userRole === 'admin'">
+                                    </div>
+                                    <div class="d-flex align-items-center gap-2">
+                                        <button target="_blank" @click="allLocationsPage(event)" class="btn btn-sm" style="background-color: #16C3D9; color: white;">
+                                            <i class="fa-solid fa-users"></i>
+                                        </button>
+                                        <button @click="attendeesPage(event)" class="btn btn-sm" style="background-color: #16C3D9; color: white;">
+                                            <i class="fa-solid fa-database"></i>
+                                        </button>
+                                        <button @click="openEditModal(event)" class="btn btn-sm" style="background-color: #16C3D9; color: white;" v-if="userRole === 'admin'">
                                             <i class="fa-solid fa-pen-to-square"></i>
                                         </button>
-                                        <button @click="deleteEvent(event.id)" class="btn btn-sm" style="background-color: #16C3D9; color: white;" v-if="userRole === 'admin'">
+                                        <!-- <button @click="deleteEvent(event.id)" class="btn btn-sm" style="background-color: #16C3D9; color: white;" v-if="userRole === 'admin'">
                                             <i class="fa-solid fa-trash"></i>
-                                        </button>
+                                        </button> -->
                                     </div>
                                 </div>
                             </div>
@@ -549,8 +567,20 @@ const closeSheetsModal = () => {
                                 <input v-model="form.event_name" type="text" class="form-control" required  maxlength="26" />
                             </div>
                             <div class="mb-3">
-                                <label class="form-label">Description</label>
-                                <textarea v-model="form.event_description" class="form-control"></textarea>
+                                <label class="form-label">Film <span class="text-danger">*</span></label>
+                                <select v-model="form.film_id" class="form-select" required :class="{ 'is-invalid': form.errors.film_id }">
+                                    <option :value="null">Select a film</option>
+                                    <option 
+                                        v-for="film in props.films" 
+                                        :key="film.id" 
+                                        :value="film.id"
+                                    >
+                                        {{ film.name }}
+                                    </option>
+                                </select>
+                                <div v-if="form.errors.film_id" class="invalid-feedback">
+                                    {{ form.errors.film_id }}
+                                </div>
                             </div>
                             <div class="mb-3">
                                 <label class="form-label">Event Year</label>
@@ -584,10 +614,16 @@ const closeSheetsModal = () => {
                             <div class="mb-3">
                                 <label class="form-label">Event Logo</label>
                                 <input type="file" @change="handleLogoChange" id="event_logo" class="form-control" />
+                                <small v-if="isEditing && existingLogo" class="text-muted">
+                                    Current: {{ existingLogo.split('/').pop() }} (leave empty to keep current)
+                                </small>
                             </div>
                             <div class="mb-3">
                                 <label class="form-label">Event Banner</label>
                                 <input type="file" @change="handleFileChange" id="event_banner" class="form-control" />
+                                <small v-if="isEditing && existingBanner" class="text-muted">
+                                    Current: {{ existingBanner.split('/').pop() }} (leave empty to keep current)
+                                </small>
                             </div>
                             <div class="modal-footer">
                                 <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
@@ -608,7 +644,7 @@ const closeSheetsModal = () => {
                     <div class="modal-header">
                         <h5 class="modal-title" id="sheetsModalLabel">
                             <i class="fa-solid fa-file-lines me-2"></i>
-                            Data Sheet - {{ selectedEventForSheets?.event_name }}
+                            Master Sheet - {{ selectedEventForSheets?.event_name }}
                         </h5>
                         <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
                     </div>

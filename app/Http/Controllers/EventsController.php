@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use Illuminate\Http\Request;
 use App\Models\Events;
+use App\Models\Films;
 use Inertia\Inertia;
 use Illuminate\Support\Facades\Schema;
 use App\Models\SignUpForm;
@@ -16,6 +17,7 @@ class EventsController extends Controller
     public function index() {
         return Inertia::render('Events', [
             'events' => Events::latest()->get(),
+            'films' => Films::orderBy('name')->get(),
         ]);
     }
     
@@ -25,7 +27,6 @@ class EventsController extends Controller
     public function store(Request $request) {
         $request->validate([
             'event_name' => 'required|string|max:255',
-            'event_description' => 'nullable|string',
             'event_date' => 'required|date',
             'event_year' => 'required|integer',
             'event_banner' => 'nullable|image|mimes:jpeg,png,jpg,gif|max:2048',
@@ -33,6 +34,7 @@ class EventsController extends Controller
             'event_coordinator' => 'required|string',
             'event_coordinator_email' => 'required|email',
             'event_country' => 'required|string',
+            'film_id' => 'required|exists:films,id',
         ]);
     
         // Store banner file
@@ -79,7 +81,6 @@ class EventsController extends Controller
     {
         $request->validate([
             'event_name' => 'required|string|max:255',
-            'event_description' => 'nullable|string',
             'event_date' => 'required|date',
             'event_year' => 'required|integer',
             'event_banner' => 'nullable|image|mimes:jpeg,png,jpg,gif|max:2048',
@@ -87,9 +88,13 @@ class EventsController extends Controller
             'event_coordinator' => 'required|string',
             'event_coordinator_email' => 'required|email',
             'event_country' => 'required|string',
+            'film_id' => 'required|exists:films,id',
         ]);
 
-        // Handle banner upload
+        // Prepare update data
+        $updateData = $request->except(['event_banner', 'event_logo']);
+
+        // Handle banner upload - only update if new file is provided
         if ($request->hasFile('event_banner')) {
             $destinationPath = public_path('storage/event_banners');
             if (!file_exists($destinationPath)) {
@@ -98,10 +103,11 @@ class EventsController extends Controller
             $file = $request->file('event_banner');
             $filename = time() . '_' . $file->getClientOriginalName();
             $file->move($destinationPath, $filename);
-            $event->event_banner = 'event_banners/' . $filename;
+            $updateData['event_banner'] = 'event_banners/' . $filename;
         }
+        // If no new banner uploaded, keep existing one (don't add to updateData)
 
-        // Handle logo upload
+        // Handle logo upload - only update if new file is provided
         if ($request->hasFile('event_logo')) {
             $destinationPath = public_path('storage/event_logos');
             if (!file_exists($destinationPath)) {
@@ -110,10 +116,11 @@ class EventsController extends Controller
             $file = $request->file('event_logo');
             $filename = time() . '_' . $file->getClientOriginalName();
             $file->move($destinationPath, $filename);
-            $event->event_logo = 'event_logos/' . $filename;
+            $updateData['event_logo'] = 'event_logos/' . $filename;
         }
+        // If no new logo uploaded, keep existing one (don't add to updateData)
     
-        $event->update($request->except(['event_banner', 'event_logo']));
+        $event->update($updateData);
     
         return redirect()->route('events.index');
     }
