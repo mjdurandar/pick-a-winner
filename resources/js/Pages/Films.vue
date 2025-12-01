@@ -187,6 +187,38 @@ const crossEventEmailDuplicates = computed(() => {
     return result;
 });
 
+// Natural-language summary comparing first and last selected events
+const eventsCompareSummarySentence = computed(() => {
+    if (eventsCompareData.value.length < 2) {
+        return '';
+    }
+
+    const first = eventsCompareData.value[0];
+    const last = eventsCompareData.value[eventsCompareData.value.length - 1];
+    const fs = first.summary || {};
+    const ls = last.summary || {};
+
+    const firstTotal = (fs.ticket_emails_count || 0) + (fs.signup_emails_count || 0);
+    const lastTotal = (ls.ticket_emails_count || 0) + (ls.signup_emails_count || 0);
+    const diff = lastTotal - firstTotal;
+
+    const firstName = first.event?.event_name || 'First event';
+    const lastName = last.event?.event_name || 'Last event';
+
+    if (firstTotal === 0 && lastTotal === 0) {
+        return `Comparing "${firstName}" and "${lastName}", there were no Ticket or Win Form emails recorded in either event.`;
+    }
+
+    const direction = diff > 0 ? 'increase' : (diff < 0 ? 'decrease' : 'no overall change');
+    const diffAbs = Math.abs(diff);
+
+    if (diff === 0) {
+        return `Comparing "${firstName}" to "${lastName}", total Ticket + Win Form emails stayed the same at ${firstTotal.toLocaleString()}.`;
+    }
+
+    return `Comparing "${firstName}" to "${lastName}", total Ticket + Win Form emails changed from ${firstTotal.toLocaleString()} to ${lastTotal.toLocaleString()}, an ${direction} of ${diffAbs.toLocaleString()} emails.`;
+});
+
 // Expanded film to show its events
 const expandedFilmId = ref(null);
 
@@ -434,13 +466,13 @@ const deleteFilm = (filmId) => {
                                             >
                                                 <i class="fa-solid fa-pen-to-square"></i>
                                             </button>
-                                            <button 
+                                            <!-- <button 
                                                 @click="deleteFilm(film.id)" 
                                                 class="btn btn-sm" 
                                                 style="background-color: #FF5349; color: white;"
                                             >
                                                 <i class="fa-solid fa-trash"></i>
-                                            </button>
+                                            </button> -->
                                         </div>
                                     </div>
                                 </div>
@@ -984,6 +1016,11 @@ const deleteFilm = (filmId) => {
                                 </tbody>
                             </table>
                         </div>
+                    </div>
+
+                    <!-- Natural-language summary sentence -->
+                    <div v-if="eventsCompareSummarySentence" class="mt-3 text-sm text-gray-700 italic">
+                        {{ eventsCompareSummarySentence }}
                     </div>
 
                     <!-- Cross-event email overlaps -->
