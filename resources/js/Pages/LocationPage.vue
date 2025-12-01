@@ -64,6 +64,9 @@ const eventbriteTags = ref('');
 const eventbriteDefaultTags = ref([]);
 const selectedCountry = ref(null);
 const selectedCategory = ref('');
+const showTicketReportModal = ref(false);
+const ticketReportData = ref(null);
+const isLoadingReport = ref(false);
 
 // Add computed property for tag preview
 const tagPreview = computed(() => {
@@ -893,6 +896,29 @@ const openEventbriteModal = (location) => {
     eventbriteAttendees.value = [];
     eventbriteEventId.value = '';
     showEventbriteModal.value = true;
+};
+
+const openTicketReportModal = async (location) => {
+    selectedLocation.value = location;
+    isLoadingReport.value = true;
+    showTicketReportModal.value = true;
+    
+    try {
+        const response = await axios.get(route('location.ticketReport', location.id));
+        ticketReportData.value = response.data;
+    } catch (error) {
+        console.error('Error fetching ticket report:', error);
+        Swal.fire('Error', 'Failed to load ticket report', 'error');
+        showTicketReportModal.value = false;
+    } finally {
+        isLoadingReport.value = false;
+    }
+};
+
+const closeTicketReportModal = () => {
+    showTicketReportModal.value = false;
+    ticketReportData.value = null;
+    selectedLocation.value = null;
 };
 
 const closeEventbriteModal = () => {
@@ -2368,7 +2394,7 @@ watch(
                                     @click="openEventbriteModal(location)"
                                     class="text-white px-3 py-2 rounded"
                                     :style="{
-                                        backgroundColor: location.imported_eventbrite ? '#10B981' : '#F05537',
+                                        backgroundColor: location.imported_eventbrite ? '#28a745' : '#16C3D9',
                                         color: 'white',
                                         borderRadius: '5px',
                                         padding: '10px 20px',
@@ -2377,6 +2403,16 @@ watch(
                                     :title="location.imported_eventbrite ? 'Eventbrite Data Imported' : 'Import from Eventbrite'"
                                 >
                                     <i class="fa-solid fa-ticket"></i>
+                                </button>
+                                <!-- Ticket Report Button -->
+                                <button 
+                                    v-if="location.imported_eventbrite"
+                                    @click="openTicketReportModal(location)"
+                                    class="text-white px-3 py-2 rounded"
+                                    style="background-color: #6c757d; color: white; border-radius: 5px; padding: 10px 20px; cursor: pointer;"
+                                    title="View Ticket Report"
+                                >
+                                    <i class="fa-solid fa-chart-bar"></i>
                                 </button>
                                 <!-- Delete Button -->
                                 <button 
@@ -3131,6 +3167,95 @@ Perth,,</pre>
                                 Import to Mailchimp
                             </span>
                         </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Ticket Report Modal -->
+        <div v-if="showTicketReportModal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+            <div class="bg-white p-6 rounded-lg shadow-xl max-w-6xl w-full mx-4 max-h-[90vh] overflow-y-auto">
+                <div class="flex justify-between items-center mb-4">
+                    <h3 class="text-lg font-semibold">Ticket Report - {{ selectedLocation?.name }}</h3>
+                    <button @click="closeTicketReportModal" class="text-gray-500 hover:text-gray-700">
+                        <i class="fa-solid fa-times"></i>
+                    </button>
+                </div>
+                
+                <div v-if="isLoadingReport" class="text-center py-8">
+                    <i class="fa-solid fa-spinner fa-spin text-2xl text-blue-500"></i>
+                    <p class="mt-2 text-gray-600">Loading report...</p>
+                </div>
+                
+                <div v-else-if="ticketReportData" class="space-y-6">
+                    <!-- Summary Cards -->
+                    <div class="grid grid-cols-5 gap-4">
+                        <div class="bg-blue-50 p-4 rounded-lg">
+                            <h4 class="text-sm font-medium text-blue-800 mb-1">Ticket Emails</h4>
+                            <p class="text-2xl font-bold text-blue-600">{{ ticketReportData.summary.ticket_emails_count }}</p>
+                        </div>
+                        <div class="bg-purple-50 p-4 rounded-lg">
+                            <h4 class="text-sm font-medium text-purple-800 mb-1">Win Form Emails</h4>
+                            <p class="text-2xl font-bold text-purple-600">{{ ticketReportData.summary.signup_emails_count }}</p>
+                        </div>
+                        <div class="bg-orange-50 p-4 rounded-lg">
+                            <h4 class="text-sm font-medium text-orange-800 mb-1">Duplicates</h4>
+                            <p class="text-2xl font-bold text-orange-600">{{ ticketReportData.summary.duplicate_emails_count }}</p>
+                            <p class="text-xs text-orange-600 mt-1">In both sources</p>
+                        </div>
+                        <div class="bg-green-50 p-4 rounded-lg">
+                            <h4 class="text-sm font-medium text-green-800 mb-1">Ticket Only</h4>
+                            <p class="text-2xl font-bold text-green-600">{{ ticketReportData.summary.ticket_only_count }}</p>
+                        </div>
+                        <div class="bg-yellow-50 p-4 rounded-lg">
+                            <h4 class="text-sm font-medium text-yellow-800 mb-1">Sign-Up Only</h4>
+                            <p class="text-2xl font-bold text-yellow-600">{{ ticketReportData.summary.signup_only_count }}</p>
+                        </div>
+                    </div>
+
+                    <!-- Duplicate Emails Section (emails in both ticket and sign-up) -->
+                    <div v-if="ticketReportData.duplicate_emails && ticketReportData.duplicate_emails.length > 0">
+                        <h4 class="text-md font-semibold mb-3 text-orange-800">
+                            Duplicate Emails - Found in Both Ticket & Sign-Up ({{ ticketReportData.duplicate_emails.length }})
+                        </h4>
+                        <div class="bg-white border rounded-lg overflow-hidden">
+                            <div class="max-h-96 overflow-y-auto">
+                                <table class="min-w-full divide-y divide-gray-200">
+                                    <thead class="bg-gray-50 sticky top-0">
+                                        <tr>
+                                            <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Email</th>
+                                            <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Ticket Data</th>
+                                            <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Sign-Up Data</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody class="bg-white divide-y divide-gray-200">
+                                        <tr v-for="(duplicate, index) in ticketReportData.duplicate_emails" :key="index" class="hover:bg-gray-50">
+                                            <td class="px-4 py-2 text-sm font-medium">{{ duplicate.email }}</td>
+                                            <td class="px-4 py-2 text-sm">
+                                                <div v-if="duplicate.ticket_data" class="bg-blue-50 p-2 rounded">
+                                                    <div class="font-semibold text-blue-800">{{ duplicate.ticket_data.first_name }} {{ duplicate.ticket_data.last_name }}</div>
+                                                    <div class="text-xs text-blue-600">{{ duplicate.ticket_data.phone || 'No phone' }}</div>
+                                                    <div class="text-xs text-blue-500 mt-1">{{ duplicate.ticket_data.source }}</div>
+                                                </div>
+                                                <div v-else class="text-gray-400">No ticket data</div>
+                                            </td>
+                                            <td class="px-4 py-2 text-sm">
+                                                <div v-if="duplicate.signup_data" class="bg-purple-50 p-2 rounded">
+                                                    <div class="font-semibold text-purple-800">{{ duplicate.signup_data.first_name }} {{ duplicate.signup_data.last_name }}</div>
+                                                    <div class="text-xs text-purple-600">{{ duplicate.signup_data.phone || 'No phone' }}</div>
+                                                    <div class="text-xs text-purple-500 mt-1">{{ duplicate.signup_data.source }}</div>
+                                                </div>
+                                                <div v-else class="text-gray-400">No sign-up data</div>
+                                            </td>
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                    <div v-else class="text-center py-4 text-gray-500">
+                        <i class="fa-solid fa-check-circle text-green-500 text-2xl mb-2"></i>
+                        <p>No duplicate emails found between ticket and sign-up data!</p>
                     </div>
                 </div>
             </div>

@@ -12,8 +12,12 @@ use Illuminate\Support\Str;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Schema;
 use App\Services\MailchimpLogService;
 use App\Services\SpreadsheetLogService;
+use App\Models\TicketAttendee;
+use App\Models\Films;
+use App\Models\SignUpForm;
 use Carbon\Carbon;
 
 class LocationController extends Controller
@@ -774,17 +778,44 @@ class LocationController extends Controller
                 $page++;
             }
 
-            Log::info('Eventbrite attendees fetched', [
+            // Get location and event info
+            $location = Location::findOrFail($request->location_id);
+            $event = Events::findOrFail($location->event_id);
+
+            // Delete existing ticket attendees for this location (refresh data)
+            TicketAttendee::where('location_id', $request->location_id)->delete();
+
+            // Save attendees to database
+            $savedCount = 0;
+            foreach ($attendees as $attendee) {
+                TicketAttendee::create([
+                    'location_id' => $request->location_id,
+                    'event_id' => $location->event_id,
+                    'email' => $attendee['email'],
+                    'first_name' => $attendee['first_name'],
+                    'last_name' => $attendee['last_name'],
+                    'phone' => $attendee['phone'],
+                    'city' => $attendee['city'],
+                    'state' => $attendee['state'],
+                    'country' => $attendee['country'],
+                    'eventbrite_event_id' => $eventId
+                ]);
+                $savedCount++;
+            }
+
+            Log::info('Eventbrite attendees fetched and saved', [
                 'event_id' => $eventId,
                 'location_id' => $request->location_id,
                 'total_attendees' => count($attendees),
-                'unique_emails' => count($seenEmails)
+                'unique_emails' => count($seenEmails),
+                'saved_count' => $savedCount
             ]);
 
             return response()->json([
                 'attendees' => $attendees,
                 'total' => count($attendees),
-                'event_id' => $eventId
+                'event_id' => $eventId,
+                'saved' => $savedCount
             ]);
 
         } catch (\Exception $e) {
@@ -1306,6 +1337,480 @@ class LocationController extends Controller
 
             return response()->json([
                 'error' => 'Failed to save locations: ' . $e->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
+     * Get ticket report for a specific location
+     * Compares ticket emails with sign-up form emails to find duplicates
+     */
+    public function getLocationTicketReport($locationId)
+    {
+        try {
+            $location = Location::with('event')->findOrFail($locationId);
+            $event = $location->event;
+            
+            // Get ticket attendees (from Eventbrite)
+            $ticketAttendees = TicketAttendee::where('location_id', $locationId)->get();
+            $ticketEmails = $ticketAttendees->pluck('email')->map(function ($email) {
+                return strtolower(trim($email));
+            })->filter()->unique()->values();
+            
+            // Get sign-up form attendees (from system)
+            $signUpForm = SignUpForm::where('event_id', $event->id)->first();
+            $signUpEmails = collect();
+            
+            if ($signUpForm && $signUpForm->table_name) {
+                $tableName = $signUpForm->table_name;
+                // Check if table exists
+                if (Schema::hasTable($tableName)) {
+                    $signUpAttendees = DB::table($tableName)
+                        ->where('location_id', $locationId)
+                        ->where('event_id', $event->id)
+                        ->get();
+                    
+                    $signUpEmails = $signUpAttendees->pluck('email_address')
+                        ->map(function ($email) {
+                            return strtolower(trim($email));
+                        })
+                        ->filter()
+                        ->unique()
+                        ->values();
+                }
+            }
+            
+            // Find duplicates (emails that appear in both ticket and sign-up data)
+            $duplicateEmails = $ticketEmails->intersect($signUpEmails)->values();
+            
+            // Emails only in tickets
+            $ticketOnlyEmails = $ticketEmails->diff($signUpEmails)->values();
+            
+            // Emails only in sign-up forms
+            $signUpOnlyEmails = $signUpEmails->diff($ticketEmails)->values();
+            
+            // Get detailed duplicate information
+            $duplicateDetails = $duplicateEmails->map(function ($email) use ($ticketAttendees, $signUpForm, $locationId, $event) {
+                // Find ticket data (case-insensitive match)
+                $ticketData = $ticketAttendees->first(function ($attendee) use ($email) {
+                    return strtolower(trim($attendee->email)) === strtolower(trim($email));
+                });
+                
+                $signUpData = null;
+                
+                if ($signUpForm && $signUpForm->table_name && Schema::hasTable($signUpForm->table_name)) {
+                    $signUpData = DB::table($signUpForm->table_name)
+                        ->where('location_id', $locationId)
+                        ->where('event_id', $event->id)
+                        ->whereRaw('LOWER(TRIM(email_address)) = ?', [strtolower(trim($email))])
+                        ->first();
+                }
+                
+                return [
+                    'email' => $email,
+                    'ticket_data' => $ticketData ? [
+                        'first_name' => $ticketData->first_name,
+                        'last_name' => $ticketData->last_name,
+                        'phone' => $ticketData->phone,
+                        'source' => 'Eventbrite Ticket'
+                    ] : null,
+                    'signup_data' => $signUpData ? [
+                        'first_name' => $signUpData->first_name ?? null,
+                        'last_name' => $signUpData->last_name ?? null,
+                        'phone' => $signUpData->mobile_number ?? null,
+                        'source' => 'Sign-Up Form'
+                    ] : null
+                ];
+            });
+            
+            return response()->json([
+                'location' => $location,
+                'summary' => [
+                    'ticket_emails_count' => $ticketEmails->count(),
+                    'signup_emails_count' => $signUpEmails->count(),
+                    'duplicate_emails_count' => $duplicateEmails->count(),
+                    'ticket_only_count' => $ticketOnlyEmails->count(),
+                    'signup_only_count' => $signUpOnlyEmails->count(),
+                    'total_unique_emails' => $ticketEmails->merge($signUpEmails)->unique()->count()
+                ],
+                'duplicate_emails' => $duplicateDetails,
+                'ticket_only_emails' => $ticketOnlyEmails,
+                'signup_only_emails' => $signUpOnlyEmails
+            ]);
+        } catch (\Exception $e) {
+            Log::error('Error getting location ticket report', [
+                'location_id' => $locationId,
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString()
+            ]);
+            
+            return response()->json([
+                'error' => 'Failed to get ticket report: ' . $e->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
+     * Get ticket report for all locations of a film
+     * Compares ticket emails with sign-up form emails across all locations
+     */
+    public function getFilmTicketReport($filmId)
+    {
+        try {
+            $film = Films::findOrFail($filmId);
+            
+            // Get all events for this film
+            $events = Events::where('film_id', $filmId)->with('signUpForm')->get();
+            $eventIds = $events->pluck('id');
+            
+            // Get all locations for these events
+            $locations = Location::whereIn('event_id', $eventIds)->get();
+            $locationIds = $locations->pluck('id');
+            
+            // Get all ticket attendees for these locations
+            $ticketAttendees = TicketAttendee::whereIn('location_id', $locationIds)
+                ->with(['location', 'event'])
+                ->get();
+            
+            $ticketEmails = $ticketAttendees->pluck('email')->map(function ($email) {
+                return strtolower(trim($email));
+            })->filter()->unique()->values();
+            
+            // Get all sign-up form emails across all events
+            $allSignUpEmails = collect();
+            $signUpAttendeesByLocation = [];
+            
+            foreach ($events as $event) {
+                $signUpForm = $event->signUpForm;
+                if ($signUpForm && $signUpForm->table_name && Schema::hasTable($signUpForm->table_name)) {
+                    $tableName = $signUpForm->table_name;
+                    $eventLocations = $locations->where('event_id', $event->id);
+                    
+                    foreach ($eventLocations as $location) {
+                        $signUpAttendees = DB::table($tableName)
+                            ->where('location_id', $location->id)
+                            ->where('event_id', $event->id)
+                            ->get();
+                        
+                        $locationSignUpEmails = $signUpAttendees->pluck('email_address')
+                            ->map(function ($email) {
+                                return strtolower(trim($email));
+                            })
+                            ->filter()
+                            ->unique()
+                            ->values();
+                        
+                        $allSignUpEmails = $allSignUpEmails->merge($locationSignUpEmails);
+                        $signUpAttendeesByLocation[$location->id] = $signUpAttendees;
+                    }
+                }
+            }
+            
+            $signUpEmails = $allSignUpEmails->unique()->values();
+            
+            // Find duplicates (emails in both ticket and sign-up data)
+            $duplicateEmails = $ticketEmails->intersect($signUpEmails)->values();
+            
+            // Emails only in tickets
+            $ticketOnlyEmails = $ticketEmails->diff($signUpEmails)->values();
+            
+            // Emails only in sign-up forms
+            $signUpOnlyEmails = $signUpEmails->diff($ticketEmails)->values();
+            
+            // Get detailed duplicate information
+            $duplicateDetails = $duplicateEmails->map(function ($email) use ($ticketAttendees, $events, $signUpAttendeesByLocation, $locations) {
+                // Find ticket data (case-insensitive match)
+                $ticketData = $ticketAttendees->first(function ($attendee) use ($email) {
+                    return strtolower(trim($attendee->email)) === strtolower(trim($email));
+                });
+                
+                $signUpDataList = [];
+                
+                // Find all sign-up data for this email across all locations
+                foreach ($events as $event) {
+                    $signUpForm = $event->signUpForm;
+                    if ($signUpForm && $signUpForm->table_name && Schema::hasTable($signUpForm->table_name)) {
+                        $eventLocations = $locations->where('event_id', $event->id);
+                        
+                        foreach ($eventLocations as $location) {
+                            if (isset($signUpAttendeesByLocation[$location->id])) {
+                                $signUpData = $signUpAttendeesByLocation[$location->id]
+                                    ->first(function ($attendee) use ($email) {
+                                        return strtolower(trim($attendee->email_address ?? '')) === strtolower(trim($email));
+                                    });
+                                
+                                if ($signUpData) {
+                                    $signUpDataList[] = [
+                                        'first_name' => $signUpData->first_name ?? null,
+                                        'last_name' => $signUpData->last_name ?? null,
+                                        'phone' => $signUpData->mobile_number ?? null,
+                                        'location_name' => $location->name,
+                                        'event_name' => $event->event_name,
+                                        'source' => 'Sign-Up Form'
+                                    ];
+                                }
+                            }
+                        }
+                    }
+                }
+                
+                return [
+                    'email' => $email,
+                    'ticket_data' => $ticketData ? [
+                        'first_name' => $ticketData->first_name,
+                        'last_name' => $ticketData->last_name,
+                        'phone' => $ticketData->phone,
+                        'location_name' => $ticketData->location->name ?? 'N/A',
+                        'event_name' => $ticketData->event->event_name ?? 'N/A',
+                        'source' => 'Eventbrite Ticket'
+                    ] : null,
+                    'signup_data' => $signUpDataList
+                ];
+            });
+            
+            // Per location statistics
+            $locationStats = $locations->map(function ($location) use ($ticketAttendees, $events, $signUpAttendeesByLocation) {
+                $locationTicketAttendees = $ticketAttendees->where('location_id', $location->id);
+                $locationTicketEmails = $locationTicketAttendees->pluck('email')
+                    ->map(function ($email) {
+                        return strtolower(trim($email));
+                    })
+                    ->filter()
+                    ->unique()
+                    ->values();
+                
+                $locationSignUpEmails = collect();
+                $event = $events->where('id', $location->event_id)->first();
+                
+                if ($event && $event->signUpForm && $event->signUpForm->table_name && Schema::hasTable($event->signUpForm->table_name)) {
+                    if (isset($signUpAttendeesByLocation[$location->id])) {
+                        $locationSignUpEmails = $signUpAttendeesByLocation[$location->id]
+                            ->pluck('email_address')
+                            ->map(function ($email) {
+                                return strtolower(trim($email));
+                            })
+                            ->filter()
+                            ->unique()
+                            ->values();
+                    }
+                }
+                
+                $locationDuplicates = $locationTicketEmails->intersect($locationSignUpEmails)->count();
+                
+                return [
+                    'location_id' => $location->id,
+                    'location_name' => $location->name,
+                    'event_name' => $location->event->event_name ?? 'N/A',
+                    'ticket_emails_count' => $locationTicketEmails->count(),
+                    'signup_emails_count' => $locationSignUpEmails->count(),
+                    'duplicate_emails_count' => $locationDuplicates,
+                    'ticket_only_count' => $locationTicketEmails->diff($locationSignUpEmails)->count(),
+                    'signup_only_count' => $locationSignUpEmails->diff($locationTicketEmails)->count()
+                ];
+            });
+            
+            return response()->json([
+                'film' => $film,
+                'summary' => [
+                    'ticket_emails_count' => $ticketEmails->count(),
+                    'signup_emails_count' => $signUpEmails->count(),
+                    'duplicate_emails_count' => $duplicateEmails->count(),
+                    'ticket_only_count' => $ticketOnlyEmails->count(),
+                    'signup_only_count' => $signUpOnlyEmails->count(),
+                    'total_unique_emails' => $ticketEmails->merge($signUpEmails)->unique()->count(),
+                    'total_locations' => $locations->count(),
+                    'total_events' => $events->count()
+                ],
+                'duplicate_emails' => $duplicateDetails,
+                'ticket_only_emails' => $ticketOnlyEmails,
+                'signup_only_emails' => $signUpOnlyEmails,
+                'location_stats' => $locationStats,
+                'events' => $events
+            ]);
+        } catch (\Exception $e) {
+            Log::error('Error getting film ticket report', [
+                'film_id' => $filmId,
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString()
+            ]);
+            
+            return response()->json([
+                'error' => 'Failed to get film ticket report: ' . $e->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
+     * Get ticket report for a single event (all locations of that event)
+     * Compares ticket emails with sign-up form emails
+     */
+    public function getEventTicketReport($eventId)
+    {
+        try {
+            $event = Events::with('signUpForm')->findOrFail($eventId);
+
+            // Get all locations for this event
+            $locations = Location::where('event_id', $eventId)->get();
+            $locationIds = $locations->pluck('id');
+
+            // Get all ticket attendees for these locations
+            $ticketAttendees = TicketAttendee::whereIn('location_id', $locationIds)
+                ->with(['location', 'event'])
+                ->get();
+
+            $ticketEmails = $ticketAttendees->pluck('email')->map(function ($email) {
+                return strtolower(trim($email));
+            })->filter()->unique()->values();
+
+            // Get all sign-up form emails for this event
+            $signUpEmails = collect();
+            $signUpAttendeesByLocation = [];
+
+            $signUpForm = $event->signUpForm;
+            if ($signUpForm && $signUpForm->table_name && Schema::hasTable($signUpForm->table_name)) {
+                $tableName = $signUpForm->table_name;
+
+                foreach ($locations as $location) {
+                    $signUpAttendees = DB::table($tableName)
+                        ->where('location_id', $location->id)
+                        ->where('event_id', $event->id)
+                        ->get();
+
+                    $locationSignUpEmails = $signUpAttendees->pluck('email_address')
+                        ->map(function ($email) {
+                            return strtolower(trim($email));
+                        })
+                        ->filter()
+                        ->unique()
+                        ->values();
+
+                    $signUpEmails = $signUpEmails->merge($locationSignUpEmails);
+                    $signUpAttendeesByLocation[$location->id] = $signUpAttendees;
+                }
+            }
+
+            $signUpEmails = $signUpEmails->unique()->values();
+
+            // Find duplicates (emails in both ticket and sign-up data)
+            $duplicateEmails = $ticketEmails->intersect($signUpEmails)->values();
+
+            // Emails only in tickets
+            $ticketOnlyEmails = $ticketEmails->diff($signUpEmails)->values();
+
+            // Emails only in sign-up forms
+            $signUpOnlyEmails = $signUpEmails->diff($ticketEmails)->values();
+
+            // Get detailed duplicate information
+            $duplicateDetails = $duplicateEmails->map(function ($email) use ($ticketAttendees, $event, $signUpAttendeesByLocation, $locations) {
+                // Find ticket data (case-insensitive match)
+                $ticketData = $ticketAttendees->first(function ($attendee) use ($email) {
+                    return strtolower(trim($attendee->email)) === strtolower(trim($email));
+                });
+
+                $signUpDataList = [];
+
+                if ($event->signUpForm && $event->signUpForm->table_name && Schema::hasTable($event->signUpForm->table_name)) {
+                    foreach ($locations as $location) {
+                        if (isset($signUpAttendeesByLocation[$location->id])) {
+                            $signUpData = $signUpAttendeesByLocation[$location->id]
+                                ->first(function ($attendee) use ($email) {
+                                    return strtolower(trim($attendee->email_address ?? '')) === strtolower(trim($email));
+                                });
+
+                            if ($signUpData) {
+                                $signUpDataList[] = [
+                                    'first_name' => $signUpData->first_name ?? null,
+                                    'last_name' => $signUpData->last_name ?? null,
+                                    'phone' => $signUpData->mobile_number ?? null,
+                                    'location_name' => $location->name,
+                                    'event_name' => $event->event_name,
+                                    'source' => 'Sign-Up Form'
+                                ];
+                            }
+                        }
+                    }
+                }
+
+                return [
+                    'email' => $email,
+                    'ticket_data' => $ticketData ? [
+                        'first_name' => $ticketData->first_name,
+                        'last_name' => $ticketData->last_name,
+                        'phone' => $ticketData->phone,
+                        'location_name' => $ticketData->location->name ?? 'N/A',
+                        'event_name' => $ticketData->event->event_name ?? 'N/A',
+                        'source' => 'Eventbrite Ticket'
+                    ] : null,
+                    'signup_data' => $signUpDataList
+                ];
+            });
+
+            // Per location statistics
+            $locationStats = $locations->map(function ($location) use ($ticketAttendees, $event, $signUpAttendeesByLocation) {
+                $locationTicketAttendees = $ticketAttendees->where('location_id', $location->id);
+                $locationTicketEmails = $locationTicketAttendees->pluck('email')
+                    ->map(function ($email) {
+                        return strtolower(trim($email));
+                    })
+                    ->filter()
+                    ->unique()
+                    ->values();
+
+                $locationSignUpEmails = collect();
+
+                if ($event->signUpForm && $event->signUpForm->table_name && Schema::hasTable($event->signUpForm->table_name)) {
+                    if (isset($signUpAttendeesByLocation[$location->id])) {
+                        $locationSignUpEmails = $signUpAttendeesByLocation[$location->id]
+                            ->pluck('email_address')
+                            ->map(function ($email) {
+                                return strtolower(trim($email));
+                            })
+                            ->filter()
+                            ->unique()
+                            ->values();
+                    }
+                }
+
+                $locationDuplicates = $locationTicketEmails->intersect($locationSignUpEmails)->count();
+
+                return [
+                    'location_id' => $location->id,
+                    'location_name' => $location->name,
+                    'event_name' => $event->event_name,
+                    'ticket_emails_count' => $locationTicketEmails->count(),
+                    'signup_emails_count' => $locationSignUpEmails->count(),
+                    'duplicate_emails_count' => $locationDuplicates,
+                    'ticket_only_count' => $locationTicketEmails->diff($locationSignUpEmails)->count(),
+                    'signup_only_count' => $locationSignUpEmails->diff($locationTicketEmails)->count()
+                ];
+            });
+
+            return response()->json([
+                'event' => $event,
+                'summary' => [
+                    'ticket_emails_count' => $ticketEmails->count(),
+                    'signup_emails_count' => $signUpEmails->count(),
+                    'duplicate_emails_count' => $duplicateEmails->count(),
+                    'ticket_only_count' => $ticketOnlyEmails->count(),
+                    'signup_only_count' => $signUpOnlyEmails->count(),
+                    'total_unique_emails' => $ticketEmails->merge($signUpEmails)->unique()->count(),
+                    'total_locations' => $locations->count(),
+                ],
+                'duplicate_emails' => $duplicateDetails,
+                'ticket_only_emails' => $ticketOnlyEmails,
+                'signup_only_emails' => $signUpOnlyEmails,
+                'location_stats' => $locationStats,
+                'locations' => $locations
+            ]);
+        } catch (\Exception $e) {
+            Log::error('Error getting event ticket report', [
+                'event_id' => $eventId,
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString()
+            ]);
+
+            return response()->json([
+                'error' => 'Failed to get event ticket report: ' . $e->getMessage()
             ], 500);
         }
     }

@@ -26,4 +26,12 @@ class Location extends Model
     {
         return $this->belongsTo(Events::class, 'event_id');
     }
+
+    /**
+     * Get the ticket attendees for this location.
+     */
+    public function ticketAttendees()
+    {
+        return $this->hasMany(TicketAttendee::class);
+    }
 }

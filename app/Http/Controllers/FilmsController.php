@@ -13,7 +13,13 @@ class FilmsController extends Controller
      */
     public function index() {
         return Inertia::render('Films', [
-            'films' => Films::withCount('events')->orderBy('name')->get(),
+            // Include events so we can show connected events per film in the UI
+            'films' => Films::with(['events' => function ($query) {
+                    $query->orderBy('event_date');
+                }])
+                ->withCount('events')
+                ->orderBy('name')
+                ->get(),
         ]);
     }
     
