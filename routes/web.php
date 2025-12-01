@@ -75,6 +75,7 @@ Route::middleware(['auth', RoleMiddleware::class . ':admin,host'])->group(functi
     Route::post('/location/import-data-to-mailchimp', [LocationController::class, 'importDataToMailChimp'])->name('location.importDataToMailChimp');
     Route::post('/location/manual-import-to-mailchimp', [LocationController::class, 'manualImportToMailchimp'])->name('location.manualImportToMailchimp');
     Route::post('/location/generate-spreadsheet-data', [LocationController::class, 'generateSpreadsheetData'])->name('location.generateSpreadsheetData');
+    Route::get('/location/{locationId}/mailchimp-report', [LocationController::class, 'getMailchimpLocationReport'])->name('location.mailchimpReport');
     Route::get('/api/location/mailchimp/lists', [LocationController::class, 'getMailchimpLists'])->name('location.mailchimpLists');
     Route::get('/api/location/mailchimp/merge-fields', [LocationController::class, 'getMailchimpMergeFields'])->name('location.mailchimpMergeFields');
     Route::get('/api/location/subscribers', [LocationController::class, 'getSubscribers'])->name('location.getSubscribers');

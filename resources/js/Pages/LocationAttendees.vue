@@ -154,15 +154,36 @@ const generateLocationTags = () => {
     const filmTour = mailchimpSettings.value.film_tour || 'WM';
     const year = new Date().getFullYear();
     const locationName = props.location.name;
+    const country = props.location.country || props.event.event_country || 'Other';
     
-    // Extract everything before hyphen for both SHOW and SOURCE tags
-    const locationTag = locationName.split(' - ')[0].toUpperCase();
+    // Extract everything before hyphen as the full location label
+    // e.g. "Bozeman MT - Emerson Center..." -> "BOZEMAN MT"
+    const fullLocationTag = locationName.split(' - ')[0].toUpperCase();
+
+    // Try to infer state from the LAST word of fullLocationTag when no explicit state field
+    // If last token is 2–3 letters (e.g. "MT", "NSW"), treat it as state
+    let inferredState = '';
+    let baseLocationTag = fullLocationTag;
+    const parts = fullLocationTag.split(' ').filter(Boolean);
+    if (parts.length > 1) {
+        const last = parts[parts.length - 1];
+        if (/^[A-Z]{2,3}$/.test(last)) {
+            inferredState = last;
+            baseLocationTag = parts.slice(0, -1).join(' ');
+        }
+    }
     
-    // Add SHOW tag
-    tags.push(`SHOW - ${locationTag}`);
+    // Add COUNTRY tag (for reporting)
+    tags.push(`COUNTRY - ${country.toUpperCase()}`);
     
-    // Add SOURCE tag with configured film tour code
-    tags.push(`SOURCE - ${filmTour.toUpperCase()} ${locationTag} COMP ${year}`);
+    // Add SHOW tag (include comma + state if we inferred one)
+    const showTagLocation = inferredState
+        ? `${baseLocationTag}, ${inferredState}`
+        : baseLocationTag;
+    tags.push(`SHOW - ${showTagLocation}`);
+    
+    // Add SOURCE tag with configured film tour code (location only, no state)
+    tags.push(`SOURCE - ${filmTour.toUpperCase()} ${baseLocationTag} COMP ${year}`);
     
     // Add any default tags if they exist
     if (mailchimpSettings.value.default_tags) {
@@ -175,6 +196,9 @@ const generateLocationTags = () => {
     
     return tags;
 };
+
+// Store last Mailchimp import results in-memory so we can reopen the report
+const lastMailchimpImportResults = ref(null);
 
 // ✅ Watch for list selection changes to fetch merge fields
 const fetchMergeFields = async (listId) => {
@@ -267,16 +291,19 @@ const exportToCSV = () => {
     // Generate Mailchimp tags for this location
     const locationTags = generateLocationTags();
     const tagsString = locationTags.join(', ');
+    const country = props.location.country || props.event.event_country || '';
 
     // Add headers using questions instead of column names
-    csvContent += columnHeaders.value.map(col => `"${getQuestionText(col)}"`).join(",") + ",\"Winner Status\",\"Prize\",\"Mailchimp Tags\"\n";
+    csvContent += columnHeaders.value
+        .map(col => `"${getQuestionText(col)}"`)
+        .join(",") + ",\"Winner Status\",\"Prize\",\"Country\",\"Mailchimp Tags\"\n";
 
     // Add data rows
     filteredAttendees.value.forEach(attendee => {
         const row = columnHeaders.value.map(col => `"${attendee[col] || ''}"`).join(",");
         const winnerStatus = isWinner(attendee) ? "Winner" : "Not Winner";
         const prize = getWinnerPrize(attendee);
-        csvContent += row + `,\"${winnerStatus}\",\"${prize}\",\"${tagsString}\"\n`;
+        csvContent += row + `,\"${winnerStatus}\",\"${prize}\",\"${country}\",\"${tagsString}\"\n`;
     });
 
     // Create a downloadable link
@@ -660,8 +687,8 @@ const handleMailchimpImport = async () => {
             }
         }
         
-        // Show comprehensive final results
-        await showDetailedResults({
+        // Build results object for this import
+        const resultsPayload = {
             totalAttendees,
             successCount,
             failureCount,
@@ -675,7 +702,13 @@ const handleMailchimpImport = async () => {
             rejectedFields,
             rejectedFieldsCount,
             copyPasteData
-        });
+        };
+
+        // Cache results so user can re-open the report without re-importing (same session)
+        lastMailchimpImportResults.value = resultsPayload;
+
+        // Show comprehensive final results
+        await showDetailedResults(resultsPayload);
         console.log('Final results shown'); 
         
         // Close the Mailchimp modal and reset form
@@ -1146,9 +1179,22 @@ const downloadLogFile = (content, filename) => {
                         Attendees for {{ location.name }} - {{ event.event_name }}
                     </h2>
                     <!-- Mailchimp Import Status Indicator -->
-                    <div v-if="location.imported_to_mailchimp" class="flex items-center space-x-2 bg-green-100 text-green-800 px-3 py-1 rounded-full text-sm">
-                        <i class="fa-solid fa-check-circle"></i>
-                        <span>Imported to Mailchimp</span>
+                    <div v-if="location.imported_to_mailchimp" class="flex items-center space-x-2">
+                        <div class="flex items-center space-x-2 bg-green-100 text-green-800 px-3 py-1 rounded-full text-sm">
+                            <i class="fa-solid fa-check-circle"></i>
+                            <span>Imported to Mailchimp</span>
+                        </div>
+                        <!-- Mailchimp Import Report Icon (like ticket analytics) -->
+                        <button
+                            type="button"
+                            class="ml-2 text-sm px-3 py-1 rounded-full flex items-center space-x-1"
+                            style="background-color: #16C3D9; color: white;"
+                            @click="lastMailchimpImportResults ? showDetailedResults(lastMailchimpImportResults) : Swal.fire('No Report Yet', 'There is no Mailchimp import report available for this session. Please run an import first.', 'info')"
+                            title="View Mailchimp Import Report"
+                        >
+                            <i class="fa-solid fa-chart-bar"></i>
+                            <span>Report</span>
+                        </button>
                     </div>
                 </div>
                 <button 

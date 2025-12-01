@@ -67,6 +67,10 @@ const selectedCategory = ref('');
 const showTicketReportModal = ref(false);
 const ticketReportData = ref(null);
 const isLoadingReport = ref(false);
+const showMailchimpReportModal = ref(false);
+const mailchimpReportData = ref(null);
+const isLoadingMailchimpReport = ref(false);
+const isGeneratingMailchimpCopyData = ref(false);
 
 // Add computed property for tag preview
 const tagPreview = computed(() => {
@@ -912,6 +916,75 @@ const openTicketReportModal = async (location) => {
         showTicketReportModal.value = false;
     } finally {
         isLoadingReport.value = false;
+    }
+};
+
+const openMailchimpReportModal = async (location) => {
+    mailchimpReportData.value = null;
+    isLoadingMailchimpReport.value = true;
+    showMailchimpReportModal.value = true;
+
+    try {
+        const response = await axios.get(route('location.mailchimpReport', location.id));
+        mailchimpReportData.value = response.data;
+    } catch (error) {
+        console.error('Error fetching Mailchimp location report:', error);
+        await Swal.fire('Error', 'Failed to load Mailchimp import report.', 'error');
+        showMailchimpReportModal.value = false;
+    } finally {
+        isLoadingMailchimpReport.value = false;
+    }
+};
+
+const copyMailchimpSeparatedData = async () => {
+    if (!mailchimpReportData.value || !mailchimpReportData.value.location) {
+        await Swal.fire('Info', 'No Mailchimp report data available to copy.', 'info');
+        return;
+    }
+
+    isGeneratingMailchimpCopyData.value = true;
+    try {
+        const summary = mailchimpReportData.value.summary || {};
+        const tags = Array.isArray(summary.tags) ? summary.tags : [];
+        const importData = {
+            totalSubscribers: summary.total_imports || 0,
+            successCount: summary.successful_imports || 0,
+            failureCount: summary.failed_imports || 0,
+            updateCount: 0,
+            newCount: summary.successful_imports || 0,
+            errors: (mailchimpReportData.value.errors || []).map(e => e.error || ''),
+            errorDetails: [],
+            rejectedFields: [],
+            rejectedFieldsCount: 0
+        };
+
+        const response = await axios.post(route('location.generateSpreadsheetData'), {
+            location_id: mailchimpReportData.value.location.id,
+            import_data: importData,
+            tags
+        });
+
+        const text = response.data.copy_paste_data || '';
+        if (!text) {
+            await Swal.fire('Info', 'No separated data was generated.', 'info');
+            return;
+        }
+
+        // Extract only the actual tab-separated data line (skip helper text / emojis)
+        let lineToCopy = text;
+        const lines = text.split('\n');
+        const dataLine = lines.find(l => l.includes('\t'));
+        if (dataLine) {
+            lineToCopy = dataLine;
+        }
+
+        await navigator.clipboard.writeText(lineToCopy);
+        await Swal.fire('Copied', 'Separated data copied to clipboard. Paste it into your spreadsheet.', 'success');
+    } catch (error) {
+        console.error('Failed to generate/copy Mailchimp spreadsheet data:', error);
+        await Swal.fire('Error', 'Failed to generate separated data for this location.', 'error');
+    } finally {
+        isGeneratingMailchimpCopyData.value = false;
     }
 };
 
@@ -2414,6 +2487,16 @@ watch(
                                 >
                                     <i class="fa-solid fa-chart-bar"></i>
                                 </button>
+                                <!-- Mailchimp Import Report Button -->
+                                <button
+                                    v-if="location.imported_to_mailchimp"
+                                    @click="openMailchimpReportModal(location)"
+                                    class="text-white px-3 py-2 rounded"
+                                    style="background-color: #6c757d; color: white; border-radius: 5px; padding: 10px 20px; cursor: pointer;"
+                                    title="View Mailchimp Import Report"
+                                >
+                                    <i class="fa-solid fa-chart-pie"></i>
+                                </button>
                                 <!-- Delete Button -->
                                 <button 
                                     @click="deleteLocation(location)"
@@ -2448,6 +2531,115 @@ watch(
             </div>
         </div>
 
+        <!-- Mailchimp Import Report Modal -->
+        <div v-if="showMailchimpReportModal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+            <div class="bg-white p-6 rounded-lg shadow-xl max-w-4xl w-full mx-4 max-h-[90vh] overflow-y-auto">
+                <div class="flex justify-between items-center mb-4">
+                    <h3 class="text-lg font-semibold">
+                        Mailchimp Import Report - {{ mailchimpReportData?.location?.name || '' }}
+                    </h3>
+                    <button @click="showMailchimpReportModal = false" class="text-gray-500 hover:text-gray-700">
+                        <i class="fa-solid fa-times"></i>
+                    </button>
+                </div>
+
+                <div v-if="isLoadingMailchimpReport" class="text-center py-8">
+                    <i class="fa-solid fa-spinner fa-spin text-2xl text-blue-500"></i>
+                    <p class="mt-2 text-gray-600">Loading report...</p>
+                </div>
+
+                <div v-else-if="mailchimpReportData" class="space-y-6">
+                    <!-- Summary Cards -->
+                    <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+                        <div class="bg-blue-50 p-4 rounded-lg">
+                            <h4 class="text-sm font-medium text-blue-800 mb-1">Total Records Logged</h4>
+                            <p class="text-2xl font-bold text-blue-600">
+                                {{ mailchimpReportData.summary.total_imports }}
+                            </p>
+                        </div>
+                        <div class="bg-green-50 p-4 rounded-lg">
+                            <h4 class="text-sm font-medium text-green-800 mb-1">Successful Imports</h4>
+                            <p class="text-2xl font-bold text-green-600">
+                                {{ mailchimpReportData.summary.successful_imports }}
+                            </p>
+                        </div>
+                        <div class="bg-red-50 p-4 rounded-lg">
+                            <h4 class="text-sm font-medium text-red-800 mb-1">Failed Imports</h4>
+                            <p class="text-2xl font-bold text-red-600">
+                                {{ mailchimpReportData.summary.failed_imports }}
+                            </p>
+                        </div>
+                        <div class="bg-purple-50 p-4 rounded-lg">
+                            <h4 class="text-sm font-medium text-purple-800 mb-1">Unique Emails Imported</h4>
+                            <p class="text-2xl font-bold text-purple-600">
+                                {{ mailchimpReportData.summary.unique_emails_imported }}
+                            </p>
+                        </div>
+                    </div>
+
+                    <!-- Last Import & Copy Separated Data -->
+                    <div class="bg-gray-50 p-4 rounded-lg space-y-3 text-sm">
+                        <div>
+                            <span class="font-medium text-gray-700">Last Import:</span>
+                            <span class="ml-1 text-gray-800">
+                                {{ mailchimpReportData.summary.last_import_at || 'N/A' }}
+                            </span>
+                        </div>
+                        <div class="flex flex-wrap items-center justify-between gap-3">
+                            <div class="text-gray-600">
+                                Generate spreadsheet-ready separated data for this location.
+                            </div>
+                            <button
+                                type="button"
+                                @click="copyMailchimpSeparatedData"
+                                class="bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded text-sm flex items-center gap-2"
+                                :disabled="isGeneratingMailchimpCopyData"
+                            >
+                                <i class="fa-solid fa-clipboard-list"></i>
+                                <span v-if="!isGeneratingMailchimpCopyData">Copy Separated Data</span>
+                                <span v-else>Generating...</span>
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Error Details -->
+                    <div>
+                        <h4 class="text-md font-semibold mb-2 text-red-800">
+                            Import Errors ({{ mailchimpReportData.errors.length }})
+                        </h4>
+                        <div v-if="mailchimpReportData.errors.length" class="bg-white border rounded-lg overflow-hidden">
+                            <div class="max-h-64 overflow-y-auto">
+                                <table class="min-w-full divide-y divide-gray-200">
+                                    <thead class="bg-gray-50 sticky top-0">
+                                        <tr>
+                                            <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Email</th>
+                                            <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Error</th>
+                                            <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Date</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody class="bg-white divide-y divide-gray-200">
+                                        <tr v-for="(row, index) in mailchimpReportData.errors" :key="index" class="hover:bg-gray-50">
+                                            <td class="px-4 py-2 text-sm font-medium">
+                                                {{ row.email || 'N/A' }}
+                                            </td>
+                                            <td class="px-4 py-2 text-sm text-red-700">
+                                                {{ row.error || 'Unknown error' }}
+                                            </td>
+                                            <td class="px-4 py-2 text-sm text-gray-600">
+                                                {{ row.date }}
+                                            </td>
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                        <div v-else class="text-sm text-gray-500">
+                            No failed imports recorded for this location.
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
         <!-- Location Password Modal -->
         <div class="modal fade" id="passwordModal" tabindex="-1" aria-labelledby="passwordModalLabel" @hidden.bs.modal="closePasswordModal">
             <div class="modal-dialog">

@@ -80,17 +80,131 @@ const filmReportData = ref(null);
 const isLoadingFilmReport = ref(false);
 const selectedFilmForReport = ref(null);
 
-// Event Ticket Report
+// Event Ticket Report (single event)
 const showEventReportModal = ref(false);
 const eventReportData = ref(null);
 const isLoadingEventReport = ref(false);
 const selectedEventForReport = ref(null);
 
+// Compare multiple events
+const selectedEventIds = ref([]);
+const showEventsCompareModal = ref(false);
+const isLoadingEventsCompare = ref(false);
+const eventsCompareData = ref([]); // [{ event, summary, emails }]
+
+const eventsCompareSummary = computed(() => {
+    if (!eventsCompareData.value.length) {
+        return null;
+    }
+    return eventsCompareData.value.reduce((acc, item) => {
+        const s = item.summary || {};
+        acc.totalEvents += 1;
+        acc.ticket += s.ticket_emails_count || 0;
+        acc.winForm += s.signup_emails_count || 0;
+        acc.duplicates += s.duplicate_emails_count || 0;
+        acc.ticketOnly += s.ticket_only_count || 0;
+        acc.winFormOnly += s.signup_only_count || 0;
+        return acc;
+    }, {
+        totalEvents: 0,
+        ticket: 0,
+        winForm: 0,
+        duplicates: 0,
+        ticketOnly: 0,
+        winFormOnly: 0
+    });
+});
+
+// Total unique emails across all compared events (Ticket + Win Form, de-duplicated)
+const eventsCompareTotalUniqueEmails = computed(() => {
+    if (!eventsCompareData.value.length) {
+        return 0;
+    }
+    const allEmailsSet = new Set();
+    eventsCompareData.value.forEach((item) => {
+        if (!item.emails || !item.emails.length) {
+            return;
+        }
+        item.emails.forEach((email) => {
+            if (email) {
+                allEmailsSet.add(email.toLowerCase().trim());
+            }
+        });
+    });
+    return allEmailsSet.size;
+});
+
+// Cross-event email overlap: which emails appear in 2 or more compared events
+const crossEventEmailDuplicates = computed(() => {
+    if (!eventsCompareData.value.length) {
+        return [];
+    }
+
+    const emailMap = new Map();
+
+    eventsCompareData.value.forEach((item) => {
+        const eventId = item.event && item.event.id;
+        const eventName = (item.event && item.event.event_name) || 'Unknown Event';
+        if (!eventId || !item.emails || !item.emails.length) {
+            return;
+        }
+
+        item.emails.forEach((email) => {
+            if (!email) {
+                return;
+            }
+            const key = email.toLowerCase().trim();
+            if (!emailMap.has(key)) {
+                emailMap.set(key, { count: 0, events: [] });
+            }
+            const entry = emailMap.get(key);
+            // Only count this event once per email
+            if (!entry.events.some((e) => e.id === eventId)) {
+                entry.count += 1;
+                entry.events.push({ id: eventId, name: eventName });
+            }
+        });
+    });
+
+    // Only keep emails that appear in 2+ events
+    const result = [];
+    emailMap.forEach((value, email) => {
+        if (value.count > 1) {
+            result.push({
+                email,
+                count: value.count,
+                events: value.events
+            });
+        }
+    });
+
+    // Sort by count desc, then email
+    result.sort((a, b) => {
+        if (b.count !== a.count) return b.count - a.count;
+        return a.email.localeCompare(b.email);
+    });
+
+    return result;
+});
+
 // Expanded film to show its events
 const expandedFilmId = ref(null);
 
 const toggleFilmEvents = (filmId) => {
+    // When switching films, clear any selected events for comparison
+    if (expandedFilmId.value !== filmId) {
+        selectedEventIds.value = [];
+    }
     expandedFilmId.value = expandedFilmId.value === filmId ? null : filmId;
+};
+
+const toggleEventSelection = (eventId) => {
+    const idx = selectedEventIds.value.indexOf(eventId);
+    if (idx === -1) {
+        selectedEventIds.value.push(eventId);
+    } else {
+        selectedEventIds.value.splice(idx, 1);
+    }
 };
 
 const openFilmReportModal = async (film) => {
@@ -137,6 +251,52 @@ const closeEventReportModal = () => {
     showEventReportModal.value = false;
     eventReportData.value = null;
     selectedEventForReport.value = null;
+};
+
+const openCompareSelectedEvents = async () => {
+    if (selectedEventIds.value.length < 2) {
+        Swal.fire('Select Events', 'Please select at least 2 events to compare.', 'info');
+        return;
+    }
+
+    isLoadingEventsCompare.value = true;
+    showEventsCompareModal.value = true;
+    eventsCompareData.value = [];
+
+    try {
+        const requests = selectedEventIds.value.map((id) =>
+            axios.get(route('event.ticketReport', id))
+        );
+        const responses = await Promise.all(requests);
+
+        eventsCompareData.value = responses.map((res) => {
+            const data = res.data || {};
+            const event = data.event || {};
+            const summary = data.summary || {};
+
+            // Collect all unique emails for this event (Ticket + Win Form)
+            const ticketOnly = (data.ticket_only_emails || []).map((e) => (e || '').toLowerCase().trim());
+            const winFormOnly = (data.signup_only_emails || []).map((e) => (e || '').toLowerCase().trim());
+            const duplicateEmails = (data.duplicate_emails || []).map((d) => (d.email || '').toLowerCase().trim());
+
+            const emailSet = new Set();
+            ticketOnly.forEach((e) => e && emailSet.add(e));
+            winFormOnly.forEach((e) => e && emailSet.add(e));
+            duplicateEmails.forEach((e) => e && emailSet.add(e));
+
+            return {
+                event,
+                summary,
+                emails: Array.from(emailSet)
+            };
+        });
+    } catch (error) {
+        console.error('Error fetching compare events report:', error);
+        Swal.fire('Error', 'Failed to load comparison report for selected events', 'error');
+        showEventsCompareModal.value = false;
+    } finally {
+        isLoadingEventsCompare.value = false;
+    }
 };
 
 const goToEventLocations = (event) => {
@@ -216,14 +376,30 @@ const deleteFilm = (filmId) => {
 
                                         <!-- Connected Events for this Film -->
                                         <div v-if="film.events && film.events.length && expandedFilmId === film.id" class="mt-3 border-top pt-3">
-                                            <h6 class="mb-2">Events for this Film</h6>
+                                            <div class="d-flex justify-content-between align-items-center mb-2">
+                                                <h6 class="mb-0">Events for this Film</h6>
+                                                <button
+                                                    class="btn btn-sm btn-outline-primary"
+                                                    @click="openCompareSelectedEvents"
+                                                    :disabled="selectedEventIds.length < 2"
+                                                    title="Compare Ticket & Win Form data for selected events"
+                                                >
+                                                    Compare Selected
+                                                </button>
+                                            </div>
                                             <div class="list-group small">
                                                 <div 
                                                     v-for="event in film.events" 
                                                     :key="event.id" 
                                                     class="list-group-item d-flex justify-content-between align-items-center py-2"
                                                 >
-                                                    <div>
+                                                    <div class="d-flex align-items-center gap-2">
+                                                        <input
+                                                            type="checkbox"
+                                                            :value="event.id"
+                                                            :checked="selectedEventIds.includes(event.id)"
+                                                            @change="toggleEventSelection(event.id)"
+                                                        />
                                                         <div class="fw-semibold">{{ event.event_name }}</div>
                                                         <div class="text-muted">
                                                             <small>{{ event.event_date }}</small>
@@ -691,6 +867,181 @@ const deleteFilm = (filmId) => {
                         <i class="fa-solid fa-check-circle text-green-500 text-2xl mb-2"></i>
                         <p>No duplicate emails found between ticket and Win Form data!</p>
                     </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Compare Multiple Events Report Modal -->
+        <div v-if="showEventsCompareModal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+            <div class="bg-white p-6 rounded-lg shadow-xl max-w-6xl w-full mx-4 max-h-[90vh] overflow-y-auto">
+                <div class="flex justify-between items-center mb-4">
+                    <h3 class="text-lg font-semibold">
+                        Compare Events - Ticket & Win Form Data
+                    </h3>
+                    <button @click="showEventsCompareModal = false" class="text-gray-500 hover:text-gray-700">
+                        <i class="fa-solid fa-times"></i>
+                    </button>
+                </div>
+
+                <div v-if="isLoadingEventsCompare" class="text-center py-8">
+                    <i class="fa-solid fa-spinner fa-spin text-2xl text-blue-500"></i>
+                    <p class="mt-2 text-gray-600">Loading comparison report...</p>
+                </div>
+
+                <div v-else-if="eventsCompareData.length" class="space-y-6">
+                    <!-- Summary across all selected events -->
+                    <div v-if="eventsCompareSummary" class="grid grid-cols-4 gap-4">
+                        <div class="bg-blue-50 p-4 rounded-lg">
+                            <h4 class="text-sm font-medium text-blue-800 mb-1">Total Ticket Emails (All Events)</h4>
+                            <p class="text-2xl font-bold text-blue-600">{{ eventsCompareSummary.ticket }}</p>
+                        </div>
+                        <div class="bg-teal-50 p-4 rounded-lg">
+                            <h4 class="text-sm font-medium text-teal-800 mb-1">Total Unique Emails (All Events)</h4>
+                            <p class="text-2xl font-bold text-teal-600">{{ eventsCompareTotalUniqueEmails }}</p>
+                        </div>
+                        <div class="bg-red-50 p-4 rounded-lg">
+                            <h4 class="text-sm font-medium text-red-800 mb-1">Emails in 2+ Compared Events</h4>
+                            <p class="text-2xl font-bold text-red-600">{{ crossEventEmailDuplicates.length }}</p>
+                        </div>
+                        <div class="bg-orange-50 p-4 rounded-lg">
+                            <h4 class="text-sm font-medium text-orange-800 mb-1">Total Duplicated (Ticket vs Win Form)</h4>
+                            <p class="text-2xl font-bold text-orange-600">{{ eventsCompareSummary.duplicates }}</p>
+                        </div>
+                    </div>
+
+                    <!-- Per-event comparison table -->
+                    <div class="bg-white border rounded-lg overflow-hidden">
+                        <div class="max-h-[70vh] overflow-y-auto">
+                            <table class="min-w-full divide-y divide-gray-200">
+                                <thead class="bg-gray-50 sticky top-0">
+                                    <tr>
+                                        <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">
+                                            Event
+                                        </th>
+                                        <th 
+                                            class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase"
+                                            title="Unique emails from Ticket data (Eventbrite)"
+                                        >
+                                            Ticket
+                                        </th>
+                                        <th 
+                                            class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase"
+                                            title="Unique emails from Win Form sign-ups"
+                                        >
+                                            Win Form
+                                        </th>
+                                        <th 
+                                            class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase"
+                                            title="Emails that appear in both Ticket and Win Form"
+                                        >
+                                            Duplicates
+                                        </th>
+                                        <th 
+                                            class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase"
+                                            title="Emails only in Ticket (not in Win Form)"
+                                        >
+                                            Ticket Only
+                                        </th>
+                                        <th 
+                                            class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase"
+                                            title="Emails only in Win Form (not in Ticket)"
+                                        >
+                                            Win Form Only
+                                        </th>
+                                    </tr>
+                                </thead>
+                                <tbody class="bg-white divide-y divide-gray-200">
+                                    <tr v-for="(item, index) in eventsCompareData" :key="index" class="hover:bg-gray-50">
+                                        <td class="px-4 py-2 text-sm font-medium">
+                                            {{ item.event.event_name }}
+                                        </td>
+                                        <td class="px-4 py-2 text-sm">
+                                            <span class="px-2 py-1 bg-blue-100 text-blue-800 rounded-full text-xs font-semibold">
+                                                {{ item.summary.ticket_emails_count }}
+                                            </span>
+                                        </td>
+                                        <td class="px-4 py-2 text-sm">
+                                            <span class="px-2 py-1 bg-purple-100 text-purple-800 rounded-full text-xs font-semibold">
+                                                {{ item.summary.signup_emails_count }}
+                                            </span>
+                                        </td>
+                                        <td class="px-4 py-2 text-sm">
+                                            <span class="px-2 py-1 bg-orange-100 text-orange-800 rounded-full text-xs font-semibold">
+                                                {{ item.summary.duplicate_emails_count }}
+                                            </span>
+                                        </td>
+                                        <td class="px-4 py-2 text-sm">
+                                            <span class="px-2 py-1 bg-green-100 text-green-800 rounded-full text-xs font-semibold">
+                                                {{ item.summary.ticket_only_count }}
+                                            </span>
+                                        </td>
+                                        <td class="px-4 py-2 text-sm">
+                                            <span class="px-2 py-1 bg-yellow-100 text-yellow-800 rounded-full text-xs font-semibold">
+                                                {{ item.summary.signup_only_count }}
+                                            </span>
+                                        </td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    <!-- Cross-event email overlaps -->
+                    <div v-if="crossEventEmailDuplicates.length" class="bg-white border rounded-lg overflow-hidden">
+                        <div class="px-4 pt-4">
+                            <h4 class="text-md font-semibold mb-2">
+                                Emails Appearing in Multiple Compared Events
+                            </h4>
+                            <p class="text-sm text-gray-600 mb-2">
+                                These emails are found in at least 2 of the selected events (Ticket and/or Win Form data).
+                            </p>
+                        </div>
+                        <div class="max-h-96 overflow-y-auto">
+                            <table class="min-w-full divide-y divide-gray-200">
+                                <thead class="bg-gray-50 sticky top-0">
+                                    <tr>
+                                        <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">
+                                            Email
+                                        </th>
+                                        <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">
+                                            # of Events
+                                        </th>
+                                        <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">
+                                            Events
+                                        </th>
+                                    </tr>
+                                </thead>
+                                <tbody class="bg-white divide-y divide-gray-200">
+                                    <tr v-for="(row, index) in crossEventEmailDuplicates" :key="index" class="hover:bg-gray-50">
+                                        <td class="px-4 py-2 text-sm font-medium">
+                                            {{ row.email }}
+                                        </td>
+                                        <td class="px-4 py-2 text-sm">
+                                            <span class="px-2 py-1 bg-orange-100 text-orange-800 rounded-full text-xs font-semibold">
+                                                {{ row.count }}
+                                            </span>
+                                        </td>
+                                        <td class="px-4 py-2 text-sm">
+                                            <div class="flex flex-wrap gap-1">
+                                                <span
+                                                    v-for="(ev, idx) in row.events"
+                                                    :key="idx"
+                                                    class="px-2 py-1 bg-gray-100 text-gray-700 rounded-full text-xs"
+                                                >
+                                                    {{ ev.name }}
+                                                </span>
+                                            </div>
+                                        </td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+
+                <div v-else class="text-center py-4 text-gray-500">
+                    <i class="fa-solid fa-info-circle text-blue-500 text-2xl mb-2"></i>
+                    <p>No events loaded for comparison.</p>
                 </div>
             </div>
         </div>

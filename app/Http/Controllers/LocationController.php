@@ -18,6 +18,7 @@ use App\Services\SpreadsheetLogService;
 use App\Models\TicketAttendee;
 use App\Models\Films;
 use App\Models\SignUpForm;
+use App\Models\MailchimpLog;
 use Carbon\Carbon;
 
 class LocationController extends Controller
@@ -480,6 +481,88 @@ class LocationController extends Controller
         return response($fullContent, 200, $headers);
     }
 
+    /**
+     * Get Mailchimp import report for a specific location
+     */
+    public function getMailchimpLocationReport($locationId)
+    {
+        try {
+            $location = Location::findOrFail($locationId);
+
+            $logs = MailchimpLog::where('location_id', $locationId)
+                ->orderBy('created_at', 'desc')
+                ->get();
+
+            if ($logs->isEmpty()) {
+                return response()->json([
+                    'location' => $location,
+                    'summary' => [
+                        'total_imports' => 0,
+                        'successful_imports' => 0,
+                        'failed_imports' => 0,
+                        'unique_emails_imported' => 0,
+                        'last_import_at' => null,
+                        'tags' => []
+                    ],
+                    'errors' => []
+                ]);
+            }
+
+            $totalImports = $logs->count();
+            $successfulImports = $logs->where('status', 'Success')->count();
+            $failedImports = $logs->where('status', 'Failed')->count();
+            $uniqueEmailsImported = $logs->where('status', 'Success')
+                ->pluck('email_address')
+                ->filter()
+                ->unique()
+                ->count();
+            $lastImportAt = $logs->max('created_at');
+            $lastImportAtFormatted = $lastImportAt
+                ? $lastImportAt->timezone(config('app.timezone'))->format('Y-m-d H:i:s')
+                : null;
+
+            // Collect tags from the most recent successful log (if any)
+            $latestWithTags = $logs->first(function ($log) {
+                return !empty($log->tags);
+            });
+            $tags = $latestWithTags && is_array($latestWithTags->tags) ? $latestWithTags->tags : [];
+
+            // Collect sample error messages
+            $errors = $logs->where('status', 'Failed')
+                ->take(50)
+                ->map(function ($log) {
+                    return [
+                        'email' => $log->email_address,
+                        'error' => $log->error_message,
+                        'date' => $log->created_at->toDateTimeString()
+                    ];
+                })
+                ->values();
+
+            return response()->json([
+                'location' => $location,
+                'summary' => [
+                    'total_imports' => $totalImports,
+                    'successful_imports' => $successfulImports,
+                    'failed_imports' => $failedImports,
+                    'unique_emails_imported' => $uniqueEmailsImported,
+                    'last_import_at' => $lastImportAtFormatted,
+                    'tags' => $tags
+                ],
+                'errors' => $errors
+            ]);
+        } catch (\Exception $e) {
+            Log::error('Error getting Mailchimp location report', [
+                'location_id' => $locationId,
+                'error' => $e->getMessage()
+            ]);
+
+            return response()->json([
+                'error' => 'Failed to get Mailchimp report: ' . $e->getMessage()
+            ], 500);
+        }
+    }
+
     public function deleteAllLocations($eventId)
     {
         try {
@@ -667,14 +750,15 @@ class LocationController extends Controller
         $request->validate([
             'location_id' => 'required|exists:locations,id',
             'import_data' => 'required|array',
-            'tags' => 'required|array'
+            // Tags are optional when generating a summary later; default to empty array if not provided
+            'tags' => 'array'
         ]);
 
         try {
             $copyPasteData = $spreadsheetService->generateFormattedText(
                 $request->location_id,
                 $request->import_data,
-                $request->tags
+                $request->input('tags', [])
             );
 
             return response()->json([
