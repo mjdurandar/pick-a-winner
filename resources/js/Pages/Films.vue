@@ -86,6 +86,12 @@ const eventReportData = ref(null);
 const isLoadingEventReport = ref(false);
 const selectedEventForReport = ref(null);
 
+// Event Mailchimp Summary
+const showEventMailchimpModal = ref(false);
+const eventMailchimpData = ref(null);
+const isLoadingEventMailchimp = ref(false);
+const selectedEventForMailchimp = ref(null);
+
 // Compare multiple events
 const selectedEventIds = ref([]);
 const showEventsCompareModal = ref(false);
@@ -285,6 +291,29 @@ const closeEventReportModal = () => {
     selectedEventForReport.value = null;
 };
 
+const openEventMailchimpModal = async (event) => {
+    selectedEventForMailchimp.value = event;
+    isLoadingEventMailchimp.value = true;
+    showEventMailchimpModal.value = true;
+
+    try {
+        const response = await axios.get(route('event.mailchimpReport', event.id));
+        eventMailchimpData.value = response.data;
+    } catch (error) {
+        console.error('Error fetching event Mailchimp report:', error);
+        Swal.fire('Error', 'Failed to load Mailchimp summary for this event', 'error');
+        showEventMailchimpModal.value = false;
+    } finally {
+        isLoadingEventMailchimp.value = false;
+    }
+};
+
+const closeEventMailchimpModal = () => {
+    showEventMailchimpModal.value = false;
+    eventMailchimpData.value = null;
+    selectedEventForMailchimp.value = null;
+};
+
 const openCompareSelectedEvents = async () => {
     if (selectedEventIds.value.length < 2) {
         Swal.fire('Select Events', 'Please select at least 2 events to compare.', 'info');
@@ -441,9 +470,16 @@ const deleteFilm = (filmId) => {
                                                         <button 
                                                             @click="openEventReportModal(event)" 
                                                             class="btn btn-sm btn-outline-secondary"
-                                                            title="View Report for Ticket & Win Form"
+                                                            title="View Ticket & Win Form report for this event"
                                                         >
                                                             Report
+                                                        </button>
+                                                        <button 
+                                                            @click="openEventMailchimpModal(event)" 
+                                                            class="btn btn-sm btn-outline-success"
+                                                            title="View Mailchimp import summary for this event"
+                                                        >
+                                                            <i class="fa-solid fa-envelope-open-text"></i>
                                                         </button>
                                                     </div>
                                                 </div>
@@ -1079,6 +1115,79 @@ const deleteFilm = (filmId) => {
                 <div v-else class="text-center py-4 text-gray-500">
                     <i class="fa-solid fa-info-circle text-blue-500 text-2xl mb-2"></i>
                     <p>No events loaded for comparison.</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Event Mailchimp Summary Modal -->
+        <div v-if="showEventMailchimpModal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+            <div class="bg-white p-6 rounded-lg shadow-xl max-w-3xl w-full mx-4 max-h-[90vh] overflow-y-auto">
+                <div class="flex justify-between items-center mb-4">
+                    <h3 class="text-lg font-semibold">
+                        Mailchimp Summary - {{ selectedEventForMailchimp?.event_name }}
+                    </h3>
+                    <button @click="closeEventMailchimpModal" class="text-gray-500 hover:text-gray-700">
+                        <i class="fa-solid fa-times"></i>
+                    </button>
+                </div>
+
+                <div v-if="isLoadingEventMailchimp" class="text-center py-8">
+                    <i class="fa-solid fa-spinner fa-spin text-2xl text-blue-500"></i>
+                    <p class="mt-2 text-gray-600">Loading Mailchimp summary...</p>
+                </div>
+
+                <div v-else-if="eventMailchimpData" class="space-y-6">
+                    <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+                        <div class="bg-blue-50 p-4 rounded-lg">
+                            <h4 class="text-sm font-medium text-blue-800 mb-1">Total Collected Data</h4>
+                            <p class="text-2xl font-bold text-blue-600">
+                                {{ eventMailchimpData.summary.total_collected_data ?? eventMailchimpData.summary.total_imports }}
+                            </p>
+                        </div>
+                        <div class="bg-green-50 p-4 rounded-lg">
+                            <h4 class="text-sm font-medium text-green-800 mb-1">NEW from Import</h4>
+                            <p class="text-2xl font-bold text-green-600">
+                                {{ eventMailchimpData.summary.new_from_import ?? eventMailchimpData.summary.successful_imports }}
+                            </p>
+                        </div>
+                        <div class="bg-purple-50 p-4 rounded-lg">
+                            <h4 class="text-sm font-medium text-purple-800 mb-1">Updated Data</h4>
+                            <p class="text-2xl font-bold text-purple-600">
+                                {{ eventMailchimpData.summary.updated_data ?? 0 }}
+                            </p>
+                        </div>
+                        <div class="bg-red-50 p-4 rounded-lg">
+                            <h4 class="text-sm font-medium text-red-800 mb-1">Rejected Data</h4>
+                            <p class="text-2xl font-bold text-red-600">
+                                {{ eventMailchimpData.summary.rejected_data ?? eventMailchimpData.summary.failed_imports }}
+                            </p>
+                        </div>
+                    </div>
+
+                    <div class="bg-gray-50 p-4 rounded-lg text-sm space-y-1">
+                        <div>
+                            <span class="font-medium text-gray-700">Last Import:</span>
+                            <span class="ml-1 text-gray-800">
+                                {{ eventMailchimpData.summary.last_import_at || 'N/A' }}
+                            </span>
+                        </div>
+                        <div v-if="eventMailchimpData.summary.total_imports">
+                            <span class="font-medium text-gray-700">Success Rate:</span>
+                            <span class="ml-1 text-gray-800">
+                                {{
+                                    (
+                                        (eventMailchimpData.summary.successful_imports /
+                                            eventMailchimpData.summary.total_imports) *
+                                        100
+                                    ).toFixed(1)
+                                }}%
+                            </span>
+                        </div>
+                    </div>
+
+                    <div v-if="eventMailchimpData.summary.total_imports === 0" class="text-sm text-gray-500">
+                        No Mailchimp import logs have been recorded for this event yet.
+                    </div>
                 </div>
             </div>
         </div>

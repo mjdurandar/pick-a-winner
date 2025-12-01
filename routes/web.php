@@ -88,6 +88,7 @@ Route::middleware(['auth', RoleMiddleware::class . ':admin,host'])->group(functi
     Route::get('/location/{locationId}/ticket-report', [LocationController::class, 'getLocationTicketReport'])->name('location.ticketReport');
     Route::get('/film/{filmId}/ticket-report', [LocationController::class, 'getFilmTicketReport'])->name('film.ticketReport');
     Route::get('/event/{eventId}/ticket-report', [LocationController::class, 'getEventTicketReport'])->name('event.ticketReport');
+    Route::get('/event/{eventId}/mailchimp-report', [LocationController::class, 'getMailchimpEventReport'])->name('event.mailchimpReport');
     
     //SHEETS DATA ROUTES
     Route::get('/location/sheets-data/{eventId}', [LocationController::class, 'getSheetsData'])->name('location.getSheetsData');

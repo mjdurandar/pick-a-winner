@@ -516,6 +516,13 @@ class LocationController extends Controller
                 ->filter()
                 ->unique()
                 ->count();
+
+            // Derive high-level summary similar to per-location report
+            $totalCollectedData = $totalImports;
+            $newFromImport = $uniqueEmailsImported; // unique successful emails
+            $updatedData = max(0, $successfulImports - $uniqueEmailsImported); // additional successful rows beyond unique emails
+            $rejectedData = $failedImports;
+
             $lastImportAt = $logs->max('created_at');
             $lastImportAtFormatted = $lastImportAt
                 ? $lastImportAt->timezone(config('app.timezone'))->format('Y-m-d H:i:s')
@@ -559,6 +566,81 @@ class LocationController extends Controller
 
             return response()->json([
                 'error' => 'Failed to get Mailchimp report: ' . $e->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
+     * Get Mailchimp import summary for a specific event (all locations)
+     */
+    public function getMailchimpEventReport($eventId)
+    {
+        try {
+            $event = Events::findOrFail($eventId);
+
+            $logs = MailchimpLog::query()
+                ->whereHas('location', function ($q) use ($eventId) {
+                    $q->where('event_id', $eventId);
+                })
+                ->orderBy('created_at', 'desc')
+                ->get();
+
+            if ($logs->isEmpty()) {
+                return response()->json([
+                    'event' => $event,
+                    'summary' => [
+                        'total_imports' => 0,
+                        'successful_imports' => 0,
+                        'failed_imports' => 0,
+                        'unique_emails_imported' => 0,
+                        'last_import_at' => null
+                    ]
+                ]);
+            }
+
+            $totalImports = $logs->count();
+            $successfulImports = $logs->where('status', 'Success')->count();
+            $failedImports = $logs->where('status', 'Failed')->count();
+            $uniqueEmailsImported = $logs->where('status', 'Success')
+                ->pluck('email_address')
+                ->filter()
+                ->unique()
+                ->count();
+
+            // High-level summary numbers
+            $totalCollectedData = $totalImports;
+            $newFromImport = $uniqueEmailsImported; // unique successful emails
+            $updatedData = max(0, $successfulImports - $uniqueEmailsImported); // successful - new
+            $rejectedData = $failedImports;
+
+            $lastImportAt = $logs->max('created_at');
+            $lastImportAtFormatted = $lastImportAt
+                ? $lastImportAt->timezone(config('app.timezone'))->format('Y-m-d H:i:s')
+                : null;
+
+            return response()->json([
+                'event' => $event,
+                'summary' => [
+                    'total_imports' => $totalImports,
+                    'successful_imports' => $successfulImports,
+                    'failed_imports' => $failedImports,
+                    'unique_emails_imported' => $uniqueEmailsImported,
+                    'last_import_at' => $lastImportAtFormatted,
+                    // High-level summary fields used by Films.vue
+                    'total_collected_data' => $totalCollectedData,
+                    'new_from_import' => $newFromImport,
+                    'updated_data' => $updatedData,
+                    'rejected_data' => $rejectedData,
+                ]
+            ]);
+        } catch (\Exception $e) {
+            Log::error('Error getting Mailchimp event report', [
+                'event_id' => $eventId,
+                'error' => $e->getMessage()
+            ]);
+
+            return response()->json([
+                'error' => 'Failed to get Mailchimp event report: ' . $e->getMessage()
             ], 500);
         }
     }
