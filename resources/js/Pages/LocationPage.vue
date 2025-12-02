@@ -67,6 +67,7 @@ const selectedCategory = ref('');
 const showTicketReportModal = ref(false);
 const ticketReportData = ref(null);
 const isLoadingReport = ref(false);
+const isGeneratingTicketCopyData = ref(false);
 const showMailchimpReportModal = ref(false);
 const mailchimpReportData = ref(null);
 const isLoadingMailchimpReport = ref(false);
@@ -919,6 +920,105 @@ const openTicketReportModal = async (location) => {
     }
 };
 
+const copyTicketSeparatedData = async () => {
+    if (!ticketReportData.value || !selectedLocation.value) {
+        await Swal.fire('Info', 'No ticket report data available to copy.', 'info');
+        return;
+    }
+
+    isGeneratingTicketCopyData.value = true;
+
+    try {
+        // Load Mailchimp auto-sync settings so we can build TIX tags
+        const settingsResponse = await axios.get(route('mailchimp.autosync.settings'), {
+            params: {
+                event_id: props.event.id
+            }
+        });
+
+        const { settings } = settingsResponse.data;
+
+        // Build TIX-specific tags:
+        // SHOW - {LOCATION_TAG}
+        // SOURCE - {FILM_TOUR} {LOCATION_TAG} TIX {YEAR}
+        const tags = [];
+        const filmTour = (settings.film_tour || 'WM').toString().toUpperCase();
+        const year = new Date().getFullYear();
+        const locationName = selectedLocation.value.name || '';
+        const locationCountry = (selectedLocation.value.country || '').toString().trim();
+
+        const locationTag = locationName.split(' - ')[0].toUpperCase();
+
+        tags.push(`SHOW - ${locationTag}`);
+        tags.push(`SOURCE - ${filmTour} ${locationTag} TIX ${year}`);
+
+        // Add COUNTRY tag if we have a country on the location
+        if (locationCountry) {
+            const countryTag = `COUNTRY - ${locationCountry.toUpperCase()}`;
+            tags.push(countryTag);
+        }
+
+        // Append any default tags from settings
+        if (settings.default_tags && Array.isArray(settings.default_tags) && settings.default_tags.length > 0) {
+            tags.push(...settings.default_tags);
+        } else if (settings.default_tags && typeof settings.default_tags === 'string') {
+            const defaultTagsArray = settings.default_tags
+                .split(',')
+                .map(tag => tag.trim())
+                .filter(tag => tag);
+            if (defaultTagsArray.length > 0) {
+                tags.push(...defaultTagsArray);
+            }
+        }
+
+        const summary = ticketReportData.value.summary || {};
+
+        // Map ticket analytics into spreadsheet stats:
+        // Total Collected Data  -> total ticket emails
+        // NEW from Import       -> ticket only
+        // Updated Data          -> duplicates (in both)
+        // Rejected Data         -> 0 (not applicable for TIX analytics)
+        const importData = {
+            totalSubscribers: summary.ticket_emails_count || 0,
+            newCount: summary.ticket_only_count || 0,
+            updateCount: summary.duplicate_emails_count || 0,
+            failureCount: 0,
+            errors: [],
+            errorDetails: [],
+            rejectedFields: [],
+            rejectedFieldsCount: 0
+        };
+
+        const response = await axios.post(route('location.generateSpreadsheetData'), {
+            location_id: selectedLocation.value.id,
+            import_data: importData,
+            tags
+        });
+
+        const text = response.data.copy_paste_data || '';
+        if (!text) {
+            await Swal.fire('Info', 'No separated data was generated from the ticket report.', 'info');
+            return;
+        }
+
+        // Extract only the actual tab-separated data line (skip helper text / emojis)
+        let lineToCopy = text;
+        const lines = text.split('\n');
+        const dataLine = lines.find(l => l.includes('\t'));
+        if (dataLine) {
+            lineToCopy = dataLine;
+        }
+
+        await navigator.clipboard.writeText(lineToCopy);
+        await Swal.fire('Copied', 'TIX separated data copied to clipboard. Paste it into your spreadsheet.', 'success');
+    } catch (error) {
+        console.error('Failed to generate/copy ticket spreadsheet data:', error);
+        await Swal.fire('Error', 'Failed to generate separated data from the ticket report.', 'error');
+    } finally {
+        isGeneratingTicketCopyData.value = false;
+    }
+};
+
 const openMailchimpReportModal = async (location) => {
     mailchimpReportData.value = null;
     isLoadingMailchimpReport.value = true;
@@ -945,7 +1045,19 @@ const copyMailchimpSeparatedData = async () => {
     isGeneratingMailchimpCopyData.value = true;
     try {
         const summary = mailchimpReportData.value.summary || {};
-        const tags = Array.isArray(summary.tags) ? summary.tags : [];
+        // Start with tags stored on the Mailchimp summary (usually COMP/import tags)
+        let tags = Array.isArray(summary.tags) ? [...summary.tags] : [];
+
+        // Also add a COUNTRY tag based on the location country, same as TIX copy
+        const location = mailchimpReportData.value.location || {};
+        const country = (location.country || '').toString().trim();
+        if (country) {
+            const countryTag = `COUNTRY - ${country.toUpperCase()}`;
+            if (!tags.includes(countryTag)) {
+                tags.push(countryTag);
+            }
+        }
+
         const importData = {
             totalSubscribers: summary.total_imports || 0,
             successCount: summary.successful_imports || 0,
@@ -3402,6 +3514,31 @@ Perth,,</pre>
                         <div class="bg-yellow-50 p-4 rounded-lg">
                             <h4 class="text-sm font-medium text-yellow-800 mb-1">Sign-Up Only</h4>
                             <p class="text-2xl font-bold text-yellow-600">{{ ticketReportData.summary.signup_only_count }}</p>
+                        </div>
+                    </div>
+
+                    <!-- TIX Copy Separated Data -->
+                    <div class="bg-gray-50 p-4 rounded-lg space-y-3 text-sm">
+                        <div>
+                            <span class="font-medium text-gray-700">TIX Spreadsheet Line:</span>
+                            <span class="ml-1 text-gray-800">
+                                Generate spreadsheet-ready separated data for this ticket (TIX) report.
+                            </span>
+                        </div>
+                        <div class="flex flex-wrap items-center justify-between gap-3">
+                            <div class="text-gray-600">
+                                This uses TIX tags (e.g. <code>SOURCE - FILM LOCATION TIX {{ new Date().getFullYear() }}</code>) for your ticket analytics row.
+                            </div>
+                            <button
+                                type="button"
+                                @click="copyTicketSeparatedData"
+                                class="bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded text-sm flex items-center gap-2"
+                                :disabled="isGeneratingTicketCopyData"
+                            >
+                                <i class="fa-solid fa-clipboard-list"></i>
+                                <span v-if="!isGeneratingTicketCopyData">Copy TIX Separated Data</span>
+                                <span v-else>Generating...</span>
+                            </button>
                         </div>
                     </div>
 
