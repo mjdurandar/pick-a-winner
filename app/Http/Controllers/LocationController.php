@@ -110,7 +110,9 @@ class LocationController extends Controller
             'name' => 'required|string|max:255',
             'event_id' => 'required|exists:events,id',
             'date' => 'required|date',
-            'time' => 'required'
+            'time' => 'required',
+            'country' => 'required|string|in:Australia,New Zealand,Canada,USA',
+            'category' => 'required|string|in:Theatrical,AE Tour Stop,Host a Show'
         ]);
 
         // Check if there are multiple locations with the same password (3-5 locations)
@@ -139,6 +141,8 @@ class LocationController extends Controller
             'event_id' => $request->event_id,
             'date' => $request->date,
             'time' => $request->time,
+            'country' => $request->country,
+            'category' => $request->category,
             'password' => $password
         ]);
 
@@ -150,13 +154,17 @@ class LocationController extends Controller
         $request->validate([
             'name' => 'required|string|max:255',
             'date' => 'required|date',
-            'time' => 'required'
+            'time' => 'required',
+            'country' => 'required|string|in:Australia,New Zealand,Canada,USA',
+            'category' => 'required|string|in:Theatrical,AE Tour Stop,Host a Show'
         ]);
 
         $location->update([
             'name' => $request->name,
             'date' => $request->date,
-            'time' => $request->time
+            'time' => $request->time,
+            'country' => $request->country,
+            'category' => $request->category
         ]);
 
         return back()->with('success', 'Location updated successfully');

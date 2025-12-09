@@ -113,7 +113,10 @@ const locationForm = useForm({
     name: '',
     event_id: '',
     date: '',
-    time: ''
+    time: '',
+    country: '',
+    state: '',
+    category: ''
 });
 
 // Add reactive refs for TBA checkboxes
@@ -1890,6 +1893,53 @@ const showEventbriteDetailedResults = async (results) => {
 };
 
 
+// Function to extract state from location name (same logic as backend)
+const extractStateFromName = (name) => {
+    if (!name) return '';
+    
+    // Check if name contains " - " (separator for cinema)
+    let locationPart = name;
+    if (name.includes(' - ')) {
+        const parts = name.split(' - ', 2);
+        locationPart = parts[0].trim();
+    }
+    
+    // Check if location part contains state (2-3 letter abbreviation at the end)
+    // Pattern: "Location ST" where ST is 2-3 uppercase letters
+    const stateMatch = locationPart.match(/^(.+?)\s+([A-Z]{2,3})$/);
+    if (stateMatch) {
+        return stateMatch[2].trim();
+    }
+    
+    return '';
+};
+
+// Function to extract location name without state
+const extractLocationName = (name) => {
+    if (!name) return '';
+    
+    // Check if name contains " - " (separator for cinema)
+    let locationPart = name;
+    let cinema = '';
+    if (name.includes(' - ')) {
+        const parts = name.split(' - ', 2);
+        locationPart = parts[0].trim();
+        cinema = parts[1]?.trim() || '';
+    }
+    
+    // Remove state if present (2-3 letter abbreviation at the end)
+    const stateMatch = locationPart.match(/^(.+?)\s+([A-Z]{2,3})$/);
+    if (stateMatch) {
+        locationPart = stateMatch[1].trim();
+    }
+    
+    // Reconstruct name without state
+    if (cinema) {
+        return locationPart + ' - ' + cinema;
+    }
+    return locationPart;
+};
+
 // Function to open location creation modal
 const openLocationModal = (location = null) => {
     locationForm.reset();
@@ -1899,9 +1949,13 @@ const openLocationModal = (location = null) => {
     if (location) {
         isEditing.value = true;
         locationForm.id = location.id;
-        locationForm.name = location.name;
+        // Extract state and location name separately
+        locationForm.name = extractLocationName(location.name);
+        locationForm.state = extractStateFromName(location.name);
         locationForm.date = location.date;
         locationForm.time = location.time;
+        locationForm.country = location.country || '';
+        locationForm.category = location.category || '';
         locationForm.event_id = props.event.id;
         
         // Set checkboxes based on existing values
@@ -1910,6 +1964,9 @@ const openLocationModal = (location = null) => {
     } else {
         isEditing.value = false;
         locationForm.event_id = props.event.id;
+        locationForm.country = '';
+        locationForm.state = '';
+        locationForm.category = '';
     }
     showLocationModal.value = true;
     let modalElement = new bootstrap.Modal(document.getElementById('createLocationModal'));
@@ -1923,9 +1980,33 @@ const saveLocation = () => {
         return;
     }
 
+    // Build the name: "Location State (if any) - Cinema" (same logic as master sheet)
+    let locationName = locationForm.name.trim();
+    const state = locationForm.state ? locationForm.state.trim().toUpperCase() : '';
+    
+    // Check if name already contains " - " (cinema separator)
+    let hasCinema = false;
+    let cinema = '';
+    if (locationName.includes(' - ')) {
+        const parts = locationName.split(' - ', 2);
+        locationName = parts[0].trim();
+        cinema = parts[1].trim();
+        hasCinema = true;
+    }
+    
+    // Build final name: add state if provided, then add cinema if exists
+    let finalName = locationName;
+    if (state) {
+        finalName += ' ' + state;
+    }
+    if (hasCinema && cinema) {
+        finalName += ' - ' + cinema;
+    }
+
     // Prepare form data with TBA values if checkboxes are checked
     const formData = {
         ...locationForm,
+        name: finalName, // Use the built name with state
         date: noDateYet.value ? 'TBA' : locationForm.date,
         time: noTimeYet.value ? 'TBA' : locationForm.time
     };
@@ -2844,6 +2925,46 @@ watch(
                                     class="form-control" 
                                     required 
                                 />
+                            </div>
+                            <div class="mb-3">
+                                <label class="form-label">Country</label>
+                                <select 
+                                    v-model="locationForm.country" 
+                                    class="form-control" 
+                                    required
+                                >
+                                    <option value="">Select Country</option>
+                                    <option value="Australia">Australia</option>
+                                    <option value="New Zealand">New Zealand</option>
+                                    <option value="Canada">Canada</option>
+                                    <option value="USA">USA</option>
+                                </select>
+                            </div>
+                            <div class="mb-3">
+                                <label class="form-label">State (Optional)</label>
+                                <input 
+                                    v-model="locationForm.state" 
+                                    type="text" 
+                                    class="form-control" 
+                                    placeholder="e.g., MT, VIC"
+                                    maxlength="3"
+                                    @input="locationForm.state = $event.target.value.toUpperCase()"
+                                    style="text-transform: uppercase;"
+                                />
+                                <small class="text-muted">2-3 letter state abbreviation (e.g., MT, VIC, NSW)</small>
+                            </div>
+                            <div class="mb-3">
+                                <label class="form-label">Category</label>
+                                <select 
+                                    v-model="locationForm.category" 
+                                    class="form-control" 
+                                    required
+                                >
+                                    <option value="">Select Category</option>
+                                    <option value="Theatrical">Theatrical</option>
+                                    <option value="AE Tour Stop">AE Tour Stop</option>
+                                    <option value="Host a Show">Host a Show</option>
+                                </select>
                             </div>
                             <div class="mb-3">
                                 <label class="form-label">Date</label>
