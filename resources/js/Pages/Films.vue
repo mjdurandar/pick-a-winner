@@ -1,6 +1,6 @@
 <script setup>
 import Swal from 'sweetalert2';
-import { ref, computed } from 'vue';
+import { ref, computed, onMounted, nextTick, watch } from 'vue';
 import { useForm, router, usePage } from '@inertiajs/vue3';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout.vue';
 import { Head } from '@inertiajs/vue3';
@@ -97,6 +97,11 @@ const selectedEventIds = ref([]);
 const showEventsCompareModal = ref(false);
 const isLoadingEventsCompare = ref(false);
 const eventsCompareData = ref([]); // [{ event, summary, emails }]
+
+// Card info modal
+const showCardInfoModal = ref(false);
+const cardInfoTitle = ref('');
+const cardInfoDescription = ref('');
 
 const eventsCompareSummary = computed(() => {
     if (!eventsCompareData.value.length) {
@@ -260,6 +265,20 @@ const openFilmReportModal = async (film) => {
     } finally {
         isLoadingFilmReport.value = false;
     }
+};
+
+// Open card info modal
+const openCardInfoModal = (title, description) => {
+    cardInfoTitle.value = title;
+    cardInfoDescription.value = description;
+    showCardInfoModal.value = true;
+};
+
+// Close card info modal
+const closeCardInfoModal = () => {
+    showCardInfoModal.value = false;
+    cardInfoTitle.value = '';
+    cardInfoDescription.value = '';
 };
 
 const closeFilmReportModal = () => {
@@ -595,28 +614,70 @@ const deleteFilm = (filmId) => {
                 <div v-else-if="filmReportData" class="space-y-6">
                     <!-- Overall Summary Cards -->
                     <div class="grid grid-cols-6 gap-4">
-                        <div class="bg-blue-50 p-4 rounded-lg">
+                        <div class="bg-blue-50 p-4 rounded-lg relative">
+                            <button 
+                                @click="openCardInfoModal('Ticket Emails', 'Total unique email addresses from Eventbrite ticket data across all locations/events for this film. This represents all people who purchased tickets through Eventbrite.')"
+                                class="absolute top-2 right-2 text-blue-600 hover:text-blue-800 cursor-pointer"
+                                style="background: none; border: none; padding: 4px;"
+                            >
+                                <i class="fa-solid fa-circle-info"></i>
+                            </button>
                             <h4 class="text-sm font-medium text-blue-800 mb-1">Ticket Emails</h4>
                             <p class="text-2xl font-bold text-blue-600">{{ filmReportData.summary.ticket_emails_count }}</p>
                         </div>
-                        <div class="bg-purple-50 p-4 rounded-lg">
+                        <div class="bg-purple-50 p-4 rounded-lg relative">
+                            <button 
+                                @click="openCardInfoModal('Sign-Up Emails', 'Total unique email addresses from Win Form sign-ups across all locations/events for this film. This represents all people who signed up via the Win Form.')"
+                                class="absolute top-2 right-2 text-purple-600 hover:text-purple-800 cursor-pointer"
+                                style="background: none; border: none; padding: 4px;"
+                            >
+                                <i class="fa-solid fa-circle-info"></i>
+                            </button>
                             <h4 class="text-sm font-medium text-purple-800 mb-1">Sign-Up Emails</h4>
                             <p class="text-2xl font-bold text-purple-600">{{ filmReportData.summary.signup_emails_count }}</p>
                         </div>
-                        <div class="bg-orange-50 p-4 rounded-lg">
+                        <div class="bg-orange-50 p-4 rounded-lg relative">
+                            <button 
+                                @click="openCardInfoModal('Duplicates', 'Emails that appear in BOTH Ticket data AND Sign-Up data. These are people who both bought tickets and signed up via the Win Form. This shows engagement from both sources.')"
+                                class="absolute top-2 right-2 text-orange-600 hover:text-orange-800 cursor-pointer"
+                                style="background: none; border: none; padding: 4px;"
+                            >
+                                <i class="fa-solid fa-circle-info"></i>
+                            </button>
                             <h4 class="text-sm font-medium text-orange-800 mb-1">Duplicates</h4>
                             <p class="text-2xl font-bold text-orange-600">{{ filmReportData.summary.duplicate_emails_count }}</p>
                             <p class="text-xs text-orange-600 mt-1">In both</p>
                         </div>
-                        <div class="bg-green-50 p-4 rounded-lg">
+                        <div class="bg-green-50 p-4 rounded-lg relative">
+                            <button 
+                                @click="openCardInfoModal('Ticket Only', 'Emails that are ONLY in Ticket data (not in Sign-Up). These are people who bought tickets but did NOT sign up via the Win Form.')"
+                                class="absolute top-2 right-2 text-green-600 hover:text-green-800 cursor-pointer"
+                                style="background: none; border: none; padding: 4px;"
+                            >
+                                <i class="fa-solid fa-circle-info"></i>
+                            </button>
                             <h4 class="text-sm font-medium text-green-800 mb-1">Ticket Only</h4>
                             <p class="text-2xl font-bold text-green-600">{{ filmReportData.summary.ticket_only_count }}</p>
                         </div>
-                        <div class="bg-yellow-50 p-4 rounded-lg">
+                        <div class="bg-yellow-50 p-4 rounded-lg relative">
+                            <button 
+                                @click="openCardInfoModal('Sign-Up Only', 'Emails that are ONLY in Sign-Up data (not in Ticket). These are people who signed up via the Win Form but did NOT buy tickets.')"
+                                class="absolute top-2 right-2 text-yellow-600 hover:text-yellow-800 cursor-pointer"
+                                style="background: none; border: none; padding: 4px;"
+                            >
+                                <i class="fa-solid fa-circle-info"></i>
+                            </button>
                             <h4 class="text-sm font-medium text-yellow-800 mb-1">Sign-Up Only</h4>
                             <p class="text-2xl font-bold text-yellow-600">{{ filmReportData.summary.signup_only_count }}</p>
                         </div>
-                        <div class="bg-gray-50 p-4 rounded-lg">
+                        <div class="bg-gray-50 p-4 rounded-lg relative">
+                            <button 
+                                @click="openCardInfoModal('Total Unique', 'Total unique email addresses across BOTH sources (Ticket + Sign-Up). Formula: Ticket Only + Sign-Up Only + Duplicates. This is the total number of unique people engaged with this film.')"
+                                class="absolute top-2 right-2 text-gray-600 hover:text-gray-800 cursor-pointer"
+                                style="background: none; border: none; padding: 4px;"
+                            >
+                                <i class="fa-solid fa-circle-info"></i>
+                            </button>
                             <h4 class="text-sm font-medium text-gray-800 mb-1">Total Unique</h4>
                             <p class="text-2xl font-bold text-gray-600">{{ filmReportData.summary.total_unique_emails }}</p>
                         </div>
@@ -772,24 +833,59 @@ const deleteFilm = (filmId) => {
                 <div v-else-if="eventReportData" class="space-y-6">
                     <!-- Overall Summary Cards -->
                     <div class="grid grid-cols-5 gap-4">
-                        <div class="bg-blue-50 p-4 rounded-lg">
+                        <div class="bg-blue-50 p-4 rounded-lg relative">
+                            <button 
+                                @click="openCardInfoModal('Ticket Emails', 'Total unique email addresses from Eventbrite ticket data for this event. This represents all people who purchased tickets through Eventbrite.')"
+                                class="absolute top-2 right-2 text-blue-600 hover:text-blue-800 cursor-pointer"
+                                style="background: none; border: none; padding: 4px;"
+                            >
+                                <i class="fa-solid fa-circle-info"></i>
+                            </button>
                             <h4 class="text-sm font-medium text-blue-800 mb-1">Ticket Emails</h4>
                             <p class="text-2xl font-bold text-blue-600">{{ eventReportData.summary.ticket_emails_count }}</p>
                         </div>
-                        <div class="bg-purple-50 p-4 rounded-lg">
+                        <div class="bg-purple-50 p-4 rounded-lg relative">
+                            <button 
+                                @click="openCardInfoModal('Win Form Emails', 'Total unique email addresses from Win Form sign-ups for this event. This represents all people who signed up via the Win Form.')"
+                                class="absolute top-2 right-2 text-purple-600 hover:text-purple-800 cursor-pointer"
+                                style="background: none; border: none; padding: 4px;"
+                            >
+                                <i class="fa-solid fa-circle-info"></i>
+                            </button>
                             <h4 class="text-sm font-medium text-purple-800 mb-1">Win Form Emails</h4>
                             <p class="text-2xl font-bold text-purple-600">{{ eventReportData.summary.signup_emails_count }}</p>
                         </div>
-                        <div class="bg-orange-50 p-4 rounded-lg">
+                        <div class="bg-orange-50 p-4 rounded-lg relative">
+                            <button 
+                                @click="openCardInfoModal('Duplicates', 'Emails that appear in BOTH Ticket data AND Win Form data. These are people who both bought tickets and signed up via the Win Form. This shows engagement from both sources.')"
+                                class="absolute top-2 right-2 text-orange-600 hover:text-orange-800 cursor-pointer"
+                                style="background: none; border: none; padding: 4px;"
+                            >
+                                <i class="fa-solid fa-circle-info"></i>
+                            </button>
                             <h4 class="text-sm font-medium text-orange-800 mb-1">Duplicates</h4>
                             <p class="text-2xl font-bold text-orange-600">{{ eventReportData.summary.duplicate_emails_count }}</p>
                             <p class="text-xs text-orange-600 mt-1">In both</p>
                         </div>
-                        <div class="bg-green-50 p-4 rounded-lg">
+                        <div class="bg-green-50 p-4 rounded-lg relative">
+                            <button 
+                                @click="openCardInfoModal('Ticket Only', 'Emails that are ONLY in Ticket data (not in Win Form). These are people who bought tickets but did NOT sign up via the Win Form.')"
+                                class="absolute top-2 right-2 text-green-600 hover:text-green-800 cursor-pointer"
+                                style="background: none; border: none; padding: 4px;"
+                            >
+                                <i class="fa-solid fa-circle-info"></i>
+                            </button>
                             <h4 class="text-sm font-medium text-green-800 mb-1">Ticket Only</h4>
                             <p class="text-2xl font-bold text-green-600">{{ eventReportData.summary.ticket_only_count }}</p>
                         </div>
-                        <div class="bg-yellow-50 p-4 rounded-lg">
+                        <div class="bg-yellow-50 p-4 rounded-lg relative">
+                            <button 
+                                @click="openCardInfoModal('Win Form Only', 'Emails that are ONLY in Win Form data (not in Ticket). These are people who signed up via the Win Form but did NOT buy tickets.')"
+                                class="absolute top-2 right-2 text-yellow-600 hover:text-yellow-800 cursor-pointer"
+                                style="background: none; border: none; padding: 4px;"
+                            >
+                                <i class="fa-solid fa-circle-info"></i>
+                            </button>
                             <h4 class="text-sm font-medium text-yellow-800 mb-1">Win Form Only</h4>
                             <p class="text-2xl font-bold text-yellow-600">{{ eventReportData.summary.signup_only_count }}</p>
                         </div>
@@ -959,19 +1055,47 @@ const deleteFilm = (filmId) => {
                 <div v-else-if="eventsCompareData.length" class="space-y-6">
                     <!-- Summary across all selected events -->
                     <div v-if="eventsCompareSummary" class="grid grid-cols-4 gap-4">
-                        <div class="bg-blue-50 p-4 rounded-lg">
+                        <div class="bg-blue-50 p-4 rounded-lg relative">
+                            <button 
+                                @click="openCardInfoModal('Total Ticket Emails (All Events)', 'Sum of all unique Ticket emails across all selected events being compared. This shows the total ticket engagement across multiple events.')"
+                                class="absolute top-2 right-2 text-blue-600 hover:text-blue-800 cursor-pointer"
+                                style="background: none; border: none; padding: 4px;"
+                            >
+                                <i class="fa-solid fa-circle-info"></i>
+                            </button>
                             <h4 class="text-sm font-medium text-blue-800 mb-1">Total Ticket Emails (All Events)</h4>
                             <p class="text-2xl font-bold text-blue-600">{{ eventsCompareSummary.ticket }}</p>
                         </div>
-                        <div class="bg-teal-50 p-4 rounded-lg">
+                        <div class="bg-teal-50 p-4 rounded-lg relative">
+                            <button 
+                                @click="openCardInfoModal('Total Unique Emails (All Events)', 'Total unique email addresses across all selected events (Ticket + Win Form, de-duplicated across events). This is the total number of unique people engaged across all compared events.')"
+                                class="absolute top-2 right-2 text-teal-600 hover:text-teal-800 cursor-pointer"
+                                style="background: none; border: none; padding: 4px;"
+                            >
+                                <i class="fa-solid fa-circle-info"></i>
+                            </button>
                             <h4 class="text-sm font-medium text-teal-800 mb-1">Total Unique Emails (All Events)</h4>
                             <p class="text-2xl font-bold text-teal-600">{{ eventsCompareTotalUniqueEmails }}</p>
                         </div>
-                        <div class="bg-red-50 p-4 rounded-lg">
+                        <div class="bg-red-50 p-4 rounded-lg relative">
+                            <button 
+                                @click="openCardInfoModal('Emails in 2+ Compared Events', 'Email addresses that appear in 2 or more of the selected events (shows cross-event engagement). These are people who engaged with multiple events.')"
+                                class="absolute top-2 right-2 text-red-600 hover:text-red-800 cursor-pointer"
+                                style="background: none; border: none; padding: 4px;"
+                            >
+                                <i class="fa-solid fa-circle-info"></i>
+                            </button>
                             <h4 class="text-sm font-medium text-red-800 mb-1">Emails in 2+ Compared Events</h4>
                             <p class="text-2xl font-bold text-red-600">{{ crossEventEmailDuplicates.length }}</p>
                         </div>
-                        <div class="bg-orange-50 p-4 rounded-lg">
+                        <div class="bg-orange-50 p-4 rounded-lg relative">
+                            <button 
+                                @click="openCardInfoModal('Total Duplicated (Ticket vs Win Form)', 'Total count of emails that appear in BOTH Ticket and Win Form data across all selected events. This shows people who both bought tickets and signed up via Win Form.')"
+                                class="absolute top-2 right-2 text-orange-600 hover:text-orange-800 cursor-pointer"
+                                style="background: none; border: none; padding: 4px;"
+                            >
+                                <i class="fa-solid fa-circle-info"></i>
+                            </button>
                             <h4 class="text-sm font-medium text-orange-800 mb-1">Total Duplicated (Ticket vs Win Form)</h4>
                             <p class="text-2xl font-bold text-orange-600">{{ eventsCompareSummary.duplicates }}</p>
                         </div>
@@ -1138,25 +1262,53 @@ const deleteFilm = (filmId) => {
 
                 <div v-else-if="eventMailchimpData" class="space-y-6">
                     <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
-                        <div class="bg-blue-50 p-4 rounded-lg">
+                        <div class="bg-blue-50 p-4 rounded-lg relative">
+                            <button 
+                                @click="openCardInfoModal('Total Collected Data', 'Total number of records that were attempted to be imported to Mailchimp for this event. This is the total count of all records processed during the import.')"
+                                class="absolute top-2 right-2 text-blue-600 hover:text-blue-800 cursor-pointer"
+                                style="background: none; border: none; padding: 4px;"
+                            >
+                                <i class="fa-solid fa-circle-info"></i>
+                            </button>
                             <h4 class="text-sm font-medium text-blue-800 mb-1">Total Collected Data</h4>
                             <p class="text-2xl font-bold text-blue-600">
                                 {{ eventMailchimpData.summary.total_collected_data ?? eventMailchimpData.summary.total_imports }}
                             </p>
                         </div>
-                        <div class="bg-green-50 p-4 rounded-lg">
+                        <div class="bg-green-50 p-4 rounded-lg relative">
+                            <button 
+                                @click="openCardInfoModal('NEW from Import', 'Number of new subscribers that were successfully added to Mailchimp (they did not exist in Mailchimp before). These are completely new contacts added to your Mailchimp audience.')"
+                                class="absolute top-2 right-2 text-green-600 hover:text-green-800 cursor-pointer"
+                                style="background: none; border: none; padding: 4px;"
+                            >
+                                <i class="fa-solid fa-circle-info"></i>
+                            </button>
                             <h4 class="text-sm font-medium text-green-800 mb-1">NEW from Import</h4>
                             <p class="text-2xl font-bold text-green-600">
                                 {{ eventMailchimpData.summary.new_from_import ?? eventMailchimpData.summary.successful_imports }}
                             </p>
                         </div>
-                        <div class="bg-purple-50 p-4 rounded-lg">
+                        <div class="bg-purple-50 p-4 rounded-lg relative">
+                            <button 
+                                @click="openCardInfoModal('Updated Data', 'Number of existing Mailchimp subscribers that were updated with new information from the import. These contacts already existed in Mailchimp and their information was refreshed.')"
+                                class="absolute top-2 right-2 text-purple-600 hover:text-purple-800 cursor-pointer"
+                                style="background: none; border: none; padding: 4px;"
+                            >
+                                <i class="fa-solid fa-circle-info"></i>
+                            </button>
                             <h4 class="text-sm font-medium text-purple-800 mb-1">Updated Data</h4>
                             <p class="text-2xl font-bold text-purple-600">
                                 {{ eventMailchimpData.summary.updated_data ?? 0 }}
                             </p>
                         </div>
-                        <div class="bg-red-50 p-4 rounded-lg">
+                        <div class="bg-red-50 p-4 rounded-lg relative">
+                            <button 
+                                @click="openCardInfoModal('Rejected Data', 'Number of records that were rejected by Mailchimp during import. This usually happens due to invalid data, missing required fields, or API errors. Check the logs for specific rejection reasons.')"
+                                class="absolute top-2 right-2 text-red-600 hover:text-red-800 cursor-pointer"
+                                style="background: none; border: none; padding: 4px;"
+                            >
+                                <i class="fa-solid fa-circle-info"></i>
+                            </button>
                             <h4 class="text-sm font-medium text-red-800 mb-1">Rejected Data</h4>
                             <p class="text-2xl font-bold text-red-600">
                                 {{ eventMailchimpData.summary.rejected_data ?? eventMailchimpData.summary.failed_imports }}
@@ -1188,6 +1340,26 @@ const deleteFilm = (filmId) => {
                     <div v-if="eventMailchimpData.summary.total_imports === 0" class="text-sm text-gray-500">
                         No Mailchimp import logs have been recorded for this event yet.
                     </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Card Info Modal -->
+        <div v-if="showCardInfoModal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+            <div class="bg-white p-6 rounded-lg shadow-xl max-w-md w-full mx-4">
+                <div class="flex justify-between items-center mb-4">
+                    <h3 class="text-lg font-semibold">{{ cardInfoTitle }}</h3>
+                    <button @click="closeCardInfoModal" class="text-gray-500 hover:text-gray-700">
+                        <i class="fa-solid fa-times"></i>
+                    </button>
+                </div>
+                <div class="text-gray-700">
+                    <p>{{ cardInfoDescription }}</p>
+                </div>
+                <div class="mt-6 flex justify-end">
+                    <button @click="closeCardInfoModal" class="btn btn-primary">
+                        Close
+                    </button>
                 </div>
             </div>
         </div>
