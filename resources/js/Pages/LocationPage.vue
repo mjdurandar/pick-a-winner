@@ -2649,8 +2649,14 @@ watch(
                                 :key="`${selectedCountry}-${index}`" 
                                 class="flex items-center space-x-2 w-full"
                             >
-                                <div class="px-4 py-2 rounded w-full text-left" 
-                                style="background-color: white; border: 2px solid black; font-weight: bold; color: black; border-radius: 5px; padding: 10px 20px; cursor: pointer;">
+                                <div 
+                                    @click="viewLocationAttendees(location)"
+                                    class="px-4 py-2 rounded w-full text-left" 
+                                    style="background-color: white; border: 2px solid black; font-weight: bold; color: black; border-radius: 5px; padding: 10px 20px; cursor: pointer; transition: background-color 0.2s;"
+                                    @mouseenter="$event.target.style.backgroundColor = '#f3f4f6'"
+                                    @mouseleave="$event.target.style.backgroundColor = 'white'"
+                                    :title="location.imported_to_mailchimp ? 'View Attendees (Imported to Mailchimp)' : 'View Attendees'"
+                                >
                                     <div class="flex items-center justify-between">
                                         <div>
                                             <div class="font-semibold">{{ location.name }}</div>
@@ -2669,22 +2675,6 @@ watch(
                                         </div>
                                     </div>
                                 </div>
-                                <!-- Users/Attendees Button -->
-                                <button 
-                                    @click="viewLocationAttendees(location)"
-                                    class="text-white px-3 py-2 rounded"
-                                    :style="{
-                                        backgroundColor: location.imported_to_mailchimp ? '#10B981' : '#16C3D9',
-                                        color: 'white',
-                                        borderRadius: '5px',
-                                        padding: '10px 20px',
-                                        cursor: 'pointer'
-                                    }"
-                                    :title="location.imported_to_mailchimp ? 'View Attendees (Imported to Mailchimp)' : 'View Attendees'"
-                                >
-                                    <i class="fa-solid fa-users"></i>
-                                    <span v-if="location.imported_to_mailchimp" class="text-xs"></span>
-                                </button>
                                 <!-- Edit Button -->
                                 <button 
                                     @click="openLocationModal(location)"
