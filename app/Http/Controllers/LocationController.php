@@ -1988,4 +1988,479 @@ class LocationController extends Controller
             ], 500);
         }
     }
+
+    /**
+     * Export all data for a location including tickets and win form data with tags
+     */
+    public function exportLocationData($locationId)
+    {
+        try {
+            $location = Location::with('event')->findOrFail($locationId);
+            $event = $location->event;
+            
+            // Get Mailchimp settings for tag generation
+            $autoMailchimpService = app(AutoMailchimpService::class);
+            $settings = $autoMailchimpService->getSettings($event->id);
+            
+            $filmTour = $settings['film_tour'] ?? 'WM';
+            $year = date('Y');
+            $locationName = $location->name;
+            $locationCountry = $location->country ?? '';
+            
+            // Extract location tag (everything before hyphen)
+            $locationTag = explode(' - ', $locationName)[0];
+            $locationTagUpper = strtoupper($locationTag);
+            
+            // Get default tags
+            $defaultTags = [];
+            if (!empty($settings['default_tags'])) {
+                if (is_array($settings['default_tags'])) {
+                    $defaultTags = $settings['default_tags'];
+                } else {
+                    $defaultTags = array_map('trim', explode(',', $settings['default_tags']));
+                }
+            }
+            
+            // Get ticket attendees
+            $ticketAttendees = TicketAttendee::where('location_id', $locationId)->get();
+            $ticketEmails = $ticketAttendees->pluck('email')->map(function ($email) {
+                return strtolower(trim($email));
+            })->filter()->unique();
+            
+            // Get sign-up form attendees
+            $signUpForm = SignUpForm::where('event_id', $event->id)->first();
+            $signUpAttendees = collect();
+            
+            if ($signUpForm && $signUpForm->table_name && Schema::hasTable($signUpForm->table_name)) {
+                $signUpAttendees = DB::table($signUpForm->table_name)
+                    ->where('location_id', $locationId)
+                    ->where('event_id', $event->id)
+                    ->get();
+            }
+            
+            $signUpEmails = $signUpAttendees->pluck('email_address')->map(function ($email) {
+                return strtolower(trim($email));
+            })->filter()->unique();
+            
+            // Combine all unique emails
+            $allEmails = $ticketEmails->merge($signUpEmails)->unique();
+            
+            // Build export data
+            $exportData = [];
+            
+            foreach ($allEmails as $email) {
+                $isInTickets = $ticketEmails->contains($email);
+                $isInSignUp = $signUpEmails->contains($email);
+                
+                // Get data from tickets (prefer tickets if both exist)
+                $ticketData = null;
+                if ($isInTickets) {
+                    $ticketData = $ticketAttendees->first(function ($attendee) use ($email) {
+                        return strtolower(trim($attendee->email)) === $email;
+                    });
+                }
+                
+                // Get data from sign-up form
+                $signUpData = null;
+                if ($isInSignUp) {
+                    $signUpData = $signUpAttendees->first(function ($attendee) use ($email) {
+                        return strtolower(trim($attendee->email_address ?? '')) === $email;
+                    });
+                }
+                
+                // Prefer ticket data, fallback to sign-up data
+                $rowData = [
+                    'email' => $ticketData ? $ticketData->email : ($signUpData ? ($signUpData->email_address ?? $email) : $email),
+                    'first_name' => $ticketData ? $ticketData->first_name : ($signUpData ? ($signUpData->first_name ?? '') : ''),
+                    'last_name' => $ticketData ? $ticketData->last_name : ($signUpData ? ($signUpData->last_name ?? '') : ''),
+                    'phone' => $ticketData ? $ticketData->phone : ($signUpData ? ($signUpData->mobile_number ?? '') : ''),
+                    'city' => $ticketData ? $ticketData->city : ($signUpData ? ($signUpData->city ?? '') : ''),
+                    'state' => $ticketData ? $ticketData->state : ($signUpData ? ($signUpData->state ?? '') : ''),
+                    'country' => $ticketData ? $ticketData->country : ($signUpData ? ($signUpData->country ?? '') : ''),
+                ];
+                
+                // Generate tags
+                $tags = [];
+                
+                // COUNTRY tag
+                if ($locationCountry) {
+                    $tags[] = "COUNTRY - " . strtoupper($locationCountry);
+                }
+                
+                // SHOW tag
+                $tags[] = "SHOW - " . $locationTagUpper;
+                
+                // SOURCE tags - include both if email is in both sources
+                if ($isInTickets) {
+                    $tags[] = "SOURCE - " . strtoupper($filmTour) . " " . $locationTagUpper . " TIX " . $year;
+                }
+                if ($isInSignUp) {
+                    $tags[] = "SOURCE - " . strtoupper($filmTour) . " " . $locationTagUpper . " COMP " . $year;
+                }
+                
+                // Add default tags
+                $tags = array_merge($tags, $defaultTags);
+                
+                // Add tags as comma-separated string
+                $rowData['tags'] = implode(', ', $tags);
+                
+                $exportData[] = $rowData;
+            }
+            
+            // Generate CSV
+            $filename = 'location_export_' . Str::slug($locationName) . '_' . date('Y-m-d') . '.csv';
+            $headers = [
+                'Content-Type' => 'text/csv',
+                'Content-Disposition' => 'attachment; filename="' . $filename . '"',
+            ];
+            
+            $callback = function() use ($exportData) {
+                $file = fopen('php://output', 'w');
+                
+                // Write headers
+                fputcsv($file, ['Email', 'First Name', 'Last Name', 'Phone', 'City', 'State', 'Country', 'Tags']);
+                
+                // Write data
+                foreach ($exportData as $row) {
+                    fputcsv($file, [
+                        $row['email'],
+                        $row['first_name'],
+                        $row['last_name'],
+                        $row['phone'],
+                        $row['city'],
+                        $row['state'],
+                        $row['country'],
+                        $row['tags']
+                    ]);
+                }
+                
+                fclose($file);
+            };
+            
+            return response()->stream($callback, 200, $headers);
+            
+        } catch (\Exception $e) {
+            Log::error('Error exporting location data', [
+                'location_id' => $locationId,
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString()
+            ]);
+            
+            return response()->json([
+                'error' => 'Failed to export location data: ' . $e->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
+     * Export all data for all locations in an event including tickets and win form data with tags
+     */
+    public function exportEventData($eventId)
+    {
+        try {
+            $event = Events::findOrFail($eventId);
+            $locations = Location::where('event_id', $eventId)->get();
+            
+            if ($locations->isEmpty()) {
+                return response()->json([
+                    'error' => 'No locations found for this event'
+                ], 404);
+            }
+            
+            // Get Mailchimp settings for tag generation
+            $autoMailchimpService = app(AutoMailchimpService::class);
+            $settings = $autoMailchimpService->getSettings($eventId);
+            
+            $filmTour = $settings['film_tour'] ?? 'WM';
+            $year = date('Y');
+            
+            // Get default tags
+            $defaultTags = [];
+            if (!empty($settings['default_tags'])) {
+                if (is_array($settings['default_tags'])) {
+                    $defaultTags = $settings['default_tags'];
+                } else {
+                    $defaultTags = array_map('trim', explode(',', $settings['default_tags']));
+                }
+            }
+            
+            // Get sign-up form for the event
+            $signUpForm = SignUpForm::where('event_id', $eventId)->first();
+            
+            // Collect all unique emails across all locations
+            // Structure: email => [email, first_name, last_name, phone, city, state, country, locations => []]
+            // locations: [{location_id, location_name, location_tag, location_country, has_ticket, has_signup}]
+            $allEmailsMap = [];
+            
+            // Process each location
+            foreach ($locations as $location) {
+                $locationName = $location->name;
+                $locationCountry = $location->country ?? '';
+                $locationTag = explode(' - ', $locationName)[0];
+                $locationTagUpper = strtoupper($locationTag);
+                
+                // Get ticket attendees for this location
+                $ticketAttendees = TicketAttendee::where('location_id', $location->id)->get();
+                $ticketEmails = $ticketAttendees->pluck('email')->map(function ($email) {
+                    return strtolower(trim($email));
+                })->filter()->unique();
+                
+                // Get sign-up form attendees for this location
+                $signUpAttendees = collect();
+                if ($signUpForm && $signUpForm->table_name && Schema::hasTable($signUpForm->table_name)) {
+                    $signUpAttendees = DB::table($signUpForm->table_name)
+                        ->where('location_id', $location->id)
+                        ->where('event_id', $eventId)
+                        ->get();
+                }
+                
+                $signUpEmails = $signUpAttendees->pluck('email_address')->map(function ($email) {
+                    return strtolower(trim($email));
+                })->filter()->unique();
+                
+                // Process ticket emails - add or update existing email entry
+                foreach ($ticketEmails as $email) {
+                    $ticketData = $ticketAttendees->first(function ($attendee) use ($email) {
+                        return strtolower(trim($attendee->email)) === $email;
+                    });
+                    
+                    if (!isset($allEmailsMap[$email])) {
+                        // Create new entry
+                        $allEmailsMap[$email] = [
+                            'email' => $ticketData ? $ticketData->email : $email,
+                            'first_name' => $ticketData ? $ticketData->first_name : '',
+                            'last_name' => $ticketData ? $ticketData->last_name : '',
+                            'phone' => $ticketData ? $ticketData->phone : '',
+                            'city' => $ticketData ? $ticketData->city : '',
+                            'state' => $ticketData ? $ticketData->state : '',
+                            'country' => $ticketData ? $ticketData->country : '',
+                            'locations' => []
+                        ];
+                    }
+                    
+                    // Check if this location already exists in the locations array
+                    $locationIndex = null;
+                    foreach ($allEmailsMap[$email]['locations'] as $idx => $loc) {
+                        if ($loc['location_id'] === $location->id) {
+                            $locationIndex = $idx;
+                            break;
+                        }
+                    }
+                    
+                    if ($locationIndex === null) {
+                        // Add new location entry
+                        $allEmailsMap[$email]['locations'][] = [
+                            'location_id' => $location->id,
+                            'location_name' => $locationName,
+                            'location_tag' => $locationTagUpper,
+                            'location_country' => $locationCountry,
+                            'has_ticket' => false,
+                            'has_signup' => false
+                        ];
+                        $locationIndex = count($allEmailsMap[$email]['locations']) - 1;
+                    }
+                    
+                    // Mark as having ticket from this location
+                    $allEmailsMap[$email]['locations'][$locationIndex]['has_ticket'] = true;
+                    
+                    // Update data if ticket data is better (has more info)
+                    if ($ticketData) {
+                        if (empty($allEmailsMap[$email]['first_name']) && $ticketData->first_name) {
+                            $allEmailsMap[$email]['first_name'] = $ticketData->first_name;
+                        }
+                        if (empty($allEmailsMap[$email]['last_name']) && $ticketData->last_name) {
+                            $allEmailsMap[$email]['last_name'] = $ticketData->last_name;
+                        }
+                        if (empty($allEmailsMap[$email]['phone']) && $ticketData->phone) {
+                            $allEmailsMap[$email]['phone'] = $ticketData->phone;
+                        }
+                        if (empty($allEmailsMap[$email]['city']) && $ticketData->city) {
+                            $allEmailsMap[$email]['city'] = $ticketData->city;
+                        }
+                        if (empty($allEmailsMap[$email]['state']) && $ticketData->state) {
+                            $allEmailsMap[$email]['state'] = $ticketData->state;
+                        }
+                        if (empty($allEmailsMap[$email]['country']) && $ticketData->country) {
+                            $allEmailsMap[$email]['country'] = $ticketData->country;
+                        }
+                    }
+                }
+                
+                // Process sign-up emails - add or update existing email entry
+                foreach ($signUpEmails as $email) {
+                    $signUpData = $signUpAttendees->first(function ($attendee) use ($email) {
+                        return strtolower(trim($attendee->email_address ?? '')) === $email;
+                    });
+                    
+                    if (!isset($allEmailsMap[$email])) {
+                        // Create new entry
+                        $allEmailsMap[$email] = [
+                            'email' => $signUpData ? ($signUpData->email_address ?? $email) : $email,
+                            'first_name' => $signUpData ? ($signUpData->first_name ?? '') : '',
+                            'last_name' => $signUpData ? ($signUpData->last_name ?? '') : '',
+                            'phone' => $signUpData ? ($signUpData->mobile_number ?? '') : '',
+                            'city' => $signUpData ? ($signUpData->city ?? '') : '',
+                            'state' => $signUpData ? ($signUpData->state ?? '') : '',
+                            'country' => $signUpData ? ($signUpData->country ?? '') : '',
+                            'locations' => []
+                        ];
+                    }
+                    
+                    // Check if this location already exists in the locations array
+                    $locationIndex = null;
+                    foreach ($allEmailsMap[$email]['locations'] as $idx => $loc) {
+                        if ($loc['location_id'] === $location->id) {
+                            $locationIndex = $idx;
+                            break;
+                        }
+                    }
+                    
+                    if ($locationIndex === null) {
+                        // Add new location entry
+                        $allEmailsMap[$email]['locations'][] = [
+                            'location_id' => $location->id,
+                            'location_name' => $locationName,
+                            'location_tag' => $locationTagUpper,
+                            'location_country' => $locationCountry,
+                            'has_ticket' => false,
+                            'has_signup' => false
+                        ];
+                        $locationIndex = count($allEmailsMap[$email]['locations']) - 1;
+                    }
+                    
+                    // Mark as having sign-up from this location
+                    $allEmailsMap[$email]['locations'][$locationIndex]['has_signup'] = true;
+                    
+                    // Update data if sign-up data is better
+                    if ($signUpData) {
+                        if (empty($allEmailsMap[$email]['first_name']) && ($signUpData->first_name ?? '')) {
+                            $allEmailsMap[$email]['first_name'] = $signUpData->first_name;
+                        }
+                        if (empty($allEmailsMap[$email]['last_name']) && ($signUpData->last_name ?? '')) {
+                            $allEmailsMap[$email]['last_name'] = $signUpData->last_name;
+                        }
+                        if (empty($allEmailsMap[$email]['phone']) && ($signUpData->mobile_number ?? '')) {
+                            $allEmailsMap[$email]['phone'] = $signUpData->mobile_number;
+                        }
+                        if (empty($allEmailsMap[$email]['city']) && ($signUpData->city ?? '')) {
+                            $allEmailsMap[$email]['city'] = $signUpData->city;
+                        }
+                        if (empty($allEmailsMap[$email]['state']) && ($signUpData->state ?? '')) {
+                            $allEmailsMap[$email]['state'] = $signUpData->state;
+                        }
+                        if (empty($allEmailsMap[$email]['country']) && ($signUpData->country ?? '')) {
+                            $allEmailsMap[$email]['country'] = $signUpData->country;
+                        }
+                    }
+                }
+            }
+            
+            // Build export data with tags
+            $exportData = [];
+            
+            foreach ($allEmailsMap as $email => $data) {
+                // Collect all tags from all locations this email appears in
+                $allTags = [];
+                $countries = [];
+                $locationTags = [];
+                $tixTags = [];
+                $compTags = [];
+                
+                foreach ($data['locations'] as $loc) {
+                    // COUNTRY tag
+                    if ($loc['location_country'] && !in_array($loc['location_country'], $countries)) {
+                        $countries[] = $loc['location_country'];
+                        $allTags[] = "COUNTRY - " . strtoupper($loc['location_country']);
+                    }
+                    
+                    // SHOW tag
+                    $showTag = "SHOW - " . $loc['location_tag'];
+                    if (!in_array($showTag, $locationTags)) {
+                        $locationTags[] = $showTag;
+                        $allTags[] = $showTag;
+                    }
+                    
+                    // SOURCE tags based on has_ticket and has_signup flags
+                    // If email has ticket from this location, add TIX tag
+                    if ($loc['has_ticket']) {
+                        $tixTag = "SOURCE - " . strtoupper($filmTour) . " " . $loc['location_tag'] . " TIX " . $year;
+                        if (!in_array($tixTag, $tixTags)) {
+                            $tixTags[] = $tixTag;
+                            $allTags[] = $tixTag;
+                        }
+                    }
+                    
+                    // If email has signup from this location, add COMP tag
+                    if ($loc['has_signup']) {
+                        $compTag = "SOURCE - " . strtoupper($filmTour) . " " . $loc['location_tag'] . " COMP " . $year;
+                        if (!in_array($compTag, $compTags)) {
+                            $compTags[] = $compTag;
+                            $allTags[] = $compTag;
+                        }
+                    }
+                }
+                
+                // Add default tags
+                $allTags = array_merge($allTags, $defaultTags);
+                
+                // Remove duplicates and sort
+                $allTags = array_unique($allTags);
+                sort($allTags);
+                
+                $exportData[] = [
+                    'email' => $data['email'],
+                    'first_name' => $data['first_name'],
+                    'last_name' => $data['last_name'],
+                    'phone' => $data['phone'],
+                    'city' => $data['city'],
+                    'state' => $data['state'],
+                    'country' => $data['country'],
+                    'tags' => implode(', ', $allTags)
+                ];
+            }
+            
+            // Generate CSV
+            $filename = 'event_export_' . Str::slug($event->event_name) . '_' . date('Y-m-d') . '.csv';
+            $headers = [
+                'Content-Type' => 'text/csv',
+                'Content-Disposition' => 'attachment; filename="' . $filename . '"',
+            ];
+            
+            $callback = function() use ($exportData) {
+                $file = fopen('php://output', 'w');
+                
+                // Write headers
+                fputcsv($file, ['Email', 'First Name', 'Last Name', 'Phone', 'City', 'State', 'Country', 'Tags']);
+                
+                // Write data
+                foreach ($exportData as $row) {
+                    fputcsv($file, [
+                        $row['email'],
+                        $row['first_name'],
+                        $row['last_name'],
+                        $row['phone'],
+                        $row['city'],
+                        $row['state'],
+                        $row['country'],
+                        $row['tags']
+                    ]);
+                }
+                
+                fclose($file);
+            };
+            
+            return response()->stream($callback, 200, $headers);
+            
+        } catch (\Exception $e) {
+            Log::error('Error exporting event data', [
+                'event_id' => $eventId,
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString()
+            ]);
+            
+            return response()->json([
+                'error' => 'Failed to export event data: ' . $e->getMessage()
+            ], 500);
+        }
+    }
 }

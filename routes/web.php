@@ -90,6 +90,10 @@ Route::middleware(['auth', RoleMiddleware::class . ':admin,host'])->group(functi
     Route::get('/event/{eventId}/ticket-report', [LocationController::class, 'getEventTicketReport'])->name('event.ticketReport');
     Route::get('/event/{eventId}/mailchimp-report', [LocationController::class, 'getMailchimpEventReport'])->name('event.mailchimpReport');
     
+    //EXPORT ROUTES
+    Route::get('/location/{locationId}/export', [LocationController::class, 'exportLocationData'])->name('location.export');
+    Route::get('/event/{eventId}/export-all', [LocationController::class, 'exportEventData'])->name('event.exportAll');
+    
     //SHEETS DATA ROUTES
     Route::get('/location/sheets-data/{eventId}', [LocationController::class, 'getSheetsData'])->name('location.getSheetsData');
     Route::post('/location/save-sheets-data', [LocationController::class, 'saveSheetsData'])->name('location.saveSheetsData');

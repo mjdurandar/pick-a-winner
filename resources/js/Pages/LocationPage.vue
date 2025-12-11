@@ -2400,6 +2400,46 @@ const downloadMailchimpLogs = () => {
     window.location.href = route('location.downloadMailchimpLogs', { event_id: props.event.id });
 };
 
+// Export location data (tickets + win form with tags)
+const exportLocationData = (location) => {
+    if (!location || !location.id) {
+        Swal.fire('Error', 'Invalid location selected', 'error');
+        return;
+    }
+    
+    // Open export URL in new window to trigger download
+    const exportUrl = route('location.export', { locationId: location.id });
+    window.open(exportUrl, '_blank');
+    
+    Swal.fire({
+        title: 'Export Started',
+        text: 'Your export is being generated. The file will download automatically.',
+        icon: 'info',
+        timer: 2000,
+        showConfirmButton: false
+    });
+};
+
+// Export all locations data for the event
+const exportAllLocationsData = () => {
+    if (!props.event || !props.event.id) {
+        Swal.fire('Error', 'Invalid event selected', 'error');
+        return;
+    }
+    
+    // Open export URL in new window to trigger download
+    const exportUrl = route('event.exportAll', { eventId: props.event.id });
+    window.open(exportUrl, '_blank');
+    
+    Swal.fire({
+        title: 'Export Started',
+        text: 'Your export is being generated. This may take a moment for all locations. The file will download automatically.',
+        icon: 'info',
+        timer: 3000,
+        showConfirmButton: false
+    });
+};
+
 // Add watch for flash messages
 watch(
     () => props.flash,
@@ -2479,6 +2519,14 @@ watch(
                                     title="Download Mailchimp Import History"
                                 >
                                     <i class="fa-solid fa-download"></i>
+                                </button>
+                                <!-- Export All Locations Data Button -->
+                                <button 
+                                    style="background-color: #28a745; color: white; border-radius: 5px; padding: 10px 20px; cursor: pointer;"
+                                    @click="exportAllLocationsData"
+                                    title="Export All Locations Data (Tickets + Win Form) with Tags"
+                                >
+                                    <i class="fa-solid fa-file-export"></i> Export All
                                 </button>
                                 <!-- Mailchimp Settings Button -->
                                 <button 
@@ -2689,6 +2737,15 @@ watch(
                                     title="View Mailchimp Import Report"
                                 >
                                     <i class="fa-solid fa-chart-pie"></i>
+                                </button>
+                                <!-- Export All Data Button -->
+                                <button
+                                    @click="exportLocationData(location)"
+                                    class="text-white px-3 py-2 rounded"
+                                    style="background-color: #28a745; color: white; border-radius: 5px; padding: 10px 20px; cursor: pointer;"
+                                    title="Export All Data (Tickets + Win Form) with Tags"
+                                >
+                                    <i class="fa-solid fa-file-export"></i>
                                 </button>
                                 <!-- Delete Button -->
                                 <button 
