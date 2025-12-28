@@ -23,6 +23,7 @@ const showLocationModal = ref(false);
 const showAllPasswordsModal = ref(false);
 const isEditing = ref(false);
 const selectedLocation = ref(null);
+const selectedLocationsForExport = ref([]);
 const newPassword = ref('');
 const confirmPassword = ref('');
 const eventNewPassword = ref('');
@@ -2081,24 +2082,71 @@ const downloadEventbriteImportCSV = (attendees, locationName) => {
 
 
 
-// Export all locations data for the event
-const exportAllLocationsData = () => {
-    if (!props.event || !props.event.id) {
-        Swal.fire('Error', 'Invalid event selected', 'error');
+// Toggle location selection for export
+const toggleLocationSelection = (location) => {
+    const index = selectedLocationsForExport.value.findIndex(loc => loc.id === location.id);
+    if (index > -1) {
+        selectedLocationsForExport.value.splice(index, 1);
+    } else {
+        selectedLocationsForExport.value.push(location);
+    }
+};
+
+// Check if location is selected
+const isLocationSelected = (location) => {
+    return selectedLocationsForExport.value.some(loc => loc.id === location.id);
+};
+
+// Export selected locations
+const exportSelectedLocations = async () => {
+    if (selectedLocationsForExport.value.length === 0) {
+        Swal.fire('Error', 'Please select at least one location to export', 'error');
         return;
     }
-    
-    // Open export URL in new window to trigger download
-    const exportUrl = route('event.exportAll', { eventId: props.event.id });
-    window.open(exportUrl, '_blank');
-    
-    Swal.fire({
-        title: 'Export Started',
-        text: 'Your export is being generated. This may take a moment for all locations. The file will download automatically.',
-        icon: 'info',
-        timer: 3000,
-        showConfirmButton: false
-    });
+
+    try {
+        Swal.fire({
+            title: 'Exporting Locations',
+            html: `Exporting ${selectedLocationsForExport.value.length} location(s)...`,
+            allowOutsideClick: false,
+            allowEscapeKey: false,
+            showConfirmButton: false,
+            didOpen: () => {
+                Swal.showLoading();
+            }
+        });
+
+        // Export each location as a separate file
+        for (let i = 0; i < selectedLocationsForExport.value.length; i++) {
+            const location = selectedLocationsForExport.value[i];
+            const exportUrl = route('location.export', { locationId: location.id });
+            
+            // Open in new window to trigger download
+            window.open(exportUrl, '_blank');
+            
+            // Small delay between downloads to avoid browser blocking
+            if (i < selectedLocationsForExport.value.length - 1) {
+                await new Promise(resolve => setTimeout(resolve, 500));
+            }
+        }
+
+        await Swal.close();
+        
+        Swal.fire({
+            title: 'Export Complete',
+            text: `Successfully exported ${selectedLocationsForExport.value.length} location(s). Check your downloads folder.`,
+            icon: 'success',
+            timer: 3000,
+            showConfirmButton: false
+        });
+
+        // Clear selection after export
+        selectedLocationsForExport.value = [];
+    } catch (error) {
+        await Swal.close();
+        console.error('Export error:', error);
+        Swal.fire('Error', 'Failed to export locations. Please try again.', 'error');
+    }
 };
 
 // Add watch for flash messages
@@ -2156,18 +2204,26 @@ watch(
                 <div class="overflow-hidden bg-white shadow-sm sm:rounded-lg">
                     <div class="p-6 text-gray-900 text-center">
                         <div class="flex flex-col sm:flex-row justify-between items-center gap-4 mb-4">
-                            <div class="text-center sm:text-left">
-                                <h3 class="text-lg font-semibold">{{ event.event_name }}</h3>
-                                <p class="text-sm text-gray-600 mt-1">Locations: {{ filteredLocations.length }}</p>
-                            </div>
-                            <div class="flex gap-2">
-                                <!-- Export All Locations Data Button -->
+                            <div class="text-center sm:text-left flex items-center gap-2">
+                                <!-- All Locations Page Button -->
                                 <button 
-                                    style="background-color: #28a745; color: white; border-radius: 5px; padding: 10px 20px; cursor: pointer;"
-                                    @click="exportAllLocationsData"
-                                    title="Export All Locations Data (Tickets + Win Form) with Tags"
+                                    target="_blank"
+                                    @click="allLocationsPage"
+                                    style="background-color: #16C3D9; color: white; border-radius: 5px; padding: 10px 20px; cursor: pointer;"
+                                    title="View All Locations Attendees"
                                 >
-                                    <i class="fa-solid fa-file-export"></i> Export All
+                                    National Tour Wide Prizes
+                                </button>
+                                </div>
+
+                            <h3 class="text-lg font-semibold">{{ event.event_name }}</h3>
+                            <div class="flex gap-2">
+                                <!-- Add Location Button -->
+                                <button 
+                                    class="bg-black text-white px-4 py-2 rounded hover:bg-black-700"
+                                    @click="openLocationModal()"
+                                >
+                                    <i class="fa-solid fa-plus"></i> Add Location
                                 </button>
                                 <!-- Mailchimp Settings Button -->
                                 <button 
@@ -2186,30 +2242,14 @@ watch(
                                 >
                                     <i class="fa-solid fa-key"></i> 
                                 </button>
-                                <!-- Add Location Button -->
-                                <button 
-                                    class="bg-black text-white px-4 py-2 rounded hover:bg-black-700"
-                                    @click="openLocationModal()"
-                                >
-                                    <i class="fa-solid fa-plus"></i> Add Location
-                                </button>
-                                <!-- All Locations Page Button -->
-                                <button 
-                                    target="_blank"
-                                    @click="allLocationsPage"
-                                    style="background-color: #16C3D9; color: white; border-radius: 5px; padding: 10px 20px; cursor: pointer;"
-                                    title="View All Locations Attendees"
-                                >
-                                    <i class="fa-solid fa-users"></i>
-                                </button>
                                 <!-- Attendees Database Button -->
-                                <button 
+                                <!-- <button 
                                     @click="goToAttendeesPage"
                                     style="background-color: #16C3D9; color: white; border-radius: 5px; padding: 10px 20px; cursor: pointer;"
                                     title="View Attendees Database"
                                 >
                                     <i class="fa-solid fa-database"></i>
-                                </button>
+                                </button> -->
                             </div>
                         </div>
                         <!-- <div class="d-flex justify-content-between items-center mb-4">
@@ -2249,6 +2289,15 @@ watch(
                                     class="px-3 py-2 text-sm text-gray-600 hover:text-gray-800 underline"
                                 >
                                     Clear Filter
+                                </button>
+                                <!-- Export Selected Locations Button -->
+                                <button 
+                                    v-if="selectedLocationsForExport.length > 0"
+                                    style="background-color: #17a2b8; color: white; border-radius: 5px; padding: 10px 20px; cursor: pointer;"
+                                    @click="exportSelectedLocations"
+                                    :title="`Export ${selectedLocationsForExport.length} selected location(s)`"
+                                >
+                                    <i class="fa-solid fa-file-export"></i> Export Selected ({{ selectedLocationsForExport.length }})
                                 </button>
                                 </div>
                         </div>
@@ -2299,6 +2348,14 @@ watch(
                                 :key="`${selectedCountry}-${index}`" 
                                 class="flex items-center space-x-2 w-full"
                             >
+                                <!-- Checkbox for selection -->
+                                <input 
+                                    type="checkbox"
+                                    :checked="isLocationSelected(location)"
+                                    @change="toggleLocationSelection(location)"
+                                    class="w-5 h-5 text-blue-600 border-gray-300 rounded focus:ring-blue-500 cursor-pointer"
+                                    style="min-width: 20px;"
+                                />
                                 <div 
                                     @click="viewLocationAttendees(location)"
                                     class="px-4 py-2 rounded w-full text-left" 

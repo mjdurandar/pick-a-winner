@@ -1150,9 +1150,6 @@ const showDetailedResults = async (results) => {
                     console.log('Data element not found');
                 }
             };
-            
-
-            
         },
         icon: failureCount > 0 ? 'warning' : 'success'
     });
