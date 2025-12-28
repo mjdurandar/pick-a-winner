@@ -64,14 +64,6 @@ const eventbriteTags = ref('');
 const eventbriteDefaultTags = ref([]);
 const selectedCountry = ref(null);
 const selectedCategory = ref('');
-const showTicketReportModal = ref(false);
-const ticketReportData = ref(null);
-const isLoadingReport = ref(false);
-const isGeneratingTicketCopyData = ref(false);
-const showMailchimpReportModal = ref(false);
-const mailchimpReportData = ref(null);
-const isLoadingMailchimpReport = ref(false);
-const isGeneratingMailchimpCopyData = ref(false);
 
 // Add computed property for tag preview
 const tagPreview = computed(() => {
@@ -640,208 +632,6 @@ const openEventbriteModal = (location) => {
     showEventbriteModal.value = true;
 };
 
-const openTicketReportModal = async (location) => {
-    selectedLocation.value = location;
-    isLoadingReport.value = true;
-    showTicketReportModal.value = true;
-    
-    try {
-        const response = await axios.get(route('location.ticketReport', location.id));
-        ticketReportData.value = response.data;
-    } catch (error) {
-        console.error('Error fetching ticket report:', error);
-        Swal.fire('Error', 'Failed to load ticket report', 'error');
-        showTicketReportModal.value = false;
-    } finally {
-        isLoadingReport.value = false;
-    }
-};
-
-const copyTicketSeparatedData = async () => {
-    if (!ticketReportData.value || !selectedLocation.value) {
-        await Swal.fire('Info', 'No ticket report data available to copy.', 'info');
-        return;
-    }
-
-    isGeneratingTicketCopyData.value = true;
-
-    try {
-        // Load Mailchimp auto-sync settings so we can build TIX tags
-        const settingsResponse = await axios.get(route('mailchimp.autosync.settings'), {
-            params: {
-                event_id: props.event.id
-            }
-        });
-
-        const { settings } = settingsResponse.data;
-
-        // Build TIX-specific tags:
-        // SHOW - {LOCATION_TAG}
-        // SOURCE - {FILM_TOUR} {LOCATION_TAG} TIX {YEAR}
-        const tags = [];
-        const filmTour = (settings.film_tour || 'WM').toString().toUpperCase();
-        const year = new Date().getFullYear();
-        const locationName = selectedLocation.value.name || '';
-        const locationCountry = (selectedLocation.value.country || '').toString().trim();
-
-        const locationTag = locationName.split(' - ')[0].toUpperCase();
-
-        tags.push(`SHOW - ${locationTag}`);
-        tags.push(`SOURCE - ${filmTour} ${locationTag} TIX ${year}`);
-
-        // Add COUNTRY tag if we have a country on the location
-        if (locationCountry) {
-            const countryTag = `COUNTRY - ${locationCountry.toUpperCase()}`;
-            tags.push(countryTag);
-        }
-
-        // Append any default tags from settings
-        if (settings.default_tags && Array.isArray(settings.default_tags) && settings.default_tags.length > 0) {
-            tags.push(...settings.default_tags);
-        } else if (settings.default_tags && typeof settings.default_tags === 'string') {
-            const defaultTagsArray = settings.default_tags
-                .split(',')
-                .map(tag => tag.trim())
-                .filter(tag => tag);
-            if (defaultTagsArray.length > 0) {
-                tags.push(...defaultTagsArray);
-            }
-        }
-
-        const summary = ticketReportData.value.summary || {};
-
-        // Map ticket analytics into spreadsheet stats:
-        // Total Collected Data  -> total ticket emails
-        // NEW from Import       -> ticket only
-        // Updated Data          -> duplicates (in both)
-        // Rejected Data         -> 0 (not applicable for TIX analytics)
-        const importData = {
-            totalSubscribers: summary.ticket_emails_count || 0,
-            newCount: summary.ticket_only_count || 0,
-            updateCount: summary.duplicate_emails_count || 0,
-            failureCount: 0,
-            errors: [],
-            errorDetails: [],
-            rejectedFields: [],
-            rejectedFieldsCount: 0
-        };
-
-        const response = await axios.post(route('location.generateSpreadsheetData'), {
-            location_id: selectedLocation.value.id,
-            import_data: importData,
-            tags
-        });
-
-        const text = response.data.copy_paste_data || '';
-        if (!text) {
-            await Swal.fire('Info', 'No separated data was generated from the ticket report.', 'info');
-            return;
-        }
-
-        // Extract only the actual tab-separated data line (skip helper text / emojis)
-        let lineToCopy = text;
-        const lines = text.split('\n');
-        const dataLine = lines.find(l => l.includes('\t'));
-        if (dataLine) {
-            lineToCopy = dataLine;
-        }
-
-        await navigator.clipboard.writeText(lineToCopy);
-        await Swal.fire('Copied', 'TIX separated data copied to clipboard. Paste it into your spreadsheet.', 'success');
-    } catch (error) {
-        console.error('Failed to generate/copy ticket spreadsheet data:', error);
-        await Swal.fire('Error', 'Failed to generate separated data from the ticket report.', 'error');
-    } finally {
-        isGeneratingTicketCopyData.value = false;
-    }
-};
-
-const openMailchimpReportModal = async (location) => {
-    mailchimpReportData.value = null;
-    isLoadingMailchimpReport.value = true;
-    showMailchimpReportModal.value = true;
-
-    try {
-        const response = await axios.get(route('location.mailchimpReport', location.id));
-        mailchimpReportData.value = response.data;
-    } catch (error) {
-        console.error('Error fetching Mailchimp location report:', error);
-        await Swal.fire('Error', 'Failed to load Mailchimp import report.', 'error');
-        showMailchimpReportModal.value = false;
-    } finally {
-        isLoadingMailchimpReport.value = false;
-    }
-};
-
-const copyMailchimpSeparatedData = async () => {
-    if (!mailchimpReportData.value || !mailchimpReportData.value.location) {
-        await Swal.fire('Info', 'No Mailchimp report data available to copy.', 'info');
-        return;
-    }
-
-    isGeneratingMailchimpCopyData.value = true;
-    try {
-        const summary = mailchimpReportData.value.summary || {};
-        // Start with tags stored on the Mailchimp summary (usually COMP/import tags)
-        let tags = Array.isArray(summary.tags) ? [...summary.tags] : [];
-
-        // Also add a COUNTRY tag based on the location country, same as TIX copy
-        const location = mailchimpReportData.value.location || {};
-        const country = (location.country || '').toString().trim();
-        if (country) {
-            const countryTag = `COUNTRY - ${country.toUpperCase()}`;
-            if (!tags.includes(countryTag)) {
-                tags.push(countryTag);
-            }
-        }
-
-        const importData = {
-            totalSubscribers: summary.total_imports || 0,
-            successCount: summary.successful_imports || 0,
-            failureCount: summary.failed_imports || 0,
-            updateCount: 0,
-            newCount: summary.successful_imports || 0,
-            errors: (mailchimpReportData.value.errors || []).map(e => e.error || ''),
-            errorDetails: [],
-            rejectedFields: [],
-            rejectedFieldsCount: 0
-        };
-
-        const response = await axios.post(route('location.generateSpreadsheetData'), {
-            location_id: mailchimpReportData.value.location.id,
-            import_data: importData,
-            tags
-        });
-
-        const text = response.data.copy_paste_data || '';
-        if (!text) {
-            await Swal.fire('Info', 'No separated data was generated.', 'info');
-            return;
-        }
-
-        // Extract only the actual tab-separated data line (skip helper text / emojis)
-        let lineToCopy = text;
-        const lines = text.split('\n');
-        const dataLine = lines.find(l => l.includes('\t'));
-        if (dataLine) {
-            lineToCopy = dataLine;
-        }
-
-        await navigator.clipboard.writeText(lineToCopy);
-        await Swal.fire('Copied', 'Separated data copied to clipboard. Paste it into your spreadsheet.', 'success');
-    } catch (error) {
-        console.error('Failed to generate/copy Mailchimp spreadsheet data:', error);
-        await Swal.fire('Error', 'Failed to generate separated data for this location.', 'error');
-    } finally {
-        isGeneratingMailchimpCopyData.value = false;
-    }
-};
-
-const closeTicketReportModal = () => {
-    showTicketReportModal.value = false;
-    ticketReportData.value = null;
-    selectedLocation.value = null;
-};
 
 const closeEventbriteModal = () => {
     showEventbriteModal.value = false;
@@ -2097,6 +1887,35 @@ const isLocationSelected = (location) => {
     return selectedLocationsForExport.value.some(loc => loc.id === location.id);
 };
 
+// Check if all locations are selected
+const areAllLocationsSelected = computed(() => {
+    if (!selectedCountry.value || selectedCountryLocations.value.length === 0) {
+        return false;
+    }
+    return selectedCountryLocations.value.every(location => 
+        selectedLocationsForExport.value.some(loc => loc.id === location.id)
+    );
+});
+
+// Toggle select all locations
+const toggleSelectAll = () => {
+    if (!selectedCountry.value) return;
+    
+    if (areAllLocationsSelected.value) {
+        // Deselect all locations in current country
+        selectedLocationsForExport.value = selectedLocationsForExport.value.filter(loc => 
+            !selectedCountryLocations.value.some(countryLoc => countryLoc.id === loc.id)
+        );
+    } else {
+        // Select all locations in current country
+        selectedCountryLocations.value.forEach(location => {
+            if (!selectedLocationsForExport.value.some(loc => loc.id === location.id)) {
+                selectedLocationsForExport.value.push(location);
+            }
+        });
+    }
+};
+
 // Export selected locations
 const exportSelectedLocations = async () => {
     if (selectedLocationsForExport.value.length === 0) {
@@ -2242,14 +2061,6 @@ watch(
                                 >
                                     <i class="fa-solid fa-key"></i> 
                                 </button>
-                                <!-- Attendees Database Button -->
-                                <!-- <button 
-                                    @click="goToAttendeesPage"
-                                    style="background-color: #16C3D9; color: white; border-radius: 5px; padding: 10px 20px; cursor: pointer;"
-                                    title="View Attendees Database"
-                                >
-                                    <i class="fa-solid fa-database"></i>
-                                </button> -->
                             </div>
                         </div>
                         <!-- <div class="d-flex justify-content-between items-center mb-4">
@@ -2266,40 +2077,50 @@ watch(
                                 class="w-full border p-2 rounded focus:ring focus:ring-blue-300"
                         />
 
-                            <!-- Category Filter -->
-                            <div v-if="selectedCountry && availableCategories.length > 0" class="flex items-center gap-2">
-                                <label class="text-sm font-medium text-gray-700 whitespace-nowrap">Filter by Category:</label>
-                                <select 
-                                    v-model="selectedCategory"
-                                    class="border rounded px-3 py-2 text-sm focus:ring focus:ring-blue-300"
-                                    style="min-width: 200px;"
-                                >
-                                    <option value="">All Categories</option>
-                                    <option 
-                                        v-for="category in availableCategories" 
-                                        :key="category" 
-                                        :value="category"
+                            <!-- Category Filter and Database Button -->
+                            <div v-if="selectedCountry && availableCategories.length > 0" class="flex items-center justify-between gap-2">
+                                <div class="flex items-center gap-2">
+                                    <label class="text-sm font-medium text-gray-700 whitespace-nowrap">Filter by Category:</label>
+                                    <select 
+                                        v-model="selectedCategory"
+                                        class="border rounded px-3 py-2 text-sm focus:ring focus:ring-blue-300"
+                                        style="min-width: 200px;"
                                     >
-                                        {{ category }}
-                                    </option>
-                                </select>
-                                <button 
-                                    v-if="selectedCategory"
-                                    @click="selectedCategory = ''"
-                                    class="px-3 py-2 text-sm text-gray-600 hover:text-gray-800 underline"
-                                >
-                                    Clear Filter
-                                </button>
-                                <!-- Export Selected Locations Button -->
-                                <button 
-                                    v-if="selectedLocationsForExport.length > 0"
-                                    style="background-color: #17a2b8; color: white; border-radius: 5px; padding: 10px 20px; cursor: pointer;"
-                                    @click="exportSelectedLocations"
-                                    :title="`Export ${selectedLocationsForExport.length} selected location(s)`"
-                                >
-                                    <i class="fa-solid fa-file-export"></i> Export Selected ({{ selectedLocationsForExport.length }})
-                                </button>
+                                        <option value="">All Categories</option>
+                                        <option 
+                                            v-for="category in availableCategories" 
+                                            :key="category" 
+                                            :value="category"
+                                        >
+                                            {{ category }}
+                                        </option>
+                                    </select>
+                                    <button 
+                                        v-if="selectedCategory"
+                                        @click="selectedCategory = ''"
+                                        class="px-3 py-2 text-sm text-gray-600 hover:text-gray-800 underline"
+                                    >
+                                        Clear Filter
+                                    </button>
+                                    <!-- Export Selected Locations Button -->
+                                    <button 
+                                        v-if="selectedLocationsForExport.length > 0"
+                                        style="background-color: #17a2b8; color: white; border-radius: 5px; padding: 10px 20px; cursor: pointer;"
+                                        @click="exportSelectedLocations"
+                                        :title="`Export ${selectedLocationsForExport.length} selected location(s)`"
+                                    >
+                                        <i class="fa-solid fa-file-export"></i> Export Selected ({{ selectedLocationsForExport.length }})
+                                    </button>
                                 </div>
+                                <!-- Attendees Database Button -->
+                                <button 
+                                    @click="goToAttendeesPage"
+                                    style="background-color: #16C3D9; color: white; border-radius: 5px; padding: 10px 20px; cursor: pointer;"
+                                    title="View Attendees Database"
+                                >
+                                    <i class="fa-solid fa-database"></i> Database
+                                </button>
+                            </div>
                         </div>
 
                         <!-- ✅ Country Tabs -->
@@ -2343,6 +2164,19 @@ watch(
 
                         <!-- ✅ Locations List for Selected Country -->
                         <div v-if="selectedCountry && selectedCountryLocations.length > 0" class="space-y-2">
+                            <!-- Select All Checkbox -->
+                            <div class="flex items-center space-x-2 w-full pb-2 border-b border-gray-200">
+                                <input 
+                                    type="checkbox"
+                                    :checked="areAllLocationsSelected"
+                                    @change="toggleSelectAll"
+                                    class="w-5 h-5 text-blue-600 border-gray-300 rounded focus:ring-blue-500 cursor-pointer"
+                                    style="min-width: 20px;"
+                                />
+                                <label class="text-sm font-medium text-gray-700 cursor-pointer" @click="toggleSelectAll">
+                                    Select All ({{ selectedCountryLocations.length }})
+                                </label>
+                            </div>
                             <div 
                                 v-for="(location, index) in selectedCountryLocations" 
                                 :key="`${selectedCountry}-${index}`" 
@@ -2362,7 +2196,7 @@ watch(
                                     style="background-color: white; border: 2px solid black; font-weight: bold; color: black; border-radius: 5px; padding: 10px 20px; cursor: pointer; transition: background-color 0.2s;"
                                     @mouseenter="$event.target.style.backgroundColor = '#f3f4f6'"
                                     @mouseleave="$event.target.style.backgroundColor = 'white'"
-                                    :title="location.imported_to_mailchimp ? 'View Attendees (Imported to Mailchimp)' : 'View Attendees'"
+                                    title="View Attendees"
                                 >
                                     <div class="flex items-center justify-between">
                                         <div>
@@ -2400,26 +2234,6 @@ watch(
                                 >
                                     <i class="fa-solid fa-key"></i>
                                 </button>
-                                <!-- Ticket Report Button -->
-                                <button 
-                                    v-if="location.imported_eventbrite"
-                                    @click="openTicketReportModal(location)"
-                                    class="text-white px-3 py-2 rounded"
-                                    style="background-color: #6c757d; color: white; border-radius: 5px; padding: 10px 20px; cursor: pointer;"
-                                    title="View Ticket Report"
-                                >
-                                    <i class="fa-solid fa-chart-bar"></i>
-                                </button>
-                                <!-- Mailchimp Import Report Button -->
-                                <button
-                                    v-if="location.imported_to_mailchimp"
-                                    @click="openMailchimpReportModal(location)"
-                                    class="text-white px-3 py-2 rounded"
-                                    style="background-color: #6c757d; color: white; border-radius: 5px; padding: 10px 20px; cursor: pointer;"
-                                    title="View Mailchimp Import Report"
-                                >
-                                    <i class="fa-solid fa-chart-pie"></i>
-                                </button>
                             </div>
                         </div>
 
@@ -2445,115 +2259,6 @@ watch(
             </div>
         </div>
 
-        <!-- Mailchimp Import Report Modal -->
-        <div v-if="showMailchimpReportModal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-            <div class="bg-white p-6 rounded-lg shadow-xl max-w-4xl w-full mx-4 max-h-[90vh] overflow-y-auto">
-                <div class="flex justify-between items-center mb-4">
-                    <h3 class="text-lg font-semibold">
-                        Mailchimp Import Report - {{ mailchimpReportData?.location?.name || '' }}
-                    </h3>
-                    <button @click="showMailchimpReportModal = false" class="text-gray-500 hover:text-gray-700">
-                        <i class="fa-solid fa-times"></i>
-                    </button>
-                </div>
-
-                <div v-if="isLoadingMailchimpReport" class="text-center py-8">
-                    <i class="fa-solid fa-spinner fa-spin text-2xl text-blue-500"></i>
-                    <p class="mt-2 text-gray-600">Loading report...</p>
-                </div>
-
-                <div v-else-if="mailchimpReportData" class="space-y-6">
-                    <!-- Summary Cards -->
-                    <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
-                        <div class="bg-blue-50 p-4 rounded-lg">
-                            <h4 class="text-sm font-medium text-blue-800 mb-1">Total Records Logged</h4>
-                            <p class="text-2xl font-bold text-blue-600">
-                                {{ mailchimpReportData.summary.total_imports }}
-                            </p>
-                        </div>
-                        <div class="bg-green-50 p-4 rounded-lg">
-                            <h4 class="text-sm font-medium text-green-800 mb-1">Successful Imports</h4>
-                            <p class="text-2xl font-bold text-green-600">
-                                {{ mailchimpReportData.summary.successful_imports }}
-                            </p>
-                        </div>
-                        <div class="bg-red-50 p-4 rounded-lg">
-                            <h4 class="text-sm font-medium text-red-800 mb-1">Failed Imports</h4>
-                            <p class="text-2xl font-bold text-red-600">
-                                {{ mailchimpReportData.summary.failed_imports }}
-                            </p>
-                        </div>
-                        <div class="bg-purple-50 p-4 rounded-lg">
-                            <h4 class="text-sm font-medium text-purple-800 mb-1">Unique Emails Imported</h4>
-                            <p class="text-2xl font-bold text-purple-600">
-                                {{ mailchimpReportData.summary.unique_emails_imported }}
-                            </p>
-                        </div>
-                    </div>
-
-                    <!-- Last Import & Copy Separated Data -->
-                    <div class="bg-gray-50 p-4 rounded-lg space-y-3 text-sm">
-                        <div>
-                            <span class="font-medium text-gray-700">Last Import:</span>
-                            <span class="ml-1 text-gray-800">
-                                {{ mailchimpReportData.summary.last_import_at || 'N/A' }}
-                            </span>
-                        </div>
-                        <div class="flex flex-wrap items-center justify-between gap-3">
-                            <div class="text-gray-600">
-                                Generate spreadsheet-ready separated data for this location.
-                            </div>
-                            <button
-                                type="button"
-                                @click="copyMailchimpSeparatedData"
-                                class="bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded text-sm flex items-center gap-2"
-                                :disabled="isGeneratingMailchimpCopyData"
-                            >
-                                <i class="fa-solid fa-clipboard-list"></i>
-                                <span v-if="!isGeneratingMailchimpCopyData">Copy Separated Data</span>
-                                <span v-else>Generating...</span>
-                            </button>
-                        </div>
-                    </div>
-
-                    <!-- Error Details -->
-                    <div>
-                        <h4 class="text-md font-semibold mb-2 text-red-800">
-                            Import Errors ({{ mailchimpReportData.errors.length }})
-                        </h4>
-                        <div v-if="mailchimpReportData.errors.length" class="bg-white border rounded-lg overflow-hidden">
-                            <div class="max-h-64 overflow-y-auto">
-                                <table class="min-w-full divide-y divide-gray-200">
-                                    <thead class="bg-gray-50 sticky top-0">
-                                        <tr>
-                                            <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Email</th>
-                                            <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Error</th>
-                                            <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Date</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody class="bg-white divide-y divide-gray-200">
-                                        <tr v-for="(row, index) in mailchimpReportData.errors" :key="index" class="hover:bg-gray-50">
-                                            <td class="px-4 py-2 text-sm font-medium">
-                                                {{ row.email || 'N/A' }}
-                                            </td>
-                                            <td class="px-4 py-2 text-sm text-red-700">
-                                                {{ row.error || 'Unknown error' }}
-                                            </td>
-                                            <td class="px-4 py-2 text-sm text-gray-600">
-                                                {{ row.date }}
-                                            </td>
-                                        </tr>
-                                    </tbody>
-                                </table>
-                            </div>
-                        </div>
-                        <div v-else class="text-sm text-gray-500">
-                            No failed imports recorded for this location.
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
         <!-- Location Password Modal -->
         <div class="modal fade" id="passwordModal" tabindex="-1" aria-labelledby="passwordModalLabel" @hidden.bs.modal="closePasswordModal">
             <div class="modal-dialog">
@@ -3277,118 +2982,5 @@ watch(
             </div>
         </div>
 
-        <!-- Ticket Report Modal -->
-        <div v-if="showTicketReportModal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-            <div class="bg-white p-6 rounded-lg shadow-xl max-w-6xl w-full mx-4 max-h-[90vh] overflow-y-auto">
-                <div class="flex justify-between items-center mb-4">
-                    <h3 class="text-lg font-semibold">Ticket Report - {{ selectedLocation?.name }}</h3>
-                    <button @click="closeTicketReportModal" class="text-gray-500 hover:text-gray-700">
-                        <i class="fa-solid fa-times"></i>
-                    </button>
-                </div>
-                
-                <div v-if="isLoadingReport" class="text-center py-8">
-                    <i class="fa-solid fa-spinner fa-spin text-2xl text-blue-500"></i>
-                    <p class="mt-2 text-gray-600">Loading report...</p>
-                </div>
-                
-                <div v-else-if="ticketReportData" class="space-y-6">
-                    <!-- Summary Cards -->
-                    <div class="grid grid-cols-5 gap-4">
-                        <div class="bg-blue-50 p-4 rounded-lg">
-                            <h4 class="text-sm font-medium text-blue-800 mb-1">Ticket Emails</h4>
-                            <p class="text-2xl font-bold text-blue-600">{{ ticketReportData.summary.ticket_emails_count }}</p>
-                        </div>
-                        <div class="bg-purple-50 p-4 rounded-lg">
-                            <h4 class="text-sm font-medium text-purple-800 mb-1">Win Form Emails</h4>
-                            <p class="text-2xl font-bold text-purple-600">{{ ticketReportData.summary.signup_emails_count }}</p>
-                        </div>
-                        <div class="bg-orange-50 p-4 rounded-lg">
-                            <h4 class="text-sm font-medium text-orange-800 mb-1">Duplicates</h4>
-                            <p class="text-2xl font-bold text-orange-600">{{ ticketReportData.summary.duplicate_emails_count }}</p>
-                            <p class="text-xs text-orange-600 mt-1">In both sources</p>
-                        </div>
-                        <div class="bg-green-50 p-4 rounded-lg">
-                            <h4 class="text-sm font-medium text-green-800 mb-1">Ticket Only</h4>
-                            <p class="text-2xl font-bold text-green-600">{{ ticketReportData.summary.ticket_only_count }}</p>
-                        </div>
-                        <div class="bg-yellow-50 p-4 rounded-lg">
-                            <h4 class="text-sm font-medium text-yellow-800 mb-1">Sign-Up Only</h4>
-                            <p class="text-2xl font-bold text-yellow-600">{{ ticketReportData.summary.signup_only_count }}</p>
-                        </div>
-                    </div>
-
-                    <!-- TIX Copy Separated Data -->
-                    <div class="bg-gray-50 p-4 rounded-lg space-y-3 text-sm">
-                        <div>
-                            <span class="font-medium text-gray-700">TIX Spreadsheet Line:</span>
-                            <span class="ml-1 text-gray-800">
-                                Generate spreadsheet-ready separated data for this ticket (TIX) report.
-                            </span>
-                        </div>
-                        <div class="flex flex-wrap items-center justify-between gap-3">
-                            <div class="text-gray-600">
-                                This uses TIX tags (e.g. <code>SOURCE - FILM LOCATION TIX {{ new Date().getFullYear() }}</code>) for your ticket analytics row.
-                            </div>
-                            <button
-                                type="button"
-                                @click="copyTicketSeparatedData"
-                                class="bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded text-sm flex items-center gap-2"
-                                :disabled="isGeneratingTicketCopyData"
-                            >
-                                <i class="fa-solid fa-clipboard-list"></i>
-                                <span v-if="!isGeneratingTicketCopyData">Copy TIX Separated Data</span>
-                                <span v-else>Generating...</span>
-                            </button>
-                        </div>
-                    </div>
-
-                    <!-- Duplicate Emails Section (emails in both ticket and sign-up) -->
-                    <div v-if="ticketReportData.duplicate_emails && ticketReportData.duplicate_emails.length > 0">
-                        <h4 class="text-md font-semibold mb-3 text-orange-800">
-                            Duplicate Emails - Found in Both Ticket & Sign-Up ({{ ticketReportData.duplicate_emails.length }})
-                        </h4>
-                        <div class="bg-white border rounded-lg overflow-hidden">
-                            <div class="max-h-96 overflow-y-auto">
-                                <table class="min-w-full divide-y divide-gray-200">
-                                    <thead class="bg-gray-50 sticky top-0">
-                                        <tr>
-                                            <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Email</th>
-                                            <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Ticket Data</th>
-                                            <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Sign-Up Data</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody class="bg-white divide-y divide-gray-200">
-                                        <tr v-for="(duplicate, index) in ticketReportData.duplicate_emails" :key="index" class="hover:bg-gray-50">
-                                            <td class="px-4 py-2 text-sm font-medium">{{ duplicate.email }}</td>
-                                            <td class="px-4 py-2 text-sm">
-                                                <div v-if="duplicate.ticket_data" class="bg-blue-50 p-2 rounded">
-                                                    <div class="font-semibold text-blue-800">{{ duplicate.ticket_data.first_name }} {{ duplicate.ticket_data.last_name }}</div>
-                                                    <div class="text-xs text-blue-600">{{ duplicate.ticket_data.phone || 'No phone' }}</div>
-                                                    <div class="text-xs text-blue-500 mt-1">{{ duplicate.ticket_data.source }}</div>
-                                                </div>
-                                                <div v-else class="text-gray-400">No ticket data</div>
-                                            </td>
-                                            <td class="px-4 py-2 text-sm">
-                                                <div v-if="duplicate.signup_data" class="bg-purple-50 p-2 rounded">
-                                                    <div class="font-semibold text-purple-800">{{ duplicate.signup_data.first_name }} {{ duplicate.signup_data.last_name }}</div>
-                                                    <div class="text-xs text-purple-600">{{ duplicate.signup_data.phone || 'No phone' }}</div>
-                                                    <div class="text-xs text-purple-500 mt-1">{{ duplicate.signup_data.source }}</div>
-                                                </div>
-                                                <div v-else class="text-gray-400">No sign-up data</div>
-                                            </td>
-                                        </tr>
-                                    </tbody>
-                                </table>
-                            </div>
-                        </div>
-                    </div>
-                    <div v-else class="text-center py-4 text-gray-500">
-                        <i class="fa-solid fa-check-circle text-green-500 text-2xl mb-2"></i>
-                        <p>No duplicate emails found between ticket and sign-up data!</p>
-                    </div>
-                </div>
-            </div>
-        </div>
     </AuthenticatedLayout>
 </template>
