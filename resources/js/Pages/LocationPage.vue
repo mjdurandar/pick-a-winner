@@ -29,7 +29,6 @@ const eventNewPassword = ref('');
 const eventConfirmPassword = ref('');
 const allLocationsNewPassword = ref('');
 const allLocationsConfirmPassword = ref('');
-const showCSVFormat = ref(false);
 const showMailchimpModal = ref(false);
 const mailchimpLists = ref([]);
 const selectedList = ref('');
@@ -382,277 +381,6 @@ const handleMailchimpImport = async () => {
         console.error('Import error:', error);
         await Swal.fire('Error!', error.response?.data?.error || 'Failed to import data to Mailchimp.', 'error');
         isImporting.value = false;
-    }
-};
-
-// Add CSV import functionality
-const handleFileUpload = (event) => {
-    const file = event.target.files[0];
-    if (!file) return;
-
-    // Check file type
-    if (!file.name.endsWith('.csv')) {
-        Swal.fire('Error!', 'Please upload a CSV file.', 'error');
-        return;
-    }
-
-    const reader = new FileReader();
-    reader.onload = (e) => {
-        try {
-            const text = e.target.result;
-            parseCSV(text);
-        } catch (error) {
-            Swal.fire('Error!', 'Failed to read the CSV file. Please check the file format.', 'error');
-        }
-    };
-    reader.onerror = () => {
-        Swal.fire('Error!', 'Failed to read the file.', 'error');
-    };
-    reader.readAsText(file);
-};
-
-const parseCSV = (csvText) => {
-    // Split by newlines and handle different line endings, then filter out empty rows
-    const rows = csvText
-        .split(/\r?\n/)
-        .map(row => row.split(','))
-        .filter(row => row.some(cell => cell !== ''));
-
-    console.log('Total rows found:', rows.length - 1); // -1 for header row
-
-    if (rows.length < 2) {
-        Swal.fire('Error!', 'CSV file is empty or has no data rows.', 'error');
-        return;
-    }
-
-    // Process data rows
-    const validLocations = [];
-    const errors = [];
-
-    // Function to convert 12-hour time to 24-hour format
-    const convertTo24Hour = (timeStr) => {
-        if (!timeStr) return '';
-        
-        const normalized = timeStr
-            .normalize('NFKC')
-            .replace(/[\u202f\u00a0]/g, ' ') // replace narrow & non-breaking spaces
-            .replace(/\s+/g, ' ')
-            .trim();
-
-        if (!normalized) return '';
-
-        const match = normalized.match(/^(\d{1,2})(?::(\d{2}))?\s*([ap])\.?m\.?$/i);
-        if (!match) return '';
-
-        let hours = parseInt(match[1], 10);
-        const minutes = match[2] ?? '00';
-        const period = match[3].toLowerCase();
-
-        if (!hours || !minutes) return '';
-
-        hours = parseInt(hours, 10);
-        if (isNaN(hours)) return '';
-
-        if (period === 'p' && hours !== 12) {
-            hours += 12;
-        } else if (period === 'a' && hours === 12) {
-            hours = 0;
-        }
-
-        return `${String(hours).padStart(2, '0')}:${minutes}`;
-    };
-
-    rows.slice(1).forEach((row, index) => {
-        // Skip empty rows or rows with all empty cells
-        if (!row.some(cell => cell !== '')) {
-            console.log(`Skipping empty row ${index + 2}`);
-            return;
-        }
-
-        try {
-            // Extract and clean the raw data
-            let name = row[0].trim();
-            let dateTimeParts = row.slice(1).join(',').split(',').map(part => part.trim());
-
-            console.log(`Processing row ${index + 2}:`, {
-                name,
-                dateTimeParts
-            });
-
-            // Find the time part (should contain "pm" or "am")
-            let timeStr = dateTimeParts.find(part => 
-                part.toLowerCase().includes('pm') || 
-                part.toLowerCase().includes('am')
-            );
-            
-            // The remaining parts should form the date
-            let dateParts = dateTimeParts.filter(part => part !== timeStr);
-            let fullDateStr = dateParts.join(' ').trim();
-
-            // Convert time to 24-hour format
-            let formattedTime = convertTo24Hour(timeStr);
-            if (!formattedTime) {
-                throw new Error(`Invalid time format: ${timeStr}. Expected format: "H:MM am/pm"`);
-            }
-
-            // Parse the date
-            const date = new Date(fullDateStr);
-            
-            // Validate the date
-            if (isNaN(date.getTime())) {
-                throw new Error(`Could not parse date: ${fullDateStr}`);
-            }
-
-            // Format the date in MySQL format (YYYY-MM-DD)
-            const formattedYear = date.getFullYear();
-            const formattedMonth = String(date.getMonth() + 1).padStart(2, '0');
-            const formattedDay = String(date.getDate()).padStart(2, '0');
-            const formattedDate = `${formattedYear}-${formattedMonth}-${formattedDay}`;
-
-            const locationData = {
-                name: name,
-                date: formattedDate,
-                time: formattedTime,
-                event_id: props.event.id
-            };
-
-            // Validate data
-            if (!locationData.name || locationData.name.trim() === '') {
-                throw new Error('Location name is required');
-            }
-            
-            // Allow TBA values for date and time
-            if (!locationData.date || locationData.date.trim() === '') {
-                locationData.date = 'TBA';
-            }
-            if (!locationData.time || locationData.time.trim() === '') {
-                locationData.time = 'TBA';
-            }
-
-            validLocations.push(locationData);
-            console.log(`Successfully processed row ${index + 2}:`, locationData);
-
-        } catch (error) {
-            console.error(`Error processing row ${index + 2}:`, error.message);
-            console.error('Row data:', row);
-            errors.push(`Row ${index + 2}: ${error.message}`);
-        }
-    });
-
-    console.log('Total valid locations:', validLocations.length);
-    console.log('Total errors:', errors.length);
-
-    if (errors.length > 0) {
-        console.log('Errors found:', errors);
-        Swal.fire({
-            title: 'Import Errors',
-            html: `Found ${errors.length} errors:<br>${errors.join('<br>')}`,
-            icon: 'warning',
-            confirmButtonText: 'OK'
-        });
-        return;
-    }
-
-    if (validLocations.length === 0) {
-        Swal.fire('Error!', 'No valid locations found to import.', 'error');
-        return;
-    }
-
-    // Import locations in batches
-    importLocations(validLocations);
-};
-
-const importLocations = async (locations) => {
-    try {
-        console.log('Starting import of', locations.length, 'locations');
-        
-        // Show loading modal without any buttons
-        const loadingSwal = Swal.fire({
-            title: 'Importing Locations',
-            html: 'Please wait while we import your locations...',
-            allowOutsideClick: false,
-            allowEscapeKey: false,
-            showConfirmButton: false,
-            didOpen: () => {
-                Swal.showLoading();
-            }
-        });
-
-        const results = {
-            success: [],
-            failed: []
-        };
-
-        // Import locations sequentially with proper delay and error handling
-        for (let i = 0; i < locations.length; i++) {
-            const location = locations[i];
-            try {
-                console.log(`Importing location ${i + 1}/${locations.length}:`, location);
-                
-                // Update loading message
-                Swal.update({
-                    html: `Importing location ${i + 1} of ${locations.length}...<br>${location.name}`
-                });
-
-                // Make the request
-                await router.post(route('location.store'), location);
-                results.success.push(location);
-                
-                // Add a longer delay between imports (500ms)
-                await new Promise(resolve => setTimeout(resolve, 500));
-                
-            } catch (error) {
-                console.error(`Failed to import location ${i + 1}/${locations.length}:`, location, error);
-                results.failed.push({
-                    ...location,
-                    error: error.message
-                });
-            }
-        }
-
-        console.log('Import completed. Results:', {
-            total: locations.length,
-            successful: results.success.length,
-            failed: results.failed.length
-        });
-
-        // Close the loading modal
-        await loadingSwal.close();
-
-        // Show results modal
-        if (results.failed.length > 0) {
-            // Show failed imports with details
-            const failedLocations = results.failed.map(loc => 
-                `${loc.name} (${loc.error || 'Unknown error'})`
-            ).join('<br>');
-            
-            await Swal.fire({
-                title: 'Import Complete',
-                html: `Successfully imported ${results.success.length} of ${locations.length} locations.<br><br>` +
-                      `Failed to import ${results.failed.length} locations:<br>${failedLocations}`,
-                icon: 'warning',
-                confirmButtonText: 'OK'
-            });
-        } else {
-            await Swal.fire({
-                title: 'Success!',
-                text: `Successfully imported all ${locations.length} locations.`,
-                icon: 'success',
-                confirmButtonText: 'OK'
-            });
-        }
-
-        // Reload the page after showing the results
-        window.location.reload();
-
-    } catch (error) {
-        console.error('Import error:', error);
-        await Swal.fire({
-            title: 'Error!',
-            text: 'Failed to complete the import process.',
-            icon: 'error',
-            confirmButtonText: 'OK'
-        });
     }
 };
 
@@ -2053,56 +1781,7 @@ const saveLocation = () => {
     }
 };
 
-// Function to delete location
-const deleteLocation = (location) => {
-    Swal.fire({
-        title: 'Are you sure?',
-        text: "This action cannot be undone!",
-        icon: 'warning',
-        showCancelButton: true,
-        confirmButtonColor: '#3085d6',
-        cancelButtonColor: '#d33',
-        confirmButtonText: 'Yes, delete it!'
-    }).then((result) => {
-        if (result.isConfirmed) {
-            router.delete(route('location.destroy', location.id), {
-                onSuccess: () => {
-                    Swal.fire(
-                        'Deleted!',
-                        'Location has been deleted.',
-                        'success'
-                    );
-                    router.reload();
-                },
-                onError: () => {
-                    Swal.fire(
-                        'Error!',
-                        'There was an issue deleting the location.',
-                        'error'
-                    );
-                }
-            });
-        }
-    });
-};
 
-// Add function to delete all locations
-const deleteAllLocations = () => {
-    Swal.fire({
-        title: 'Delete All Locations?',
-        text: "This will delete ALL locations for this event. This action cannot be undone!",
-        icon: 'warning',
-        showCancelButton: true,
-        confirmButtonColor: '#d33',
-        cancelButtonColor: '#3085d6',
-        confirmButtonText: 'Yes, delete all!',
-        cancelButtonText: 'Cancel'
-    }).then((result) => {
-        if (result.isConfirmed) {
-            router.delete(route('location.deleteAll', props.event.id));
-        }
-    });
-};
 
 // Add function to handle modal close
 const closeLocationModal = () => {
@@ -2400,30 +2079,7 @@ const downloadEventbriteImportCSV = (attendees, locationName) => {
     }
 };
 
-// Add the download function
-const downloadMailchimpLogs = () => {
-    window.location.href = route('location.downloadMailchimpLogs', { event_id: props.event.id });
-};
 
-// Export location data (tickets + win form with tags)
-const exportLocationData = (location) => {
-    if (!location || !location.id) {
-        Swal.fire('Error', 'Invalid location selected', 'error');
-        return;
-    }
-    
-    // Open export URL in new window to trigger download
-    const exportUrl = route('location.export', { locationId: location.id });
-    window.open(exportUrl, '_blank');
-    
-    Swal.fire({
-        title: 'Export Started',
-        text: 'Your export is being generated. The file will download automatically.',
-        icon: 'info',
-        timer: 2000,
-        showConfirmButton: false
-    });
-};
 
 // Export all locations data for the event
 const exportAllLocationsData = () => {
@@ -2505,26 +2161,6 @@ watch(
                                 <p class="text-sm text-gray-600 mt-1">Locations: {{ filteredLocations.length }}</p>
                             </div>
                             <div class="flex gap-2">
-                                <!-- CSV Import Button with Help Text -->
-                                <div class="relative group">
-                                    <label style="background-color: #16C3D9; color: white; border-radius: 5px; padding: 10px 20px; cursor: pointer;">
-                                        <i class="fa-solid fa-file-import"></i>
-                                        <input 
-                                            type="file" 
-                                            accept=".csv"
-                                            class="hidden"
-                                            @change="handleFileUpload"
-                                        >
-                                    </label>
-                                </div>
-                                <!-- Download Mailchimp Logs Button -->
-                                <button 
-                                    style="background-color: #16C3D9; color: white; border-radius: 5px; padding: 10px 20px; cursor: pointer;"
-                                    @click="downloadMailchimpLogs"
-                                    title="Download Mailchimp Import History"
-                                >
-                                    <i class="fa-solid fa-download"></i>
-                                </button>
                                 <!-- Export All Locations Data Button -->
                                 <button 
                                     style="background-color: #28a745; color: white; border-radius: 5px; padding: 10px 20px; cursor: pointer;"
@@ -2556,14 +2192,6 @@ watch(
                                     @click="openLocationModal()"
                                 >
                                     <i class="fa-solid fa-plus"></i> Add Location
-                                </button>
-                                <!-- Delete All Locations Button -->
-                                <button 
-                                    class="bg-red-500 text-white px-4 py-2 rounded hover:bg-red-700"
-                                    @click="deleteAllLocations"
-                                    title="Delete All Locations"
-                                >
-                                    <i class="fa-solid fa-trash"></i> Delete All
                                 </button>
                                 <!-- All Locations Page Button -->
                                 <button 
@@ -2715,21 +2343,6 @@ watch(
                                 >
                                     <i class="fa-solid fa-key"></i>
                                 </button>
-                                <!-- Ticket/Eventbrite Button -->
-                                <button 
-                                    @click="openEventbriteModal(location)"
-                                    class="text-white px-3 py-2 rounded"
-                                    :style="{
-                                        backgroundColor: location.imported_eventbrite ? '#28a745' : '#16C3D9',
-                                        color: 'white',
-                                        borderRadius: '5px',
-                                        padding: '10px 20px',
-                                        cursor: 'pointer'
-                                    }"
-                                    :title="location.imported_eventbrite ? 'Eventbrite Data Imported' : 'Import from Eventbrite'"
-                                >
-                                    <i class="fa-solid fa-ticket"></i>
-                                </button>
                                 <!-- Ticket Report Button -->
                                 <button 
                                     v-if="location.imported_eventbrite"
@@ -2749,24 +2362,6 @@ watch(
                                     title="View Mailchimp Import Report"
                                 >
                                     <i class="fa-solid fa-chart-pie"></i>
-                                </button>
-                                <!-- Export All Data Button -->
-                                <button
-                                    @click="exportLocationData(location)"
-                                    class="text-white px-3 py-2 rounded"
-                                    style="background-color: #28a745; color: white; border-radius: 5px; padding: 10px 20px; cursor: pointer;"
-                                    title="Export All Data (Tickets + Win Form) with Tags"
-                                >
-                                    <i class="fa-solid fa-file-export"></i>
-                                </button>
-                                <!-- Delete Button -->
-                                <button 
-                                    @click="deleteLocation(location)"
-                                    class="text-white px-3 py-2 rounded"
-                                    style="background-color: #FF5349; color: white; border-radius: 5px; padding: 10px 20px; cursor: pointer;"
-                                    title="Delete Location"
-                                >
-                                    <i class="fa-solid fa-trash"></i>
                                 </button>
                             </div>
                         </div>
@@ -3083,47 +2678,6 @@ watch(
                                 <button type="submit" class="btn btn-primary">{{ isEditing ? 'Update Location' : 'Save Location' }}</button>
                             </div>
                         </form>
-                    </div>
-                </div>
-            </div>
-        </div>
-
-        <!-- CSV Format Modal -->
-        <div v-if="showCSVFormat" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-            <div class="bg-white p-6 rounded-lg shadow-xl max-w-2xl w-full mx-4">
-                <div class="flex justify-between items-center mb-4">
-                    <h3 class="text-lg font-semibold">CSV Import Format Instructions</h3>
-                    <button @click="showCSVFormat = false" class="text-gray-500 hover:text-gray-700">
-                        <i class="fa-solid fa-times"></i>
-                    </button>
-                </div>
-                <div class="space-y-4">
-                    <p class="text-gray-600">Your CSV file should follow this format:</p>
-                    <div class="bg-gray-100 p-4 rounded">
-                        <pre class="text-sm">name,date,time
-Adelaide,September 01 2024,4:00 pm
-Melbourne,September 02 2024,6:00 pm
-Sydney,,TBA
-Brisbane,October 15 2024,
-Perth,,</pre>
-                    </div>
-                    <div class="space-y-2">
-                        <p class="font-semibold">Requirements:</p>
-                        <ul class="list-disc list-inside space-y-1 text-gray-600">
-                            <li>File must be in CSV format</li>
-                            <li>Must include header row with columns: name, date, time</li>
-                            <li>Date format: Month DD YYYY (e.g., "September 01 2024") or leave empty for TBA</li>
-                            <li>Time format: H:MM am/pm (e.g., "4:00 pm" or "10:30 am") or leave empty for TBA</li>
-                            <li>Location name is required, but date and time can be left empty for TBA</li>
-                        </ul>
-                    </div>
-                    <div class="mt-6 flex justify-end">
-                        <button 
-                            @click="showCSVFormat = false"
-                            class="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-700"
-                        >
-                            Got it
-                        </button>
                     </div>
                 </div>
             </div>

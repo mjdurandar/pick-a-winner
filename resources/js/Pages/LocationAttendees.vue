@@ -279,41 +279,104 @@ onMounted(() => {
     fetchMailchimpSettings();
 });
 
-// ✅ Export filtered data to CSV
-const exportToCSV = () => {
-    if (filteredAttendees.value.length === 0) {
-        Swal.fire('No Data', 'No attendees found to export.', 'warning');
+// Eventbrite import variables
+const showEventbriteModal = ref(false);
+const eventbriteLink = ref('');
+const isFetchingEventbrite = ref(false);
+const eventbriteAttendees = ref([]);
+const eventbriteEventId = ref('');
+
+// Extract Event ID from Eventbrite link
+const extractEventIdFromLink = (link) => {
+    try {
+        const url = new URL(link);
+        const pathParts = url.pathname.split('/');
+        
+        for (let i = pathParts.length - 1; i >= 0; i--) {
+            const part = pathParts[i];
+            if (/^\d+$/.test(part)) {
+                return part;
+            }
+            const match = part.match(/-(\d+)$/);
+            if (match) {
+                return match[1];
+            }
+        }
+        
+        return null;
+    } catch (error) {
+        console.error('Error extracting event ID:', error);
+        return null;
+    }
+};
+
+// Open Eventbrite modal
+const openEventbriteModal = () => {
+    eventbriteLink.value = '';
+    eventbriteAttendees.value = [];
+    eventbriteEventId.value = '';
+    showEventbriteModal.value = true;
+};
+
+// Close Eventbrite modal
+const closeEventbriteModal = () => {
+    showEventbriteModal.value = false;
+    eventbriteLink.value = '';
+    eventbriteAttendees.value = [];
+    eventbriteEventId.value = '';
+};
+
+// Fetch Eventbrite attendees
+const fetchEventbriteAttendees = async () => {
+    if (!eventbriteLink.value.trim()) {
+        Swal.fire('Error', 'Please enter an Eventbrite link', 'error');
         return;
     }
 
-    let csvContent = "data:text/csv;charset=utf-8,";
-    
-    // Generate Mailchimp tags for this location
-    const locationTags = generateLocationTags();
-    const tagsString = locationTags.join(', ');
-    const country = props.location.country || props.event.event_country || '';
+    const eventId = extractEventIdFromLink(eventbriteLink.value);
+    if (!eventId) {
+        Swal.fire('Error', 'Could not extract event ID from the link. Please check the link format.', 'error');
+        return;
+    }
 
-    // Add headers using questions instead of column names
-    csvContent += columnHeaders.value
-        .map(col => `"${getQuestionText(col)}"`)
-        .join(",") + ",\"Winner Status\",\"Prize\",\"Country\",\"Mailchimp Tags\"\n";
+    eventbriteEventId.value = eventId;
+    isFetchingEventbrite.value = true;
 
-    // Add data rows
-    filteredAttendees.value.forEach(attendee => {
-        const row = columnHeaders.value.map(col => `"${attendee[col] || ''}"`).join(",");
-        const winnerStatus = isWinner(attendee) ? "Winner" : "Not Winner";
-        const prize = getWinnerPrize(attendee);
-        csvContent += row + `,\"${winnerStatus}\",\"${prize}\",\"${country}\",\"${tagsString}\"\n`;
-    });
+    try {
+        Swal.fire({
+            title: 'Fetching Attendees',
+            html: 'Please wait while we fetch attendee data from Eventbrite...',
+            allowOutsideClick: false,
+            allowEscapeKey: false,
+            showConfirmButton: false,
+            didOpen: () => {
+                Swal.showLoading();
+            }
+        });
 
-    // Create a downloadable link
-    const encodedUri = encodeURI(csvContent);
-    const link = document.createElement("a");
-    link.setAttribute("href", encodedUri);
-    link.setAttribute("download", `attendees_${props.location.name}_${props.event.event_name}.csv`);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+        const response = await axios.post(route('location.fetchEventbriteAttendees'), {
+            event_id: eventId,
+            location_id: props.location.id
+        });
+
+        eventbriteAttendees.value = response.data.attendees;
+        
+        await Swal.close();
+        
+        if (eventbriteAttendees.value.length === 0) {
+            Swal.fire('Info', 'No attendees found for this event.', 'info');
+        } else {
+            Swal.fire('Success', `Found ${eventbriteAttendees.value.length} unique attendees`, 'success').then(() => {
+                router.reload();
+            });
+        }
+    } catch (error) {
+        await Swal.close();
+        console.error('Error fetching Eventbrite attendees:', error);
+        Swal.fire('Error', error.response?.data?.error || 'Failed to fetch attendees from Eventbrite', 'error');
+    } finally {
+        isFetchingEventbrite.value = false;
+    }
 };
 
 // ✅ Delete Attendee with Confirmation
@@ -1211,7 +1274,7 @@ const downloadLogFile = (content, filename) => {
                 <div class="overflow-hidden bg-white shadow-sm sm:rounded-lg">
                     <div class="p-6 text-gray-900">
                         <!-- Summary Stats -->
-                        <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
                             <div class="bg-blue-100 p-4 rounded-lg">
                                 <h3 class="text-lg font-semibold text-blue-800">Total Attendees</h3>
                                 <p class="text-2xl font-bold text-blue-900">{{ attendees.length }}</p>
@@ -1219,10 +1282,6 @@ const downloadLogFile = (content, filename) => {
                             <div class="bg-green-100 p-4 rounded-lg">
                                 <h3 class="text-lg font-semibold text-green-800">Winners</h3>
                                 <p class="text-2xl font-bold text-green-900">{{ prizes.length }}</p>
-                            </div>
-                            <div class="bg-yellow-100 p-4 rounded-lg">
-                                <h3 class="text-lg font-semibold text-yellow-800">Eligible for Prizes</h3>
-                                <p class="text-2xl font-bold text-yellow-900">{{ attendees.length - prizes.length }}</p>
                             </div>
                         </div>
 
@@ -1251,12 +1310,12 @@ const downloadLogFile = (content, filename) => {
                                 @input="handleSearchInput"
                             />
                             <div class="flex gap-2">
-                                <!-- ✅ Export Button -->
+                                <!-- ✅ Eventbrite Import Button -->
                                 <button 
-                                    @click="exportToCSV" 
-                                    class="bg-green-500 text-white px-4 py-2 rounded hover:bg-green-700"
+                                    @click="openEventbriteModal" 
+                                    class="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-700"
                                 >
-                                    <i class="fa-solid fa-file-csv"></i> Export CSV
+                                    <i class="fa-solid fa-ticket"></i> Import Eventbrite ticket data
                                 </button>
                                 <!-- ✅ Mailchimp Import Button -->
                                 <button 
@@ -1634,6 +1693,64 @@ const downloadLogFile = (content, filename) => {
                                 <span v-if="customTags.trim()" class="text-sm opacity-90">
                                     ({{ customTags.split(',').filter(tag => tag.trim()).length }} tags)
                                 </span>
+                            </span>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Eventbrite Import Modal -->
+        <div v-if="showEventbriteModal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+            <div class="bg-white p-6 rounded-lg shadow-xl max-w-4xl w-full mx-4 max-h-[90vh] overflow-y-auto">
+                <div class="flex justify-between items-center mb-4">
+                    <h3 class="text-lg font-semibold">Import Attendees from Eventbrite</h3>
+                    <button @click="closeEventbriteModal" class="text-gray-500 hover:text-gray-700">
+                        <i class="fa-solid fa-times"></i>
+                    </button>
+                </div>
+                
+                <div class="space-y-4">
+                    <p class="text-gray-600">
+                        Import attendees from Eventbrite for <strong>{{ location.name }}</strong>
+                    </p>
+
+                    <div class="mb-4">
+                        <label class="block text-sm font-medium text-gray-700 mb-2">
+                            Eventbrite Event Link
+                        </label>
+                        <input 
+                            type="text" 
+                            v-model="eventbriteLink"
+                            class="w-full border rounded px-3 py-2"
+                            placeholder="https://www.eventbrite.com/e/event-name-tickets-1234567890"
+                            :disabled="isFetchingEventbrite"
+                        />
+                        <p class="text-sm text-gray-500 mt-1">
+                            Paste the Eventbrite event URL. The system will extract the event ID and fetch all attendees.
+                        </p>
+                    </div>
+
+                    <div class="flex justify-end space-x-3 mb-4">
+                        <button 
+                            @click="closeEventbriteModal"
+                            class="px-4 py-2 border rounded text-gray-600 hover:bg-gray-50"
+                            :disabled="isFetchingEventbrite"
+                        >
+                            Cancel
+                        </button>
+                        <button 
+                            @click="fetchEventbriteAttendees"
+                            class="px-4 py-2 bg-orange-500 text-white rounded hover:bg-orange-600"
+                            :disabled="isFetchingEventbrite || !eventbriteLink.trim()"
+                        >
+                            <span v-if="isFetchingEventbrite">
+                                <i class="fa-solid fa-spinner fa-spin mr-2"></i>
+                                Fetching...
+                            </span>
+                            <span v-else>
+                                <i class="fa-solid fa-download mr-2"></i>
+                                Fetch Attendees
                             </span>
                         </button>
                     </div>

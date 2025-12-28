@@ -69,13 +69,13 @@ const userRole = computed(() => user.value?.role);
                                 >
                                     Pick a Winner
                                 </NavLink>
-                                <NavLink
+                                <!-- <NavLink
                                     v-if="userRole === 'admin' || userRole === 'host'"
                                     :href="route('location.index')"
                                     :active="route().current('location.index')"
                                 >
                                     Locations
-                                </NavLink>
+                                </NavLink> -->
                                 <NavLink
                                     v-if="userRole === 'admin'"
                                     :href="route('users.index')"
@@ -220,13 +220,13 @@ const userRole = computed(() => user.value?.role);
                                 >
                                     Pick a Winner
                         </ResponsiveNavLink>
-                        <ResponsiveNavLink
+                        <!-- <ResponsiveNavLink
                                 v-if="userRole === 'admin'"
                                     :href="route('location.index')"
                                     :active="route().current('location.index')"
                                 >
                                     Locations
-                        </ResponsiveNavLink>
+                        </ResponsiveNavLink> -->
                         <ResponsiveNavLink
                                 v-if="userRole === 'admin'"
                                     :href="route('users.index')"
