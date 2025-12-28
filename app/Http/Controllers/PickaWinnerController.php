@@ -19,7 +19,7 @@ class PickaWinnerController extends Controller
     // Pick A Winner Index Page
     public function index() {
         return Inertia::render('PickaWinner', [
-            'events' => Events::latest()->get(),
+            'events' => Events::where('is_enabled', true)->latest()->get(),
         ]);
     }
 

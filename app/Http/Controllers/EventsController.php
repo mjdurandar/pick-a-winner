@@ -35,6 +35,7 @@ class EventsController extends Controller
             'event_coordinator_email' => 'required|email',
             'event_country' => 'required|string',
             'film_id' => 'required|exists:films,id',
+            'is_enabled' => 'nullable|boolean',
         ]);
     
         // Store banner file
@@ -67,7 +68,8 @@ class EventsController extends Controller
             $request->except(['event_banner', 'event_logo']),
             [
                 'event_banner' => $bannerPath,
-                'event_logo' => $logoPath
+                'event_logo' => $logoPath,
+                'is_enabled' => $request->has('is_enabled') ? (bool)$request->is_enabled : false
             ]
         ));
     
@@ -89,10 +91,14 @@ class EventsController extends Controller
             'event_coordinator_email' => 'required|email',
             'event_country' => 'required|string',
             'film_id' => 'required|exists:films,id',
+            'is_enabled' => 'nullable|boolean',
         ]);
 
         // Prepare update data
         $updateData = $request->except(['event_banner', 'event_logo']);
+        
+        // Handle is_enabled checkbox (convert to boolean)
+        $updateData['is_enabled'] = $request->has('is_enabled') ? (bool)$request->is_enabled : false;
 
         // Handle banner upload - only update if new file is provided
         if ($request->hasFile('event_banner')) {

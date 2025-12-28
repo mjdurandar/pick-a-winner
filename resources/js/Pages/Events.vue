@@ -52,7 +52,8 @@ const form = useForm({
     event_coordinator: '',
     event_coordinator_email: '',
     event_country: '',
-    film_id: null
+    film_id: null,
+    is_enabled: false
 });
 
 // File input reference
@@ -91,6 +92,7 @@ const openEditModal = (event) => {
     form.event_coordinator_email = event.event_coordinator_email;
     form.event_country = event.event_country;
     form.film_id = event.film_id ? parseInt(event.film_id) : null;
+    form.is_enabled = event.is_enabled ? true : false;
     form.event_banner = null; // Reset file input - new file will override
     form.event_logo = null; // Reset file input - new file will override
     existingBanner.value = event.event_banner; // Store existing banner path
@@ -127,6 +129,8 @@ const saveEvent = () => {
     data.append('event_country', form.event_country);
     // Always append film_id as integer
     data.append('film_id', parseInt(form.film_id));
+    // Append is_enabled as 1 or 0
+    data.append('is_enabled', form.is_enabled ? '1' : '0');
 
     if (isEditing.value) {
         data.append('_method', 'PATCH'); // Use PATCH for updating
@@ -651,6 +655,19 @@ const closeSheetsModal = () => {
                                 <small v-if="isEditing && existingBanner" class="text-muted">
                                     Current: {{ existingBanner.split('/').pop() }} (leave empty to keep current)
                                 </small>
+                            </div>
+                            <div class="mb-3">
+                                <div class="form-check">
+                                    <input 
+                                        class="form-check-input" 
+                                        type="checkbox" 
+                                        v-model="form.is_enabled" 
+                                        id="is_enabled"
+                                    />
+                                    <label class="form-check-label" for="is_enabled">
+                                        Show this in the pick a winner dropdown
+                                    </label>
+                                </div>
                             </div>
                             <div class="modal-footer">
                                 <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
