@@ -891,7 +891,12 @@ const copyEventPassword = () => {
 };
 
 const allLocationsPage = () => {
-    router.get(route('pickawinner.alllocation', { event: props.event.id }));
+    const url = route('pickawinner.alllocation', { event: props.event.id });
+    window.open(url, '_blank', 'noopener');
+};
+
+const goToAttendeesPage = () => {
+    router.get(route('attendees.index', { eventId: props.event.id }));
 };
 
 const viewLocationAttendees = (location) => {
@@ -2559,6 +2564,23 @@ watch(
                                     title="Delete All Locations"
                                 >
                                     <i class="fa-solid fa-trash"></i> Delete All
+                                </button>
+                                <!-- All Locations Page Button -->
+                                <button 
+                                    target="_blank"
+                                    @click="allLocationsPage"
+                                    style="background-color: #16C3D9; color: white; border-radius: 5px; padding: 10px 20px; cursor: pointer;"
+                                    title="View All Locations Attendees"
+                                >
+                                    <i class="fa-solid fa-users"></i>
+                                </button>
+                                <!-- Attendees Database Button -->
+                                <button 
+                                    @click="goToAttendeesPage"
+                                    style="background-color: #16C3D9; color: white; border-radius: 5px; padding: 10px 20px; cursor: pointer;"
+                                    title="View Attendees Database"
+                                >
+                                    <i class="fa-solid fa-database"></i>
                                 </button>
                             </div>
                         </div>

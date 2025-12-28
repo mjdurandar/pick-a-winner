@@ -102,9 +102,6 @@ const openEditModal = (event) => {
     modalElement.show();
 };
 
-const attendeesPage = (event) => {
-    router.get(route('attendees.index', { eventId: event.id }));
-};
 
 // Submit the form (Create or Update)
 const saveEvent = () => {
@@ -162,9 +159,28 @@ const saveEvent = () => {
     }
 };
 
-const allLocationsPage = (event) => {
-    const url = route('pickawinner.alllocation', { event: event.id });
-    window.open(url, '_blank', 'noopener');
+const goToLocationPage = (event) => {
+    router.get(route('location.locationpage', { eventId: event.id }));
+};
+
+// Format date to "Saturday, September 20, 2025" format
+const formatEventDate = (dateString) => {
+    if (!dateString) return '';
+    
+    try {
+        const date = new Date(dateString);
+        if (isNaN(date.getTime())) return dateString; // Return original if invalid
+        
+        return date.toLocaleDateString('en-US', {
+            weekday: 'long',
+            year: 'numeric',
+            month: 'long',
+            day: 'numeric'
+        });
+    } catch (e) {
+        console.error("Error formatting date:", e);
+        return dateString;
+    }
 };
 
 // Delete Event
@@ -550,8 +566,8 @@ const closeSheetsModal = () => {
                             <div class="card-body">
                                 <h5 class="card-title">{{ event.event_name }}</h5>
                                 <p class="card-text mb-1" style="font-size: 14px; font-weight: 500;">{{ event.event_country }}</p>
-                                <p class="text-muted">📅 {{ event.event_date }}</p>
-                                <p class="text-muted">👤 {{ event.event_coordinator }}</p>
+                                <p class="text-muted">📅 First show at {{ formatEventDate(event.event_date) }}</p>
+                                <p class="text-muted">👤 Event Coordinator: {{ event.event_coordinator }}</p>
                                 <div class="d-flex justify-content-between align-items-center mt-3" v-if="userRole === 'admin' || userRole === 'host'">
                                     <div class="d-flex align-items-center gap-2">
                                         <button @click="openSheetsModal(event)" class="btn btn-sm" style="background-color: #16C3D9; color: white;">
@@ -562,11 +578,8 @@ const closeSheetsModal = () => {
                                         </button>
                                     </div>
                                     <div class="d-flex align-items-center gap-2">
-                                        <button target="_blank" @click="allLocationsPage(event)" class="btn btn-sm" style="background-color: #16C3D9; color: white;">
-                                            <i class="fa-solid fa-users"></i>
-                                        </button>
-                                        <button @click="attendeesPage(event)" class="btn btn-sm" style="background-color: #16C3D9; color: white;">
-                                            <i class="fa-solid fa-database"></i>
+                                        <button @click="goToLocationPage(event)" class="btn btn-sm" style="background-color: #16C3D9; color: white;" title="Go to Location Page">
+                                            Locations
                                         </button>
                                         <button @click="openEditModal(event)" class="btn btn-sm" style="background-color: #16C3D9; color: white;" v-if="userRole === 'admin'">
                                             <i class="fa-solid fa-pen-to-square"></i>
