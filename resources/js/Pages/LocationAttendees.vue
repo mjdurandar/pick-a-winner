@@ -159,7 +159,7 @@ const generateLocationTags = () => {
     // Extract everything before hyphen as the full location label
     // e.g. "Bozeman MT - Emerson Center..." -> "BOZEMAN MT"
     const fullLocationTag = locationName.split(' - ')[0].toUpperCase();
-
+    
     // Try to infer state from the LAST word of fullLocationTag when no explicit state field
     // If last token is 2–3 letters (e.g. "MT", "NSW"), treat it as state
     let inferredState = '';
@@ -1181,8 +1181,8 @@ const downloadLogFile = (content, filename) => {
                     <!-- Mailchimp Import Status Indicator -->
                     <div v-if="location.imported_to_mailchimp" class="flex items-center space-x-2">
                         <div class="flex items-center space-x-2 bg-green-100 text-green-800 px-3 py-1 rounded-full text-sm">
-                            <i class="fa-solid fa-check-circle"></i>
-                            <span>Imported to Mailchimp</span>
+                        <i class="fa-solid fa-check-circle"></i>
+                        <span>Imported to Mailchimp</span>
                         </div>
                         <!-- Mailchimp Import Report Icon (like ticket analytics) -->
                         <button

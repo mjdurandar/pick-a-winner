@@ -112,7 +112,8 @@ class LocationController extends Controller
             'date' => 'required|date',
             'time' => 'required',
             'country' => 'required|string|in:Australia,New Zealand,Canada,USA',
-            'category' => 'required|string|in:Theatrical,AE Tour Stop,Host a Show'
+            'category' => 'required|string|in:Theatrical,AE Tour Stop,Host a Show',
+            'state' => 'nullable|string|max:3'
         ]);
 
         // Check if there are multiple locations with the same password (3-5 locations)
@@ -143,6 +144,7 @@ class LocationController extends Controller
             'time' => $request->time,
             'country' => $request->country,
             'category' => $request->category,
+            'state' => $request->state ? strtoupper(trim($request->state)) : null,
             'password' => $password
         ]);
 
@@ -156,7 +158,8 @@ class LocationController extends Controller
             'date' => 'required|date',
             'time' => 'required',
             'country' => 'required|string|in:Australia,New Zealand,Canada,USA',
-            'category' => 'required|string|in:Theatrical,AE Tour Stop,Host a Show'
+            'category' => 'required|string|in:Theatrical,AE Tour Stop,Host a Show',
+            'state' => 'nullable|string|max:3'
         ]);
 
         $location->update([
@@ -164,7 +167,8 @@ class LocationController extends Controller
             'date' => $request->date,
             'time' => $request->time,
             'country' => $request->country,
-            'category' => $request->category
+            'category' => $request->category,
+            'state' => $request->state ? strtoupper(trim($request->state)) : null
         ]);
 
         return back()->with('success', 'Location updated successfully');
@@ -1194,34 +1198,83 @@ class LocationController extends Controller
                 ->get();
 
             $sheetsData = $locations->map(function ($location) {
+                // Get state directly from database column
+                $state = $location->state ?? '';
+                
                 // Parse the name field: "Location State (if any) - Cinema"
                 $name = $location->name ?? '';
                 $locationName = '';
-                $state = '';
                 $cinema = '';
 
+                // Parse location name and cinema from name field
                 // Check if name contains " - " (separator for cinema)
                 if (strpos($name, ' - ') !== false) {
                     $parts = explode(' - ', $name, 2);
                     $locationPart = trim($parts[0]);
                     $cinema = trim($parts[1] ?? '');
                     
-                    // Check if location part contains state (2-3 letter abbreviation at the end)
-                    // Pattern: "Location ST" where ST is 2-3 uppercase letters
-                    if (preg_match('/^(.+?)\s+([A-Z]{2,3})$/', $locationPart, $matches)) {
-                        $locationName = trim($matches[1]);
-                        $state = trim($matches[2]);
-                    } else {
-                        $locationName = $locationPart;
+                    // Remove state from location part if it's there (for backward compatibility)
+                    if (!empty($state)) {
+                        $locationPart = preg_replace('/\s+' . preg_quote($state, '/') . '$/i', '', $locationPart);
                     }
+                    $locationName = trim($locationPart);
                 } else {
-                    // No cinema, check for state
-                    if (preg_match('/^(.+?)\s+([A-Z]{2,3})$/', $name, $matches)) {
-                        $locationName = trim($matches[1]);
-                        $state = trim($matches[2]);
+                    // No cinema, remove state from name if it's there
+                    if (!empty($state)) {
+                        $locationName = preg_replace('/\s+' . preg_quote($state, '/') . '$/i', '', $name);
+                        $locationName = trim($locationName);
                     } else {
                         $locationName = $name;
                     }
+                }
+
+                // Format date: "Tuesday, 19 August 2025"
+                $formattedDate = '';
+                if (!empty($location->date) && $location->date !== 'TBA') {
+                    try {
+                        $date = Carbon::parse($location->date);
+                        $formattedDate = $date->format('l, j F Y'); // e.g., "Tuesday, 19 August 2025"
+                    } catch (\Exception $e) {
+                        $formattedDate = $location->date; // Fallback to original if parsing fails
+                    }
+                } else {
+                    $formattedDate = $location->date ?? '';
+                }
+
+                // Format time: "7:00 pm"
+                $formattedTime = '';
+                if (!empty($location->time) && $location->time !== 'TBA') {
+                    try {
+                        // Handle both HH:MM:SS and HH:MM formats
+                        $timeParts = explode(':', $location->time);
+                        $hours = (int)($timeParts[0] ?? 0);
+                        $minutes = (int)($timeParts[1] ?? 0);
+                        
+                        // Determine period and display hours
+                        if ($hours == 0) {
+                            // Midnight (00:00) -> 12:00 am
+                            $displayHours = 12;
+                            $period = 'am';
+                        } elseif ($hours == 12) {
+                            // Noon (12:00) -> 12:00 pm
+                            $displayHours = 12;
+                            $period = 'pm';
+                        } elseif ($hours > 12) {
+                            // Afternoon/evening (13-23) -> 1-11 pm
+                            $displayHours = $hours - 12;
+                            $period = 'pm';
+                        } else {
+                            // Morning (1-11) -> 1-11 am
+                            $displayHours = $hours;
+                            $period = 'am';
+                        }
+                        
+                        $formattedTime = sprintf('%d:%02d %s', $displayHours, $minutes, $period);
+                    } catch (\Exception $e) {
+                        $formattedTime = $location->time; // Fallback to original if parsing fails
+                    }
+                } else {
+                    $formattedTime = $location->time ?? '';
                 }
 
                 return [
@@ -1230,8 +1283,8 @@ class LocationController extends Controller
                     'Cinema' => $cinema,
                     'State' => $state,
                     'Country' => $location->country ?? '',
-                    'Date' => $location->date ?? '',
-                    'Time' => $location->time ?? '',
+                    'Date' => $formattedDate,
+                    'Time' => $formattedTime,
                     'Category' => $location->category ?? ''
                 ];
             });
@@ -1476,6 +1529,7 @@ class LocationController extends Controller
                             'name' => $name,
                             'date' => $parsedDate,
                             'time' => $parsedTime,
+                            'state' => !empty($state) ? $state : null,
                             'country' => $row['Country'] ?? null,
                             'category' => $row['Category'] ?? null,
                         ]);
@@ -1489,6 +1543,7 @@ class LocationController extends Controller
                         'event_id' => $eventId,
                         'date' => $parsedDate,
                         'time' => $parsedTime,
+                        'state' => !empty($state) ? $state : null,
                         'country' => $row['Country'] ?? null,
                         'category' => $row['Category'] ?? null,
                         'password' => $password

@@ -15,6 +15,7 @@ class Location extends Model
         'date',
         'time',
         'password',
+        'state',
         'country',
         'category'
     ];

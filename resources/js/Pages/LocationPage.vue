@@ -2574,8 +2574,8 @@ watch(
                             type="text" 
                             placeholder="Search location..."
                                 class="w-full border p-2 rounded focus:ring focus:ring-blue-300"
-                            />
-                            
+                        />
+
                             <!-- Category Filter -->
                             <div v-if="selectedCountry && availableCategories.length > 0" class="flex items-center gap-2">
                                 <label class="text-sm font-medium text-gray-700 whitespace-nowrap">Filter by Category:</label>
@@ -2600,14 +2600,14 @@ watch(
                                 >
                                     Clear Filter
                                 </button>
-                            </div>
+                                </div>
                         </div>
 
                         <!-- ✅ Country Tabs -->
                         <div v-if="countryList.length > 0" class="mb-4">
                             <div class="border-b border-gray-200">
                                 <nav class="-mb-px flex space-x-4 overflow-x-auto" style="flex-wrap: wrap;">
-                                    <button
+                                <button 
                                         v-for="country in countryList"
                                         :key="country"
                                         @click="selectedCountry = country"

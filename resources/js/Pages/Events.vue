@@ -666,7 +666,7 @@ const closeSheetsModal = () => {
 
         <!-- Sheets Modal -->
         <div class="modal fade" id="sheetsModal" tabindex="-1" aria-labelledby="sheetsModalLabel" @hidden="closeSheetsModal">
-            <div class="modal-dialog modal-xl">
+            <div class="modal-dialog modal-fullscreen-lg-down modal-xl">
                 <div class="modal-content">
                     <div class="modal-header">
                         <h5 class="modal-title" id="sheetsModalLabel">
@@ -675,7 +675,7 @@ const closeSheetsModal = () => {
                         </h5>
                         <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
                     </div>
-                    <div class="modal-body" style="max-height: 70vh; overflow-y: auto;">
+                    <div class="modal-body" style="max-height: 70vh; overflow-y: auto; overflow-x: hidden;">
                         <div class="mb-3">
                             <small class="text-muted">
                                 <i class="fa-solid fa-info-circle me-1"></i>
@@ -684,12 +684,12 @@ const closeSheetsModal = () => {
                                 Use Undo/Redo (Ctrl+Z/Ctrl+Y) to revert changes.
                             </small>
                         </div>
-                        <div class="table-responsive" style="max-height: 60vh; overflow-y: auto;">
-                            <table id="sheetsTable" class="table table-bordered table-sm" style="font-size: 12px; margin-bottom: 0;">
+                        <div style="max-height: 60vh; overflow-y: auto; overflow-x: hidden;">
+                            <table id="sheetsTable" class="table table-bordered table-sm" style="font-size: 12px; margin-bottom: 0; width: 100%; table-layout: auto;">
                                 <thead class="table-light sticky-top" style="position: sticky; top: 0; z-index: 10; background-color: #f8f9fa;">
                                     <tr>
-                                        <th style="width: 50px; text-align: center; position: sticky; left: 0; background-color: #f8f9fa; z-index: 11;">#</th>
-                                        <th v-for="column in sheetsColumns" :key="column" style="min-width: 150px; white-space: nowrap;">
+                                        <th style="width: 50px; text-align: center;">#</th>
+                                        <th v-for="column in sheetsColumns" :key="column" style="white-space: nowrap;">
                                             {{ column }}
                                         </th>
                                         <th style="width: 80px; text-align: center;">Actions</th>
@@ -697,7 +697,7 @@ const closeSheetsModal = () => {
                                 </thead>
                                 <tbody>
                                     <tr v-for="(row, rowIndex) in sheetsData" :key="rowIndex">
-                                        <td style="text-align: center; background-color: #f8f9fa; font-weight: bold; position: sticky; left: 0; z-index: 1;">
+                                        <td style="text-align: center; background-color: #f8f9fa; font-weight: bold;">
                                             {{ rowIndex + 1 }}
                                         </td>
                                         <td v-for="(column, colIndex) in sheetsColumns" :key="column" style="padding: 2px;">

@@ -300,6 +300,127 @@
             </h2>
         </template>
 
+        <!-- ✅ Today, Tomorrow, and This Week Events Cards -->
+        <div class="mx-auto max-w-7xl sm:px-6 lg:px-8 mt-3">
+            <div class="space-y-4">
+                <!-- Today's Events Card -->
+                <div class="w-full overflow-hidden bg-white shadow-sm sm:rounded-lg">
+                    <div class="p-6">
+                        <div class="flex items-center justify-between mb-4">
+                            <h3 class="text-lg font-semibold text-gray-900">Today's Events</h3>
+                            <span class="text-sm text-gray-500">{{ props.todayEvents.date }}</span>
+                        </div>
+                        <div class="space-y-3">
+                            <div v-if="props.todayEvents.locations.length === 0" class="text-gray-500 text-center py-4">
+                                No events today
+                            </div>
+                            <div v-else>
+                                <!-- Header Row -->
+                                <div class="grid grid-cols-4 gap-4 py-2 px-3 bg-gray-50 rounded font-semibold text-sm text-gray-700">
+                                    <div>Location</div>
+                                    <div>Event</div>
+                                    <div>Time</div>
+                                    <div>Attendees</div>
+                                </div>
+                                <!-- Data Rows -->
+                                <div v-for="location in props.todayEvents.locations" :key="location.location_name" 
+                                        class="grid grid-cols-4 gap-4 py-3 px-3 border-l-4 border-blue-500 hover:bg-gray-50">
+                                    <div class="font-medium text-gray-900">{{ location.location_name }}</div>
+                                    <div class="text-gray-600">{{ location.event_name }}</div>
+                                    <div class="text-gray-500">{{ location.time }}</div>
+                                    <div class="text-gray-500">{{ location.attendees }}</div>
+                                </div>
+                                <!-- Total Row -->
+                                <div class="mt-3 pt-3 border-t border-gray-200">
+                                    <div class="text-lg font-semibold text-gray-900">
+                                        Total: {{ props.todayEvents.total_attendees }} attendees
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Tomorrow's Events Card -->
+                <div class="w-full overflow-hidden bg-white shadow-sm sm:rounded-lg">
+                    <div class="p-6">
+                        <div class="flex items-center justify-between mb-4">
+                            <h3 class="text-lg font-semibold text-gray-900">Tomorrow's Events</h3>
+                            <span class="text-sm text-gray-500">{{ props.tomorrowEvents.date }}</span>
+                        </div>
+                        <div class="space-y-3">
+                            <div v-if="props.tomorrowEvents.locations.length === 0" class="text-gray-500 text-center py-4">
+                                No events tomorrow
+                            </div>
+                            <div v-else>
+                                <!-- Header Row -->
+                                <div class="grid grid-cols-4 gap-4 py-2 px-3 bg-gray-50 rounded font-semibold text-sm text-gray-700">
+                                    <div>Location</div>
+                                    <div>Event</div>
+                                    <div>Time</div>
+                                    <div>Attendees</div>
+                                </div>
+                                <!-- Data Rows -->
+                                <div v-for="location in props.tomorrowEvents.locations" :key="location.location_name" 
+                                        class="grid grid-cols-4 gap-4 py-3 px-3 border-l-4 border-green-500 hover:bg-gray-50">
+                                    <div class="font-medium text-gray-900">{{ location.location_name }}</div>
+                                    <div class="text-gray-600">{{ location.event_name }}</div>
+                                    <div class="text-gray-500">{{ location.time }}</div>
+                                    <div class="text-gray-500">{{ location.attendees }}</div>
+                                </div>
+                                <!-- Total Row -->
+                                <div class="mt-3 pt-3 border-t border-gray-200">
+                                    <div class="text-lg font-semibold text-gray-900">
+                                        Total: {{ props.tomorrowEvents.total_attendees }} attendees
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- This Week's Events Card -->
+                <div class="w-full overflow-hidden bg-white shadow-sm sm:rounded-lg">
+                    <div class="p-6">
+                        <div class="flex items-center justify-between mb-4">
+                            <h3 class="text-lg font-semibold text-gray-900">This Week's Events</h3>
+                            <span class="text-sm text-gray-500">{{ props.thisWeekEvents.week_range }}</span>
+                        </div>
+                        <div class="space-y-3">
+                            <div v-if="props.thisWeekEvents.locations.length === 0" class="text-gray-500 text-center py-4">
+                                No events this week
+                            </div>
+                            <div v-else>
+                                <!-- Header Row -->
+                                <div class="grid grid-cols-5 gap-4 py-2 px-3 bg-gray-50 rounded font-semibold text-sm text-gray-700">
+                                    <div>Location</div>
+                                    <div>Event</div>
+                                    <div>Date</div>
+                                    <div>Time</div>
+                                    <div>Attendees</div>
+                                </div>
+                                <!-- Data Rows -->
+                                <div v-for="location in props.thisWeekEvents.locations" :key="`${location.date}-${location.location_name}`" 
+                                        class="grid grid-cols-5 gap-4 py-3 px-3 border-l-4 border-purple-500 hover:bg-gray-50">
+                                    <div class="font-medium text-gray-900">{{ location.location_name }}</div>
+                                    <div class="text-gray-600">{{ location.event_name }}</div>
+                                    <div class="text-gray-500">{{ location.date }}</div>
+                                    <div class="text-gray-500">{{ location.time }}</div>
+                                    <div class="text-gray-500">{{ location.attendees }}</div>
+                                </div>
+                                <!-- Total Row -->
+                                <div class="mt-3 pt-3 border-t border-gray-200">
+                                    <div class="text-lg font-semibold text-gray-900">
+                                        Total: {{ props.thisWeekEvents.total_attendees }} attendees
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
         <div class="py-4 px-2">
             <div class="mx-auto max-w-7xl sm:px-6 lg:px-8">
                 <div class="overflow-hidden bg-white shadow-sm sm:rounded-lg">
@@ -387,127 +508,6 @@
                         <div class="p-6 text-gray-900">Total Events Created</div>
                         <div class="pt-2 pb-5 d-flex justify-content-center font-semibold" style="font-size: 50px;">
                             {{ eventCount || 0 }}
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <!-- ✅ Today, Tomorrow, and This Week Events Cards -->
-            <div class="mx-auto max-w-7xl sm:px-6 lg:px-8 mt-3">
-                <div class="space-y-4">
-                    <!-- Today's Events Card -->
-                    <div class="w-full overflow-hidden bg-white shadow-sm sm:rounded-lg">
-                        <div class="p-6">
-                            <div class="flex items-center justify-between mb-4">
-                                <h3 class="text-lg font-semibold text-gray-900">Today's Events</h3>
-                                <span class="text-sm text-gray-500">{{ props.todayEvents.date }}</span>
-                            </div>
-                            <div class="space-y-3">
-                                <div v-if="props.todayEvents.locations.length === 0" class="text-gray-500 text-center py-4">
-                                    No events today
-                                </div>
-                                <div v-else>
-                                    <!-- Header Row -->
-                                    <div class="grid grid-cols-4 gap-4 py-2 px-3 bg-gray-50 rounded font-semibold text-sm text-gray-700">
-                                        <div>Location</div>
-                                        <div>Event</div>
-                                        <div>Time</div>
-                                        <div>Attendees</div>
-                                    </div>
-                                    <!-- Data Rows -->
-                                    <div v-for="location in props.todayEvents.locations" :key="location.location_name" 
-                                         class="grid grid-cols-4 gap-4 py-3 px-3 border-l-4 border-blue-500 hover:bg-gray-50">
-                                        <div class="font-medium text-gray-900">{{ location.location_name }}</div>
-                                        <div class="text-gray-600">{{ location.event_name }}</div>
-                                        <div class="text-gray-500">{{ location.time }}</div>
-                                        <div class="text-gray-500">{{ location.attendees }}</div>
-                                    </div>
-                                    <!-- Total Row -->
-                                    <div class="mt-3 pt-3 border-t border-gray-200">
-                                        <div class="text-lg font-semibold text-gray-900">
-                                            Total: {{ props.todayEvents.total_attendees }} attendees
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- Tomorrow's Events Card -->
-                    <div class="w-full overflow-hidden bg-white shadow-sm sm:rounded-lg">
-                        <div class="p-6">
-                            <div class="flex items-center justify-between mb-4">
-                                <h3 class="text-lg font-semibold text-gray-900">Tomorrow's Events</h3>
-                                <span class="text-sm text-gray-500">{{ props.tomorrowEvents.date }}</span>
-                            </div>
-                            <div class="space-y-3">
-                                <div v-if="props.tomorrowEvents.locations.length === 0" class="text-gray-500 text-center py-4">
-                                    No events tomorrow
-                                </div>
-                                <div v-else>
-                                    <!-- Header Row -->
-                                    <div class="grid grid-cols-4 gap-4 py-2 px-3 bg-gray-50 rounded font-semibold text-sm text-gray-700">
-                                        <div>Location</div>
-                                        <div>Event</div>
-                                        <div>Time</div>
-                                        <div>Attendees</div>
-                                    </div>
-                                    <!-- Data Rows -->
-                                    <div v-for="location in props.tomorrowEvents.locations" :key="location.location_name" 
-                                         class="grid grid-cols-4 gap-4 py-3 px-3 border-l-4 border-green-500 hover:bg-gray-50">
-                                        <div class="font-medium text-gray-900">{{ location.location_name }}</div>
-                                        <div class="text-gray-600">{{ location.event_name }}</div>
-                                        <div class="text-gray-500">{{ location.time }}</div>
-                                        <div class="text-gray-500">{{ location.attendees }}</div>
-                                    </div>
-                                    <!-- Total Row -->
-                                    <div class="mt-3 pt-3 border-t border-gray-200">
-                                        <div class="text-lg font-semibold text-gray-900">
-                                            Total: {{ props.tomorrowEvents.total_attendees }} attendees
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- This Week's Events Card -->
-                    <div class="w-full overflow-hidden bg-white shadow-sm sm:rounded-lg">
-                        <div class="p-6">
-                            <div class="flex items-center justify-between mb-4">
-                                <h3 class="text-lg font-semibold text-gray-900">This Week's Events</h3>
-                                <span class="text-sm text-gray-500">{{ props.thisWeekEvents.week_range }}</span>
-                            </div>
-                            <div class="space-y-3">
-                                <div v-if="props.thisWeekEvents.locations.length === 0" class="text-gray-500 text-center py-4">
-                                    No events this week
-                                </div>
-                                <div v-else>
-                                    <!-- Header Row -->
-                                    <div class="grid grid-cols-5 gap-4 py-2 px-3 bg-gray-50 rounded font-semibold text-sm text-gray-700">
-                                        <div>Location</div>
-                                        <div>Event</div>
-                                        <div>Date</div>
-                                        <div>Time</div>
-                                        <div>Attendees</div>
-                                    </div>
-                                    <!-- Data Rows -->
-                                    <div v-for="location in props.thisWeekEvents.locations" :key="`${location.date}-${location.location_name}`" 
-                                         class="grid grid-cols-5 gap-4 py-3 px-3 border-l-4 border-purple-500 hover:bg-gray-50">
-                                        <div class="font-medium text-gray-900">{{ location.location_name }}</div>
-                                        <div class="text-gray-600">{{ location.event_name }}</div>
-                                        <div class="text-gray-500">{{ location.date }}</div>
-                                        <div class="text-gray-500">{{ location.time }}</div>
-                                        <div class="text-gray-500">{{ location.attendees }}</div>
-                                    </div>
-                                    <!-- Total Row -->
-                                    <div class="mt-3 pt-3 border-t border-gray-200">
-                                        <div class="text-lg font-semibold text-gray-900">
-                                            Total: {{ props.thisWeekEvents.total_attendees }} attendees
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
                         </div>
                     </div>
                 </div>
