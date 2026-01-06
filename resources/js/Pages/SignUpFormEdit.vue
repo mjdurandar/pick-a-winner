@@ -386,7 +386,7 @@ const saveForm = () => {
 
                         <label class="font-medium">Type:</label>
                         <select v-model="question.type" class="w-full border p-2 rounded mb-2" 
-                            :disabled="!question.isNew">
+                            :disabled="!question.isNew && question.column_name !== 'age'">
                             <option value="email">Email</option>
                             <option value="text">Text Input</option>
                             <option value="textarea">Text Area</option>
@@ -395,7 +395,7 @@ const saveForm = () => {
                             <option value="date">Date</option>
                         </select>
 
-                        <div class="text-sm text-red-500 mb-2" v-if="!question.isNew">
+                        <div class="text-sm text-red-500 mb-2" v-if="!question.isNew && question.column_name !== 'age'">
                             Note: To change the field type of existing questions, please contact the administrator
                         </div>
 
