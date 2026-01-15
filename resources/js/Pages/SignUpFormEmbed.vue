@@ -3,16 +3,23 @@ import { ref, computed, watch, onMounted } from 'vue';
 import { router } from '@inertiajs/vue3';
 import Swal from 'sweetalert2';
 
+const props = defineProps({
+    form: Object,
+    event: Object,
+    locations: Array
+});
+
 const hasAddressFields = computed(() => {
     return JSON.parse(props.form.questions).some(question => 
         ['street_address', 'street_address_2', 'city', 'state', 'zip_code', 'country'].includes(question.column_name)
     );
 });
 
-const props = defineProps({
-    form: Object,
-    event: Object,
-    locations: Array
+// Find the country question text dynamically (in case user renamed it)
+const countryQuestionText = computed(() => {
+    const questions = JSON.parse(props.form.questions || '[]');
+    const countryQuestion = questions.find(q => q.column_name === 'country');
+    return countryQuestion ? countryQuestion.text : 'Country';
 });
 
 // Store form values
@@ -541,8 +548,8 @@ onMounted(() => {
                             v-model="formValues[question.text]" 
                             class="form-control"
                             required
-                            :disabled="hasAddressFields && !formValues['Country']"
-                            @input="formatPhoneNumber(question.text, phoneFormats[formValues['Country']])"
+                            :disabled="hasAddressFields && !formValues[countryQuestionText]"
+                            @input="formatPhoneNumber(question.text, phoneFormats[formValues[countryQuestionText]])"
                         >
                     </div>
                 </template>
