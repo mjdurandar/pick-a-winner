@@ -2058,7 +2058,7 @@ class LocationController extends Controller
             $settings = $autoMailchimpService->getSettings($event->id);
             
             $filmTour = $settings['film_tour'] ?? 'WM';
-            $year = date('Y');
+            $year = $event->event_year ?? date('Y');
             $locationName = $location->name;
             $locationCountry = $location->country ?? '';
             
@@ -2227,7 +2227,7 @@ class LocationController extends Controller
             $settings = $autoMailchimpService->getSettings($eventId);
             
             $filmTour = $settings['film_tour'] ?? 'WM';
-            $year = date('Y');
+            $year = $event->event_year ?? date('Y');
             
             // Get default tags
             $defaultTags = [];

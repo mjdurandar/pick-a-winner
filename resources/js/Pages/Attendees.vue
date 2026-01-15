@@ -115,8 +115,12 @@ const exportToCSV = () => {
 
     let csvContent = "data:text/csv;charset=utf-8,";
 
-    // Add headers using questions instead of column names, plus Tags column
-    const headers = [...columnHeaders.value.map(col => `"${getQuestionText(col)}"`), '"Tags"'];
+    // Add headers using questions instead of column names, plus Opt In Date and Tags columns
+    const headers = [
+        ...columnHeaders.value.map(col => `"${getQuestionText(col)}"`), 
+        '"Opt In Date"',
+        '"Tags"'
+    ];
     csvContent += headers.join(",") + "\n";
 
     // Process manual tags - convert to uppercase and split by comma
@@ -128,6 +132,10 @@ const exportToCSV = () => {
     // Add data rows
     filteredAttendees.value.forEach(attendee => {
         const dataRow = columnHeaders.value.map(col => `"${attendee[col] || ''}"`);
+        
+        // Add Opt In Date (formatted created_at) before Tags
+        const optInDate = formatOptInDate(attendee.created_at);
+        dataRow.push(`"${optInDate}"`);
         
         // Generate automated tags for this attendee
         const automatedTags = generateAutomatedTags(attendee);
@@ -173,7 +181,7 @@ const extractLocationName = (locationName) => {
 const generateAutomatedTags = (attendee) => {
     const locationName = attendee.location_name || '';
     const extractedLocation = extractLocationName(locationName);
-    const currentYear = new Date().getFullYear();
+    const eventYear = props.event?.event_year || new Date().getFullYear();
     
     const automatedTags = [];
     
@@ -182,10 +190,33 @@ const generateAutomatedTags = (attendee) => {
         automatedTags.push(`SHOW - ${extractedLocation.toUpperCase()}`);
         
         // Add SOURCE - {DEFAULT_WORD} {LOCATION} COMP {YEAR} tag
-        automatedTags.push(`SOURCE - ${defaultSourceWord.value.toUpperCase()} ${extractedLocation.toUpperCase()} COMP ${currentYear}`);
+        automatedTags.push(`SOURCE - ${defaultSourceWord.value.toUpperCase()} ${extractedLocation.toUpperCase()} COMP ${eventYear}`);
     }
     
     return automatedTags;
+};
+
+// ✅ Format created_at date as Opt In Date with time
+const formatOptInDate = (dateString) => {
+    if (!dateString) return '';
+    
+    try {
+        const date = new Date(dateString);
+        if (isNaN(date.getTime())) return dateString; // Return original if invalid
+        
+        // Format as YYYY-MM-DD HH:MM:SS (standard date and time format)
+        const year = date.getFullYear();
+        const month = String(date.getMonth() + 1).padStart(2, '0');
+        const day = String(date.getDate()).padStart(2, '0');
+        const hours = String(date.getHours()).padStart(2, '0');
+        const minutes = String(date.getMinutes()).padStart(2, '0');
+        const seconds = String(date.getSeconds()).padStart(2, '0');
+        
+        return `${year}-${month}-${day} ${hours}:${minutes}:${seconds}`;
+    } catch (e) {
+        console.error("Error formatting opt in date:", e);
+        return dateString;
+    }
 };
 
 // ✅ Delete Attendee with Confirmation
@@ -323,7 +354,7 @@ const deleteAttendee = (attendeeId, eventId) => {
                             placeholder="e.g., WM, RUNNATION, etc."
                         />
                         <p class="text-sm text-gray-500 mt-1">
-                            This will be used in the SOURCE tag: SOURCE - {WORD} {LOCATION} COMP 2025
+                            This will be used in the SOURCE tag: SOURCE - {WORD} {LOCATION} COMP {{ props.event?.event_year || new Date().getFullYear() }}
                         </p>
                     </div>
 
@@ -336,12 +367,12 @@ const deleteAttendee = (attendeeId, eventId) => {
                                     <strong>SHOW - {LOCATION}</strong> (extracted from Location Name before the dash)
                                 </div>
                                 <div class="mb-1">
-                                    <strong>SOURCE - {{ defaultSourceWord.toUpperCase() }} {LOCATION} COMP 2025</strong>
+                                    <strong>SOURCE - {{ defaultSourceWord.toUpperCase() }} {LOCATION} COMP {{ props.event?.event_year || new Date().getFullYear() }}</strong>
                                 </div>
                                 <div class="text-xs text-blue-600 mt-2">
                                     Example: If Location Name is "Melbourne - Classic Cinema", it will generate:
                                     <br>• SHOW - MELBOURNE
-                                    <br>• SOURCE - {{ defaultSourceWord.toUpperCase() }} MELBOURNE COMP 2025
+                                    <br>• SOURCE - {{ defaultSourceWord.toUpperCase() }} MELBOURNE COMP {{ props.event?.event_year || new Date().getFullYear() }}
                                 </div>
                             </div>
                             <div v-else class="text-gray-500">
