@@ -160,30 +160,40 @@ const generateLocationTags = () => {
     // e.g. "Bozeman MT - Emerson Center..." -> "BOZEMAN MT"
     const fullLocationTag = locationName.split(' - ')[0].toUpperCase();
     
-    // Try to infer state from the LAST word of fullLocationTag when no explicit state field
-    // If last token is 2–3 letters (e.g. "MT", "NSW"), treat it as state
+    // Check if event country is USA or CANADA
+    const eventCountry = (props.event?.event_country || '').toUpperCase();
+    const isUsaOrCanada = ['USA', 'CANADA', 'USA & CANADA'].includes(eventCountry);
+    
+    // Try to infer state from the LAST word of fullLocationTag only for USA/CANADA
+    // If last token is 2–3 letters (e.g. "MT"), treat it as state
     let inferredState = '';
     let baseLocationTag = fullLocationTag;
-    const parts = fullLocationTag.split(' ').filter(Boolean);
-    if (parts.length > 1) {
-        const last = parts[parts.length - 1];
-        if (/^[A-Z]{2,3}$/.test(last)) {
-            inferredState = last;
-            baseLocationTag = parts.slice(0, -1).join(' ');
+    
+    if (isUsaOrCanada) {
+        const parts = fullLocationTag.split(' ').filter(Boolean);
+        if (parts.length > 1) {
+            const last = parts[parts.length - 1];
+            if (/^[A-Z]{2,3}$/.test(last)) {
+                inferredState = last;
+                baseLocationTag = parts.slice(0, -1).join(' ').trim();
+            }
         }
     }
     
     // Add COUNTRY tag (for reporting)
     tags.push(`COUNTRY - ${country.toUpperCase()}`);
     
-    // Add SHOW tag (include comma + state if we inferred one)
-    const showTagLocation = inferredState
+    // Add SHOW tag (include comma + state if we inferred one for USA/CANADA)
+    const showTagLocation = isUsaOrCanada && inferredState
         ? `${baseLocationTag}, ${inferredState}`
-        : baseLocationTag;
+        : fullLocationTag;
     tags.push(`SHOW - ${showTagLocation}`);
     
-    // Add SOURCE tag with configured film tour code (location only, no state)
-    tags.push(`SOURCE - ${filmTour.toUpperCase()} ${baseLocationTag} COMP ${year}`);
+    // Add SOURCE tag with configured film tour code (location only, no state for USA/CANADA)
+    const sourceTagLocation = isUsaOrCanada && inferredState
+        ? baseLocationTag
+        : fullLocationTag;
+    tags.push(`SOURCE - ${filmTour.toUpperCase()} ${sourceTagLocation} COMP ${year}`);
     
     // Add any default tags if they exist
     if (mailchimpSettings.value.default_tags) {

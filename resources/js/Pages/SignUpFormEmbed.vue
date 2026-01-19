@@ -22,6 +22,13 @@ const countryQuestionText = computed(() => {
     return countryQuestion ? countryQuestion.text : 'Country';
 });
 
+// Find the mobile number question text dynamically (in case user renamed it)
+const mobileNumberQuestionText = computed(() => {
+    const questions = JSON.parse(props.form.questions || '[]');
+    const mobileQuestion = questions.find(q => q.column_name === 'mobile_number');
+    return mobileQuestion ? mobileQuestion.text : 'Mobile Number';
+});
+
 // Store form values
 const formValues = ref({});
 const isSubmitted = ref(false);
@@ -280,24 +287,57 @@ const submitForm = async () => {
 
 // ✅ Computed property to check if the phone number is complete
 const isMobileNumberValid = computed(() => {
-    const phoneNumber = formValues.value['Mobile Number'] || '';
-    if (!phoneNumber) return false;
+    const phoneNumber = formValues.value[mobileNumberQuestionText.value] || '';
+    
+    console.log('🔍 Phone Validation Debug:', {
+        mobileNumberField: mobileNumberQuestionText.value,
+        phoneNumber: phoneNumber,
+        phoneNumberLength: phoneNumber.length,
+        hasAddressFields: hasAddressFields.value
+    });
+    
+    if (!phoneNumber) {
+        console.log('❌ Phone number is empty');
+        return false;
+    }
 
     // If address fields are not being collected, allow a generic digit-length validation
     if (!hasAddressFields.value) {
         const digits = phoneNumber.replace(/\D/g, '').length;
-        return digits >= 8; // generic minimum when country is unknown
+        const isValid = digits >= 8; // generic minimum when country is unknown
+        console.log('📱 No address fields - Generic validation:', {
+            digits: digits,
+            isValid: isValid
+        });
+        return isValid;
     }
 
-    const country = formValues.value['Country'];
+    const country = formValues.value[countryQuestionText.value];
+    console.log('🌍 Country check:', {
+        countryField: countryQuestionText.value,
+        country: country,
+        availableFormats: Object.keys(phoneFormats)
+    });
+    
     const format = phoneFormats[country];
-    if (!format) return false;
+    if (!format) {
+        console.log('❌ No format found for country:', country);
+        return false;
+    }
 
     // Count how many digits are required in the format
     const requiredDigits = (format.match(/#/g) || []).length;
     const enteredDigits = phoneNumber.replace(/\D/g, '').length;
+    const isValid = enteredDigits === requiredDigits;
 
-    return enteredDigits === requiredDigits;
+    console.log('✅ Format validation:', {
+        format: format,
+        requiredDigits: requiredDigits,
+        enteredDigits: enteredDigits,
+        isValid: isValid
+    });
+
+    return isValid;
 });
 
 const formatPhoneNumber = (fieldName, format) => {
@@ -393,20 +433,30 @@ const getVisibleOptions = (question) => {
 };
 
 // Watch for changes in the country field and update the phone number format
-watch(() => formValues.value['Country'], (newCountry) => {
-    // console.log('Country changed:', newCountry);
-    formValues.value['Mobile Number'] = '';
+watch(() => formValues.value[countryQuestionText.value], (newCountry) => {
+    console.log('🌍 Country changed:', {
+        countryField: countryQuestionText.value,
+        newCountry: newCountry
+    });
+    
+    formValues.value[mobileNumberQuestionText.value] = '';
 
     if (!newCountry) {
         return;
     }
 
     const format = phoneFormats[newCountry];
+    console.log('📞 Phone format for country:', {
+        country: newCountry,
+        format: format,
+        mobileField: mobileNumberQuestionText.value
+    });
 
     if (format) {
-        formatPhoneNumber('Mobile Number', format);
+        formatPhoneNumber(mobileNumberQuestionText.value, format);
     } else {
         // No specific mask; leave number unformatted
+        console.log('⚠️ No format found for country:', newCountry);
     }
 });
 

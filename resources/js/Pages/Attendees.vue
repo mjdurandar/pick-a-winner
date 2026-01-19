@@ -186,11 +186,39 @@ const generateAutomatedTags = (attendee) => {
     const automatedTags = [];
     
     if (extractedLocation) {
-        // Add SHOW - {LOCATION} tag
-        automatedTags.push(`SHOW - ${extractedLocation.toUpperCase()}`);
+        // Check if event country is USA or CANADA
+        const eventCountry = (props.event?.event_country || '').toUpperCase();
+        const isUsaOrCanada = ['USA', 'CANADA', 'USA & CANADA'].includes(eventCountry);
         
-        // Add SOURCE - {DEFAULT_WORD} {LOCATION} COMP {YEAR} tag
-        automatedTags.push(`SOURCE - ${defaultSourceWord.value.toUpperCase()} ${extractedLocation.toUpperCase()} COMP ${eventYear}`);
+        // Extract state from location (last 2-3 letter word) for USA/CANADA
+        let state = '';
+        let locationWithoutState = extractedLocation.toUpperCase();
+        
+        if (isUsaOrCanada) {
+            const locationParts = extractedLocation.toUpperCase().split(' ').filter(Boolean);
+            if (locationParts.length > 1) {
+                const lastPart = locationParts[locationParts.length - 1];
+                // Check if last part is a state code (2-3 uppercase letters)
+                if (/^[A-Z]{2,3}$/.test(lastPart)) {
+                    state = lastPart;
+                    locationWithoutState = locationParts.slice(0, -1).join(' ').trim();
+                }
+            }
+        }
+        
+        // Format tags
+        const showTagLocation = isUsaOrCanada && state 
+            ? `${locationWithoutState}, ${state}` 
+            : extractedLocation.toUpperCase();
+        const sourceTagLocation = isUsaOrCanada && state 
+            ? locationWithoutState 
+            : extractedLocation.toUpperCase();
+        
+        // Add SHOW - {LOCATION} tag
+        automatedTags.push(`SHOW - ${showTagLocation}`);
+        
+        // Add SOURCE - {DEFAULT_WORD} {LOCATION} COMP {YEAR} tag (without state)
+        automatedTags.push(`SOURCE - ${defaultSourceWord.value.toUpperCase()} ${sourceTagLocation} COMP ${eventYear}`);
     }
     
     return automatedTags;

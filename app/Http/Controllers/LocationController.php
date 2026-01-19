@@ -2066,6 +2066,32 @@ class LocationController extends Controller
             $locationTag = explode(' - ', $locationName)[0];
             $locationTagUpper = strtoupper($locationTag);
             
+            // Process location tags for USA/CANADA events
+            $eventCountry = strtoupper($event->event_country ?? '');
+            $isUsaOrCanada = in_array($eventCountry, ['USA', 'CANADA', 'USA & CANADA']);
+            
+            // Extract state from location tag (last 2-3 letter word)
+            $locationParts = explode(' ', trim($locationTagUpper));
+            $state = '';
+            $locationWithoutState = $locationTagUpper;
+            
+            if ($isUsaOrCanada && count($locationParts) > 1) {
+                $lastPart = end($locationParts);
+                // Check if last part is a state code (2-3 uppercase letters)
+                if (preg_match('/^[A-Z]{2,3}$/', $lastPart)) {
+                    $state = $lastPart;
+                    $locationWithoutState = trim(str_replace($state, '', $locationTagUpper));
+                }
+            }
+            
+            // Format tags
+            $showTagLocation = $isUsaOrCanada && $state 
+                ? trim($locationWithoutState) . ', ' . $state 
+                : $locationTagUpper;
+            $sourceTagLocation = $isUsaOrCanada && $state 
+                ? trim($locationWithoutState) 
+                : $locationTagUpper;
+            
             // Get default tags
             $defaultTags = [];
             if (!empty($settings['default_tags'])) {
@@ -2143,14 +2169,14 @@ class LocationController extends Controller
                 }
                 
                 // SHOW tag
-                $tags[] = "SHOW - " . $locationTagUpper;
+                $tags[] = "SHOW - " . $showTagLocation;
                 
                 // SOURCE tags - include both if email is in both sources
                 if ($isInTickets) {
-                    $tags[] = "SOURCE - " . strtoupper($filmTour) . " " . $locationTagUpper . " TIX " . $year;
+                    $tags[] = "SOURCE - " . strtoupper($filmTour) . " " . $sourceTagLocation . " TIX " . $year;
                 }
                 if ($isInSignUp) {
-                    $tags[] = "SOURCE - " . strtoupper($filmTour) . " " . $locationTagUpper . " COMP " . $year;
+                    $tags[] = "SOURCE - " . strtoupper($filmTour) . " " . $sourceTagLocation . " COMP " . $year;
                 }
                 
                 // Add default tags
@@ -2229,6 +2255,10 @@ class LocationController extends Controller
             $filmTour = $settings['film_tour'] ?? 'WM';
             $year = $event->event_year ?? date('Y');
             
+            // Process location tags for USA/CANADA events
+            $eventCountry = strtoupper($event->event_country ?? '');
+            $isUsaOrCanada = in_array($eventCountry, ['USA', 'CANADA', 'USA & CANADA']);
+            
             // Get default tags
             $defaultTags = [];
             if (!empty($settings['default_tags'])) {
@@ -2253,6 +2283,28 @@ class LocationController extends Controller
                 $locationCountry = $location->country ?? '';
                 $locationTag = explode(' - ', $locationName)[0];
                 $locationTagUpper = strtoupper($locationTag);
+                
+                // Extract state from location tag (last 2-3 letter word) for USA/CANADA
+                $locationParts = explode(' ', trim($locationTagUpper));
+                $state = '';
+                $locationWithoutState = $locationTagUpper;
+                
+                if ($isUsaOrCanada && count($locationParts) > 1) {
+                    $lastPart = end($locationParts);
+                    // Check if last part is a state code (2-3 uppercase letters)
+                    if (preg_match('/^[A-Z]{2,3}$/', $lastPart)) {
+                        $state = $lastPart;
+                        $locationWithoutState = trim(str_replace($state, '', $locationTagUpper));
+                    }
+                }
+                
+                // Format tags for this location
+                $showTagLocation = $isUsaOrCanada && $state 
+                    ? trim($locationWithoutState) . ', ' . $state 
+                    : $locationTagUpper;
+                $sourceTagLocation = $isUsaOrCanada && $state 
+                    ? trim($locationWithoutState) 
+                    : $locationTagUpper;
                 
                 // Get ticket attendees for this location
                 $ticketAttendees = TicketAttendee::where('location_id', $location->id)->get();
@@ -2307,7 +2359,8 @@ class LocationController extends Controller
                         $allEmailsMap[$email]['locations'][] = [
                             'location_id' => $location->id,
                             'location_name' => $locationName,
-                            'location_tag' => $locationTagUpper,
+                            'location_tag' => $showTagLocation, // Use formatted SHOW tag location
+                            'location_tag_source' => $sourceTagLocation, // Separate tag for SOURCE
                             'location_country' => $locationCountry,
                             'has_ticket' => false,
                             'has_signup' => false
@@ -2375,7 +2428,8 @@ class LocationController extends Controller
                         $allEmailsMap[$email]['locations'][] = [
                             'location_id' => $location->id,
                             'location_name' => $locationName,
-                            'location_tag' => $locationTagUpper,
+                            'location_tag' => $showTagLocation, // Use formatted SHOW tag location
+                            'location_tag_source' => $sourceTagLocation, // Separate tag for SOURCE
                             'location_country' => $locationCountry,
                             'has_ticket' => false,
                             'has_signup' => false
@@ -2438,7 +2492,8 @@ class LocationController extends Controller
                     // SOURCE tags based on has_ticket and has_signup flags
                     // If email has ticket from this location, add TIX tag
                     if ($loc['has_ticket']) {
-                        $tixTag = "SOURCE - " . strtoupper($filmTour) . " " . $loc['location_tag'] . " TIX " . $year;
+                        $sourceLocation = $loc['location_tag_source'] ?? $loc['location_tag'];
+                        $tixTag = "SOURCE - " . strtoupper($filmTour) . " " . $sourceLocation . " TIX " . $year;
                         if (!in_array($tixTag, $tixTags)) {
                             $tixTags[] = $tixTag;
                             $allTags[] = $tixTag;
@@ -2447,7 +2502,8 @@ class LocationController extends Controller
                     
                     // If email has signup from this location, add COMP tag
                     if ($loc['has_signup']) {
-                        $compTag = "SOURCE - " . strtoupper($filmTour) . " " . $loc['location_tag'] . " COMP " . $year;
+                        $sourceLocation = $loc['location_tag_source'] ?? $loc['location_tag'];
+                        $compTag = "SOURCE - " . strtoupper($filmTour) . " " . $sourceLocation . " COMP " . $year;
                         if (!in_array($compTag, $compTags)) {
                             $compTags[] = $compTag;
                             $allTags[] = $compTag;

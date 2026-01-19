@@ -58,9 +58,37 @@ class AutoMailchimpService
             
             // Extract everything before hyphen for both SHOW and SOURCE tags
             $locationTag = explode(' - ', $locationName)[0];
+            $locationTagUpper = strtoupper($locationTag);
             
-            $sourceTag = "SOURCE - " . strtoupper($filmTour) . " " . strtoupper($locationTag) . " COMP " . $year;
-            $showTag = "SHOW - " . strtoupper($locationTag);
+            // Process location tags for USA/CANADA events
+            $event = $location->event;
+            $eventCountry = strtoupper($event->event_country ?? '');
+            $isUsaOrCanada = in_array($eventCountry, ['USA', 'CANADA', 'USA & CANADA']);
+            
+            // Extract state from location tag (last 2-3 letter word) for USA/CANADA
+            $locationParts = explode(' ', trim($locationTagUpper));
+            $state = '';
+            $locationWithoutState = $locationTagUpper;
+            
+            if ($isUsaOrCanada && count($locationParts) > 1) {
+                $lastPart = end($locationParts);
+                // Check if last part is a state code (2-3 uppercase letters)
+                if (preg_match('/^[A-Z]{2,3}$/', $lastPart)) {
+                    $state = $lastPart;
+                    $locationWithoutState = trim(str_replace($state, '', $locationTagUpper));
+                }
+            }
+            
+            // Format tags
+            $showTagLocation = $isUsaOrCanada && $state 
+                ? trim($locationWithoutState) . ', ' . $state 
+                : $locationTagUpper;
+            $sourceTagLocation = $isUsaOrCanada && $state 
+                ? trim($locationWithoutState) 
+                : $locationTagUpper;
+            
+            $sourceTag = "SOURCE - " . strtoupper($filmTour) . " " . $sourceTagLocation . " COMP " . $year;
+            $showTag = "SHOW - " . $showTagLocation;
             
             // Combine with default tags
             $tags = array_merge(
