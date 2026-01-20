@@ -2112,14 +2112,16 @@ watch(
                                         <i class="fa-solid fa-file-export"></i> Export Selected ({{ selectedLocationsForExport.length }})
                                     </button>
                                 </div>
-                                <!-- Attendees Database Button - Always Visible -->
-                                <button 
-                                    @click="goToAttendeesPage"
-                                    style="background-color: #16C3D9; color: white; border-radius: 5px; padding: 10px 20px; cursor: pointer;"
-                                    title="View Attendees Database"
-                                >
-                                    <i class="fa-solid fa-database"></i> Database
-                                </button>
+                                <!-- Attendees Database Button - Always Visible on Right Corner -->
+                                <div class="ml-auto">
+                                    <button 
+                                        @click="goToAttendeesPage"
+                                        style="background-color: #16C3D9; color: white; border-radius: 5px; padding: 10px 20px; cursor: pointer;"
+                                        title="View Attendees Database"
+                                    >
+                                        <i class="fa-solid fa-database"></i> Database
+                                    </button>
+                                </div>
                             </div>
                         </div>
 
