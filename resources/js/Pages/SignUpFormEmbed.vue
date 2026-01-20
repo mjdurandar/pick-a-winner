@@ -678,7 +678,7 @@ onMounted(() => {
                             <input v-if="question.column_name === 'state'" v-model="formValues[question.text]" type="text" class="flex-1 form-control  w-full border rounded px-3 py-2" placeholder="State" required>
                             <input v-if="question.column_name === 'zip_code'" v-model="formValues[question.text]" type="number" class="flex-1 form-control  w-full border rounded px-3 py-2" placeholder="Zip Code" required>                
                         </div>
-                        <label class="form-label" v-if="question.column_name === 'country'">Country</label>
+                        <label class="form-label" v-if="question.column_name === 'country'">{{ countryQuestionText }}</label>
                         <div v-if="question.column_name === 'country'">
                             <select v-model="formValues[question.text]" class="form-select  w-full border rounded px-3 py-2" required>
                             <option value="">Select an option</option>
