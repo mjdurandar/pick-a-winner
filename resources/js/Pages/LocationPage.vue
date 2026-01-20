@@ -2078,8 +2078,8 @@ watch(
                         />
 
                             <!-- Category Filter and Database Button -->
-                            <div v-if="selectedCountry && availableCategories.length > 0" class="flex items-center justify-between gap-2">
-                                <div class="flex items-center gap-2">
+                            <div class="flex items-center justify-between gap-2">
+                                <div v-if="selectedCountry && availableCategories.length > 0" class="flex items-center gap-2">
                                     <label class="text-sm font-medium text-gray-700 whitespace-nowrap">Filter by Category:</label>
                                     <select 
                                         v-model="selectedCategory"
@@ -2112,7 +2112,7 @@ watch(
                                         <i class="fa-solid fa-file-export"></i> Export Selected ({{ selectedLocationsForExport.length }})
                                     </button>
                                 </div>
-                                <!-- Attendees Database Button -->
+                                <!-- Attendees Database Button - Always Visible -->
                                 <button 
                                     @click="goToAttendeesPage"
                                     style="background-color: #16C3D9; color: white; border-radius: 5px; padding: 10px 20px; cursor: pointer;"
