@@ -7,14 +7,177 @@ import { Head } from '@inertiajs/vue3';
 
 // Track if we are editing an event
 const isEditing = ref(false);
-const ageFilter = ref(''); // 'under21', '22to44', '45plus', ''
-const filterCondition = ref('AND'); // 'AND' or 'OR'
 const isSubmitting = ref(false); // Track submission state
 
 // ✅ Search Query
 const searchQuery = ref('');
 const showSettingsModal = ref(false);
-const genderFilter = ref(''); // '' = no filter, 'male', 'female'
+const showFilters = ref(false);
+
+// ✅ Dynamic Filter System - Support multiple filters based on questions
+const filters = ref([]); // Array of filter objects: { questionColumn: '', questionText: '', filterValue: '' }
+const filterCondition = ref('AND'); // 'AND' or 'OR'
+
+// ✅ Get all available questions for filtering (excluding system fields)
+const availableQuestions = computed(() => {
+    if (!props.form || !props.form.questions) return [];
+    
+    const questions = JSON.parse(props.form.questions || '[]');
+    const systemFields = ['id', 'event_id', 'location_id', 'created_at', 'updated_at', 'events_location'];
+    
+    return questions.filter(question => 
+        !systemFields.includes(question.column_name) &&
+        props.attendees.length > 0 &&
+        props.attendees[0][question.column_name] !== undefined
+    );
+});
+
+// ✅ Get unique values for a specific question field
+const getUniqueValuesForQuestion = (columnName) => {
+    const values = [...new Set(props.attendees.map(a => a[columnName]).filter(v => v !== null && v !== undefined && v !== ''))];
+    return values.sort();
+};
+
+// ✅ Add a new filter
+const addFilter = () => {
+    filters.value.push({
+        questionColumn: '',
+        questionText: '',
+        filterValue: ''
+    });
+};
+
+// ✅ Remove a filter
+const removeFilter = (index) => {
+    filters.value.splice(index, 1);
+};
+
+// ✅ Reset all filters
+const resetFilters = () => {
+    filters.value = [];
+};
+
+// ✅ Check if any filters are active
+const hasActiveFilters = computed(() => {
+    return filters.value.some(f => f.questionColumn && f.filterValue);
+});
+
+// ✅ Get question object by column name
+const getQuestionByColumn = (columnName) => {
+    return availableQuestions.value.find(q => q.column_name === columnName);
+};
+
+// ✅ Check if question is Date of Birth
+const isDateOfBirthQuestion = (columnName) => {
+    const question = getQuestionByColumn(columnName);
+    if (!question) return false;
+    // Check if text contains "Date of Birth" or column name is date_of_birth/dob
+    const textLower = (question.text || '').toLowerCase();
+    const columnLower = (question.column_name || '').toLowerCase();
+    return textLower.includes('date of birth') || 
+           columnLower.includes('date_of_birth') || 
+           columnLower.includes('dob') ||
+           textLower.includes('birthday') ||
+           textLower.includes('birth date');
+};
+
+// ✅ Check if question has options (dropdown with choices)
+const questionHasOptions = (columnName) => {
+    const question = getQuestionByColumn(columnName);
+    return question && question.type === 'dropdown' && question.options && question.options.length > 0;
+};
+
+// ✅ Get options for a question (or age ranges for Date of Birth)
+const getQuestionOptions = (columnName) => {
+    if (isDateOfBirthQuestion(columnName)) {
+        return [
+            'Under 18',
+            '18+',
+            'Over 60'
+        ];
+    }
+    const question = getQuestionByColumn(columnName);
+    return question && question.options ? question.options : [];
+};
+
+// ✅ Calculate age from date of birth
+const calculateAge = (dateOfBirth) => {
+    if (!dateOfBirth) return null;
+    
+    try {
+        const birthDate = new Date(dateOfBirth);
+        const today = new Date();
+        let age = today.getFullYear() - birthDate.getFullYear();
+        const monthDiff = today.getMonth() - birthDate.getMonth();
+        
+        // Adjust age if birthday hasn't occurred this year
+        if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < birthDate.getDate())) {
+            age--;
+        }
+        
+        return age;
+    } catch (e) {
+        console.error('Error calculating age:', e);
+        return null;
+    }
+};
+
+// ✅ Check if age matches the selected age range
+const ageMatchesRange = (age, ageRange) => {
+    if (age === null || age === undefined) return false;
+    
+    switch (ageRange) {
+        case 'Under 18':
+            return age < 18;
+        case '18+':
+            return age >= 18 && age <= 60;
+        case 'Over 60':
+            return age > 60;
+        default:
+            return false;
+    }
+};
+
+// ✅ Update question text when column is selected
+const updateQuestionText = (filterIndex) => {
+    const filter = filters.value[filterIndex];
+    if (filter.questionColumn) {
+        const question = getQuestionByColumn(filter.questionColumn);
+        if (question) {
+            filter.questionText = question.text;
+        }
+    } else {
+        filter.questionText = '';
+    }
+    filter.filterValue = ''; // Reset filter value when question changes
+};
+
+// ✅ Get filter explanation text
+const getFilterExplanation = computed(() => {
+    const activeFilters = filters.value.filter(f => f.questionColumn && f.filterValue);
+    
+    if (activeFilters.length === 0) {
+        return 'No filters applied. All attendees are eligible.';
+    }
+    
+    const filterDescriptions = activeFilters.map(filter => {
+        const question = getQuestionByColumn(filter.questionColumn);
+        const questionText = question ? question.text : filter.questionColumn;
+        
+        // Special handling for Date of Birth - show as age range
+        if (isDateOfBirthQuestion(filter.questionColumn)) {
+            return `${questionText} (Age: ${filter.filterValue})`;
+        }
+        
+        return `${questionText} = "${filter.filterValue}"`;
+    });
+    
+    if (filterCondition.value === 'AND') {
+        return `Only attendees matching ALL of the following filters will be eligible: ${filterDescriptions.join(' AND ')}`;
+    } else {
+        return `Attendees matching ANY of the following filters will be eligible: ${filterDescriptions.join(' OR ')}`;
+    }
+});
 
 // ✅ Get today's date in 'YYYY-MM-DD' format
 const getTodayDate = () => {
@@ -113,6 +276,7 @@ const props = defineProps({
     event: Object,     // ✅ Event details (includes table_name)
     attendees: Array,   // ✅ List of attendees from the dynamic table
     prizes: Array,      // ✅ List of prizes
+    form: Object,       // ✅ Signup form with questions for dynamic filtering
 });
 
 // Open Modal for Add a Prize
@@ -421,31 +585,61 @@ const pickAgain = () => {
 
 // ✅ Compute attendees who have NOT been picked as winners yet
 const eligibleAttendees = computed(() => {
-    // console.log(props.attendees);
     return props.attendees.filter(attendee => {
         const isWinner = props.prizes.some(prize => prize.winner_email === attendee.email_address);
         const matchesLocation = attendee.location_id === props.location.id;
 
-        const normalizedAttendeeGender = attendee.gender?.toLowerCase() || '';
-        const normalizedGenderFilter = genderFilter.value.toLowerCase();
-        const hasGenderFilter = !!genderFilter.value;
-        const matchesGender = hasGenderFilter ? normalizedAttendeeGender === normalizedGenderFilter : true;
+        // Apply dynamic filters based on questions
+        if (!hasActiveFilters.value) {
+            return !isWinner && matchesLocation;
+        }
 
-        const hasAgeFilter = !!ageFilter.value;
-        const matchesAge = hasAgeFilter
-            ? (attendee.age === 'Under 21' && ageFilter.value === 'under21') ||
-              (attendee.age === '22-44' && ageFilter.value === '22to44') ||
-              (attendee.age === '45+' && ageFilter.value === '45plus')
-            : true;
+        const activeFilters = filters.value.filter(f => f.questionColumn && f.filterValue);
+        
+        if (activeFilters.length === 0) {
+            return !isWinner && matchesLocation;
+        }
 
         let matchesFilter = true;
 
         if (filterCondition.value === 'AND') {
-            matchesFilter = matchesGender && matchesAge;
-        } else if (filterCondition.value === 'OR') {
-            matchesFilter = hasGenderFilter || hasAgeFilter
-                ? matchesGender || matchesAge
-                : true;
+            // All filters must match
+            matchesFilter = activeFilters.every(filter => {
+                // Special handling for Date of Birth - calculate age from date
+                if (isDateOfBirthQuestion(filter.questionColumn)) {
+                    const dateOfBirth = attendee[filter.questionColumn];
+                    if (!dateOfBirth) return false;
+                    const age = calculateAge(dateOfBirth);
+                    return ageMatchesRange(age, filter.filterValue);
+                }
+                
+                // Regular field filtering
+                const fieldValue = attendee[filter.questionColumn];
+                if (fieldValue === null || fieldValue === undefined || fieldValue === '') {
+                    return false;
+                }
+                // Case-insensitive comparison
+                return fieldValue.toString().toLowerCase().includes(filter.filterValue.toLowerCase());
+            });
+        } else {
+            // OR: At least one filter must match
+            matchesFilter = activeFilters.some(filter => {
+                // Special handling for Date of Birth - calculate age from date
+                if (isDateOfBirthQuestion(filter.questionColumn)) {
+                    const dateOfBirth = attendee[filter.questionColumn];
+                    if (!dateOfBirth) return false;
+                    const age = calculateAge(dateOfBirth);
+                    return ageMatchesRange(age, filter.filterValue);
+                }
+                
+                // Regular field filtering
+                const fieldValue = attendee[filter.questionColumn];
+                if (fieldValue === null || fieldValue === undefined || fieldValue === '') {
+                    return false;
+                }
+                // Case-insensitive comparison
+                return fieldValue.toString().toLowerCase().includes(filter.filterValue.toLowerCase());
+            });
         }
 
         return !isWinner && matchesLocation && matchesFilter;
@@ -560,38 +754,166 @@ input:-webkit-autofill:active {
 
                     <!-- Filter Section -->
                     <div class="d-flex justify-content-center flex-wrap gap-3 mt-3 mb-3">
-                        <!-- Gender Filter -->
-                        <div class="form-group text-white">
-                            <label class="form-label me-2"> Gender:</label>
-                            <select class="form-select" v-model="genderFilter" style="background-color: #1f2937; color: white; border-color: #374151;">
-                                <option value="">All</option>
-                                <option value="male">Only Male</option>
-                                <option value="female">Only Female</option>
-                                <option value="Nonbinary/Other">Nonbinary/Other</option>
-                            </select>
-                        </div>
+                        <!-- Filter Toggle Button -->
+                        <button 
+                            @click="showFilters = !showFilters"
+                            class="px-4 py-2 rounded transition-colors text-white"
+                            :class="hasActiveFilters ? 'bg-orange-500 hover:bg-orange-600' : 'bg-gray-600 hover:bg-gray-700'"
+                        >
+                            <i class="fas fa-filter mr-2"></i>
+                            Filters {{ hasActiveFilters ? `(${filters.filter(f => f.questionColumn && f.filterValue).length})` : '' }}
+                        </button>
+                    </div>
 
-                        <!-- Age Filter -->
-                        <div class="form-group text-white">
-                            <label class="form-label me-2">Age:</label>
-                            <select class="form-select" v-model="ageFilter" style="background-color: #1f2937; color: white; border-color: #374151;">
-                                <option value="">All</option>
-                                <option value="under21">Under 21</option>
-                                <option value="22to44">22-44</option>
-                                <option value="45plus">45+</option>
-                            </select>
+                    <!-- Dynamic Filters Panel -->
+                    <div v-if="showFilters" class="mb-4 p-4 bg-gray-800 border border-gray-600 rounded" style="max-width: 1200px; margin: 0 auto;">
+                        <div class="mb-3 d-flex justify-content-between align-items-center">
+                            <h5 class="text-white mb-0">Filter Attendees by Question</h5>
+                            <button @click="addFilter" class="btn btn-sm btn-primary">
+                                <i class="fa fa-plus me-1"></i> Add Filter
+                            </button>
                         </div>
- 
-
                         
-                        <!-- Filter Condition -->
-                        <!-- <div class="form-group text-white">
-                            <label class="form-label me-2">Condition:</label>
-                            <select class="form-select" v-model="filterCondition" style="background-color: #1f2937; color: white; border-color: #374151;">
-                                <option value="AND">AND</option>
-                                <option value="OR">OR</option>
-                            </select>
-                        </div> -->
+                        <!-- Filter Condition Selector (shown when multiple filters exist) -->
+                        <div v-if="filters.length > 1" class="mb-3 p-3 bg-cyan-900 rounded">
+                            <div class="d-flex align-items-center gap-3">
+                                <label class="form-label text-white mb-0 font-weight-bold">Filter Logic:</label>
+                                <select 
+                                    v-model="filterCondition" 
+                                    class="form-select" 
+                                    style="background-color: #1f2937; color: white; border-color: #374151; max-width: 300px;"
+                                >
+                                    <option value="AND">AND - All filters must match</option>
+                                    <option value="OR">OR - Any filter can match</option>
+                                </select>
+                                <span class="text-gray-300 text-sm">
+                                    <i class="fa fa-info-circle me-1"></i>
+                                    {{ filterCondition === 'AND' ? 'Attendee must match ALL selected filters' : 'Attendee can match ANY selected filter' }}
+                                </span>
+                            </div>
+                        </div>
+                        
+                        <div v-if="filters.length === 0" class="text-gray-400 text-center py-3">
+                            No filters added. Click "Add Filter" to start filtering.
+                        </div>
+                        
+                        <div v-for="(filter, index) in filters" :key="index" class="mb-3 p-3 bg-gray-700 rounded">
+                            <div class="row g-3">
+                                <!-- Question Selection -->
+                                <div class="col-md-4">
+                                    <label class="form-label text-sm text-white">Question</label>
+                                    <select 
+                                        v-model="filter.questionColumn" 
+                                        @change="updateQuestionText(index)"
+                                        class="form-control bg-gray-600 text-white border-gray-500"
+                                    >
+                                        <option value="">Select a question...</option>
+                                        <option 
+                                            v-for="question in availableQuestions" 
+                                            :key="question.column_name" 
+                                            :value="question.column_name"
+                                        >
+                                            {{ question.text }}
+                                        </option>
+                                    </select>
+                                </div>
+                                
+                                <!-- Filter Value - Show dropdown if question has options or is Date of Birth, otherwise text input -->
+                                <div class="col-md-6">
+                                    <label class="form-label text-sm text-white">
+                                        Filter Value
+                                        <span v-if="filter.questionColumn && isDateOfBirthQuestion(filter.questionColumn)" class="text-xs text-cyan-300">
+                                            (Age calculated from date)
+                                        </span>
+                                    </label>
+                                    <!-- Dropdown for Date of Birth (age ranges) -->
+                                    <select 
+                                        v-if="filter.questionColumn && isDateOfBirthQuestion(filter.questionColumn)"
+                                        v-model="filter.filterValue"
+                                        class="form-control bg-gray-600 text-white border-gray-500"
+                                    >
+                                        <option value="">Select an age range...</option>
+                                        <option 
+                                            v-for="option in getQuestionOptions(filter.questionColumn)" 
+                                            :key="option" 
+                                            :value="option"
+                                        >
+                                            {{ option }}
+                                        </option>
+                                    </select>
+                                    <!-- Dropdown for questions with options -->
+                                    <select 
+                                        v-else-if="filter.questionColumn && questionHasOptions(filter.questionColumn)"
+                                        v-model="filter.filterValue"
+                                        class="form-control bg-gray-600 text-white border-gray-500"
+                                    >
+                                        <option value="">Select an option...</option>
+                                        <option 
+                                            v-for="option in getQuestionOptions(filter.questionColumn)" 
+                                            :key="option" 
+                                            :value="option"
+                                        >
+                                            {{ option }}
+                                        </option>
+                                    </select>
+                                    <!-- Text input for questions without options -->
+                                    <input 
+                                        v-else-if="filter.questionColumn"
+                                        v-model="filter.filterValue"
+                                        type="text"
+                                        :placeholder="`Enter value to filter ${filter.questionText || 'by'}...`"
+                                        class="form-control bg-gray-600 text-white border-gray-500"
+                                        list="values-list"
+                                    />
+                                    <datalist id="values-list" v-if="filter.questionColumn && !questionHasOptions(filter.questionColumn) && !isDateOfBirthQuestion(filter.questionColumn)">
+                                        <option 
+                                            v-for="value in getUniqueValuesForQuestion(filter.questionColumn)" 
+                                            :key="value" 
+                                            :value="value"
+                                        />
+                                    </datalist>
+                                    <input 
+                                        v-else
+                                        type="text"
+                                        placeholder="Select a question first..."
+                                        class="form-control bg-gray-600 text-white border-gray-500"
+                                        disabled
+                                    />
+                                </div>
+                                
+                                <!-- Remove Button -->
+                                <div class="col-md-2 d-flex align-items-end">
+                                    <button 
+                                        @click="removeFilter(index)"
+                                        class="btn btn-sm btn-danger w-100"
+                                    >
+                                        <i class="fa fa-trash"></i> Remove
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <!-- Filter Explanation -->
+                        <div v-if="hasActiveFilters" class="mt-4 p-3 bg-blue-900 rounded border border-blue-700">
+                            <h6 class="text-white font-weight-bold mb-2">
+                                <i class="fa fa-info-circle me-2"></i>Filter Explanation:
+                            </h6>
+                            <p class="text-white mb-0">{{ getFilterExplanation }}</p>
+                            <p class="text-gray-300 text-sm mt-2 mb-0">
+                                Eligible attendees: <strong class="text-white">{{ eligibleAttendees.length }}</strong> out of <strong class="text-white">{{ filteredAttendees.length }}</strong> total attendees
+                            </p>
+                        </div>
+                        
+                        <!-- Reset Filters Button -->
+                        <div v-if="hasActiveFilters" class="text-center mt-3">
+                            <button 
+                                @click="resetFilters"
+                                class="btn btn-outline-warning"
+                            >
+                                <i class="fas fa-undo mr-2"></i>
+                                Reset All Filters
+                            </button>
+                        </div>
                     </div>
 
                     <!-- Centered Pick a Winner Button -->

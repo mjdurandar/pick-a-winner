@@ -56,18 +56,7 @@ class PickaWinnerController extends Controller
         // Query the event's signup form table for attendees from this location
         $attendees = DB::table($tableName)
         ->leftJoin('locations', "$tableName.location_id", '=', 'locations.id')
-        ->select(
-            "$tableName.id",
-            "$tableName.first_name",
-            "$tableName.last_name",
-            "$tableName.email_address",
-            "$tableName.gender",
-            "$tableName.mobile_number",
-            "$tableName.age",
-            "$tableName.location_id",
-            "locations.name as location_name",
-            DB::raw("DATE(CONVERT_TZ($tableName.created_at, '+00:00', '+00:00')) as created_at")
-        )
+        ->select("$tableName.*", 'locations.name as location_name') // Select all columns to allow filtering by any question
         ->where("$tableName.event_id", $eventId)
         ->where("$tableName.location_id", $location->id)
         ->get();
@@ -77,6 +66,7 @@ class PickaWinnerController extends Controller
             'event' => $event,
             'attendees' => $attendees,
             'prizes' => $prize,
+            'form' => $signUpForm, // Pass the signup form with questions for dynamic filtering
         ]);
     }
 
