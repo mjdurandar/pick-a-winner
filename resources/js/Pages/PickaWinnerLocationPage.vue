@@ -18,6 +18,11 @@ const showFilters = ref(false);
 const filters = ref([]); // Array of filter objects: { questionColumn: '', questionText: '', filterValue: '' }
 const filterCondition = ref('AND'); // 'AND' or 'OR'
 
+// ✅ Get attendees for the current location only
+const locationAttendees = computed(() => {
+    return props.attendees.filter(attendee => attendee.location_id === props.location.id);
+});
+
 // ✅ Get all available questions for filtering (excluding system fields)
 const availableQuestions = computed(() => {
     if (!props.form || !props.form.questions) return [];
@@ -27,14 +32,14 @@ const availableQuestions = computed(() => {
     
     return questions.filter(question => 
         !systemFields.includes(question.column_name) &&
-        props.attendees.length > 0 &&
-        props.attendees[0][question.column_name] !== undefined
+        locationAttendees.value.length > 0 &&
+        locationAttendees.value[0][question.column_name] !== undefined
     );
 });
 
-// ✅ Get unique values for a specific question field
+// ✅ Get unique values for a specific question field (only from current location)
 const getUniqueValuesForQuestion = (columnName) => {
-    const values = [...new Set(props.attendees.map(a => a[columnName]).filter(v => v !== null && v !== undefined && v !== ''))];
+    const values = [...new Set(locationAttendees.value.map(a => a[columnName]).filter(v => v !== null && v !== undefined && v !== ''))];
     return values.sort();
 };
 
@@ -185,12 +190,9 @@ const getTodayDate = () => {
     return today.toISOString().split('T')[0]; // ✅ Ensures 'YYYY-MM-DD' in UTC
 };
 
-// ✅ Computed Property to Filter Attendees
+// ✅ Computed Property to Filter Attendees (only from current location)
 const filteredAttendees = computed(() => {
-    return props.attendees.filter(attendee => {
-        // ✅ Ensure attendee's location matches the selected location
-        const matchesLocation = attendee.location_id === props.location.id;
-
+    return locationAttendees.value.filter(attendee => {
         // ✅ Apply search filtering
         const matchesSearch = searchQuery.value
             ? `${attendee.first_name} ${attendee.last_name}`.toLowerCase().includes(searchQuery.value.toLowerCase()) ||
@@ -199,7 +201,7 @@ const filteredAttendees = computed(() => {
               attendee.mobile_number.toLowerCase().includes(searchQuery.value.toLowerCase())
             : true;
 
-        return matchesLocation && matchesSearch;
+        return matchesSearch;
     });
 });
 
@@ -481,9 +483,9 @@ const openPickWinnerModal = () => {
     }, 3000);
 };
 
-// Add this computed property to find the attendee data
+// Add this computed property to find the attendee data (only from current location)
 const findAttendeeByEmail = (email) => {
-    return props.attendees.find(attendee => attendee.email_address === email);
+    return locationAttendees.value.find(attendee => attendee.email_address === email);
 };
 
 // Update the openPrizeDetailsModal function
@@ -583,21 +585,20 @@ const pickAgain = () => {
 };
 
 
-// ✅ Compute attendees who have NOT been picked as winners yet
+// ✅ Compute attendees who have NOT been picked as winners yet (only from current location)
 const eligibleAttendees = computed(() => {
-    return props.attendees.filter(attendee => {
+    return locationAttendees.value.filter(attendee => {
         const isWinner = props.prizes.some(prize => prize.winner_email === attendee.email_address);
-        const matchesLocation = attendee.location_id === props.location.id;
 
         // Apply dynamic filters based on questions
         if (!hasActiveFilters.value) {
-            return !isWinner && matchesLocation;
+            return !isWinner;
         }
 
         const activeFilters = filters.value.filter(f => f.questionColumn && f.filterValue);
         
         if (activeFilters.length === 0) {
-            return !isWinner && matchesLocation;
+            return !isWinner;
         }
 
         let matchesFilter = true;
@@ -642,7 +643,7 @@ const eligibleAttendees = computed(() => {
             });
         }
 
-        return !isWinner && matchesLocation && matchesFilter;
+        return !isWinner && matchesFilter;
     });
 });
 
@@ -763,7 +764,7 @@ input:-webkit-autofill:active {
                             <i class="fas fa-filter mr-2"></i>
                             Filters {{ hasActiveFilters ? `(${filters.filter(f => f.questionColumn && f.filterValue).length})` : '' }}
                         </button>
-                    </div>
+                        </div>
 
                     <!-- Dynamic Filters Panel -->
                     <div v-if="showFilters" class="mb-4 p-4 bg-gray-800 border border-gray-600 rounded" style="max-width: 1200px; margin: 0 auto;">
@@ -785,14 +786,14 @@ input:-webkit-autofill:active {
                                 >
                                     <option value="AND">AND - All filters must match</option>
                                     <option value="OR">OR - Any filter can match</option>
-                                </select>
+                            </select>
                                 <span class="text-gray-300 text-sm">
                                     <i class="fa fa-info-circle me-1"></i>
                                     {{ filterCondition === 'AND' ? 'Attendee must match ALL selected filters' : 'Attendee can match ANY selected filter' }}
                                 </span>
                             </div>
                         </div>
-                        
+ 
                         <div v-if="filters.length === 0" class="text-gray-400 text-center py-3">
                             No filters added. Click "Add Filter" to start filtering.
                         </div>
@@ -840,7 +841,7 @@ input:-webkit-autofill:active {
                                         >
                                             {{ option }}
                                         </option>
-                                    </select>
+                            </select>
                                     <!-- Dropdown for questions with options -->
                                     <select 
                                         v-else-if="filter.questionColumn && questionHasOptions(filter.questionColumn)"
