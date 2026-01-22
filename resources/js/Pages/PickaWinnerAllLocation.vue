@@ -223,8 +223,16 @@ const filteredAttendees = computed(() => {
                     if (fieldValue === null || fieldValue === undefined || fieldValue === '') {
                         return false;
                     }
-                    // Case-insensitive comparison
-                    return fieldValue.toString().toLowerCase().includes(filter.filterValue.toLowerCase());
+                    
+                    // For dropdown fields with predefined options, use exact match
+                    // For text fields, use substring match
+                    if (questionHasOptions(filter.questionColumn)) {
+                        // Exact match (case-insensitive) for dropdowns
+                        return fieldValue.toString().toLowerCase().trim() === filter.filterValue.toLowerCase().trim();
+                    } else {
+                        // Substring match (case-insensitive) for text fields
+                        return fieldValue.toString().toLowerCase().includes(filter.filterValue.toLowerCase());
+                    }
                 });
             } else {
                 // OR: At least one filter must match
@@ -242,8 +250,16 @@ const filteredAttendees = computed(() => {
                     if (fieldValue === null || fieldValue === undefined || fieldValue === '') {
                         return false;
                     }
-                    // Case-insensitive comparison
-                    return fieldValue.toString().toLowerCase().includes(filter.filterValue.toLowerCase());
+                    
+                    // For dropdown fields with predefined options, use exact match
+                    // For text fields, use substring match
+                    if (questionHasOptions(filter.questionColumn)) {
+                        // Exact match (case-insensitive) for dropdowns
+                        return fieldValue.toString().toLowerCase().trim() === filter.filterValue.toLowerCase().trim();
+                    } else {
+                        // Substring match (case-insensitive) for text fields
+                        return fieldValue.toString().toLowerCase().includes(filter.filterValue.toLowerCase());
+                    }
                 });
             }
         });
