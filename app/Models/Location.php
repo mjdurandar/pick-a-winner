@@ -17,7 +17,8 @@ class Location extends Model
         'password',
         'state',
         'country',
-        'category'
+        'category',
+        'is_hidden'
     ];
 
     /**

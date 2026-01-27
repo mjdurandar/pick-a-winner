@@ -35,6 +35,7 @@ const selectedEventForSheets = ref(null);
 const sheetsData = ref([]);
 const sheetsColumns = ['Location', 'Cinema', 'State', 'Country', 'Date', 'Time', 'Category'];
 const rowsToAdd = ref(1);
+const originalLocationIds = ref([]); // Track original location IDs to detect deletions
 
 // Undo/Redo functionality
 const sheetsHistory = ref([]);
@@ -278,15 +279,21 @@ const openSheetsModal = async (event) => {
         const response = await axios.get(route('location.getSheetsData', { eventId: event.id }));
         if (response.data.success && response.data.data.length > 0) {
             sheetsData.value = response.data.data;
+            // Store original location IDs to track deletions
+            originalLocationIds.value = response.data.data
+                .map(row => row.id)
+                .filter(id => id !== null && id !== undefined);
         } else {
             // Initialize with empty row if no data
             sheetsData.value = [];
+            originalLocationIds.value = [];
             addSheetsRowInternal();
         }
     } catch (error) {
         console.error('Error loading sheets data:', error);
         // Initialize with empty row on error
         sheetsData.value = [];
+        originalLocationIds.value = [];
         addSheetsRowInternal();
     }
     
@@ -492,10 +499,17 @@ const saveSheetsData = async () => {
         return;
     }
 
+    // Calculate which location IDs should be deleted (were in original but not in current data)
+    const currentLocationIds = dataToSave
+        .map(row => row.id)
+        .filter(id => id !== null && id !== undefined);
+    const idsToDelete = originalLocationIds.value.filter(id => !currentLocationIds.includes(id));
+
     try {
         const response = await axios.post(route('location.saveSheetsData'), {
             event_id: selectedEventForSheets.value.id,
-            data: dataToSave
+            data: dataToSave,
+            ids_to_delete: idsToDelete // Send IDs that should be deleted
         });
 
         if (response.data.success) {
@@ -504,6 +518,13 @@ const saveSheetsData = async () => {
             const reloadResponse = await axios.get(route('location.getSheetsData', { eventId: selectedEventForSheets.value.id }));
             if (reloadResponse.data.success && reloadResponse.data.data.length > 0) {
                 sheetsData.value = reloadResponse.data.data;
+                // Update original location IDs after save
+                originalLocationIds.value = reloadResponse.data.data
+                    .map(row => row.id)
+                    .filter(id => id !== null && id !== undefined);
+            } else {
+                sheetsData.value = [];
+                originalLocationIds.value = [];
             }
         } else {
             Swal.fire('Error', response.data.error || 'Failed to save data', 'error');
@@ -521,6 +542,7 @@ const closeSheetsModal = () => {
     sheetsData.value = [];
     sheetsHistory.value = [];
     historyIndex.value = -1;
+    originalLocationIds.value = [];
     let modalElement = bootstrap.Modal.getInstance(document.getElementById('sheetsModal'));
     if (modalElement) {
         modalElement.hide();

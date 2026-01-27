@@ -43,7 +43,9 @@ class LocationController extends Controller
     public function locationpage($eventId)
     {
         $event = Events::findOrFail($eventId);
-        $locations = Location::where('event_id', $eventId)->get();
+        $locations = Location::where('event_id', $eventId)
+            ->where('is_hidden', false)
+            ->get();
 
         // Check which locations have been imported to Mailchimp
         $locationIds = $locations->pluck('id');
@@ -1193,7 +1195,9 @@ class LocationController extends Controller
     public function getSheetsData($eventId)
     {
         try {
+            // Only get non-hidden locations for the master sheet
             $locations = Location::where('event_id', $eventId)
+                ->where('is_hidden', false)
                 ->orderBy('id', 'asc')
                 ->get();
 
@@ -1474,12 +1478,16 @@ class LocationController extends Controller
                 'data.*.Date' => 'nullable|string',
                 'data.*.Time' => 'nullable|string',
                 'data.*.Category' => 'nullable|string',
+                'ids_to_delete' => 'nullable|array',
+                'ids_to_delete.*' => 'integer|exists:locations,id',
             ]);
 
             $eventId = $request->event_id;
             $rows = $request->data;
             $created = 0;
             $updated = 0;
+            $deleted = 0;
+            $hidden = 0;
 
             // Get existing locations for password logic
             $existingLocations = Location::where('event_id', $eventId)->get();
@@ -1552,11 +1560,61 @@ class LocationController extends Controller
                 }
             }
 
+            // Delete or hide locations that were removed from the master sheet
+            if ($request->has('ids_to_delete') && is_array($request->ids_to_delete)) {
+                foreach ($request->ids_to_delete as $locationId) {
+                    $location = Location::find($locationId);
+                    if ($location && $location->event_id == $eventId) {
+                        // Check if location has attendees (from signup form table or ticket attendees)
+                        $hasAttendees = false;
+                        
+                        // Check ticket attendees
+                        $ticketAttendeeCount = TicketAttendee::where('location_id', $locationId)->count();
+                        if ($ticketAttendeeCount > 0) {
+                            $hasAttendees = true;
+                        }
+                        
+                        // Check signup form attendees
+                        if (!$hasAttendees) {
+                            $signUpForm = SignUpForm::where('event_id', $eventId)->first();
+                            if ($signUpForm && $signUpForm->table_name) {
+                                $attendeeCount = DB::table($signUpForm->table_name)
+                                    ->where('location_id', $locationId)
+                                    ->count();
+                                if ($attendeeCount > 0) {
+                                    $hasAttendees = true;
+                                }
+                            }
+                        }
+                        
+                        if ($hasAttendees) {
+                            // Hide the location instead of deleting
+                            $location->update(['is_hidden' => true]);
+                            $hidden++;
+                        } else {
+                            // Safe to delete if no attendees
+                            $location->delete();
+                            $deleted++;
+                        }
+                    }
+                }
+            }
+
+            $message = "Successfully saved. Created: {$created}, Updated: {$updated}";
+            if ($deleted > 0) {
+                $message .= ", Deleted: {$deleted}";
+            }
+            if ($hidden > 0) {
+                $message .= ", Hidden: {$hidden} (locations with attendees were hidden instead of deleted)";
+            }
+
             return response()->json([
                 'success' => true,
-                'message' => "Successfully saved. Created: {$created}, Updated: {$updated}",
+                'message' => $message,
                 'created' => $created,
-                'updated' => $updated
+                'updated' => $updated,
+                'deleted' => $deleted,
+                'hidden' => $hidden
             ]);
         } catch (\Exception $e) {
             Log::error('Failed to save sheets data', [
