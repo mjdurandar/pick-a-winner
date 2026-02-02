@@ -129,17 +129,23 @@ class MailchimpService
             'raw_subscriber_data' => $subscriber
         ]);
 
-        // Prepare merge fields with validation
+        // Mailchimp requires a complete address (non-empty addr1, city, state, zip, country). Use placeholder when missing.
+        $addrPlaceholder = '—';
+        $addr1 = trim((string) ($subscriber['street_address'] ?? ''));
+        $city = trim((string) ($subscriber['city'] ?? ''));
+        $state = trim((string) ($subscriber['state'] ?? ''));
+        $zip = trim((string) ($subscriber['zip_code'] ?? ''));
+        $country = trim((string) ($subscriber['country'] ?? ''));
         $mergeFields = [
             'FNAME' => $subscriber['first_name'] ?? '',
             'LNAME' => $subscriber['last_name'] ?? '',
             'ADDRESS' => [
-                'addr1' => $subscriber['street_address'] ?? '',
+                'addr1' => $addr1 !== '' ? $addr1 : $addrPlaceholder,
                 'addr2' => $subscriber['street_address_2'] ?? '',
-                'city' => $subscriber['city'] ?? '',
-                'state' => $subscriber['state'] ?? '',
-                'zip' => $subscriber['zip_code'] ?? '',
-                'country' => $subscriber['country'] ?? '',
+                'city' => $city !== '' ? $city : $addrPlaceholder,
+                'state' => $state !== '' ? $state : $addrPlaceholder,
+                'zip' => $zip !== '' ? $zip : $addrPlaceholder,
+                'country' => $country !== '' ? $country : $addrPlaceholder,
             ],
             'PHONE' => $subscriber['mobile_number'] ?? '',
             'GENDER' => $subscriber['gender'] ?? '',
@@ -337,7 +343,21 @@ class MailchimpService
             }
         }
 
-        throw new \Exception('Failed to add/update subscriber in Mailchimp list: ' . $response->body());
+        $detail = $responseData['detail'] ?? 'Your merge fields were invalid.';
+        if (!empty($responseData['errors']) && is_array($responseData['errors'])) {
+            $first = $responseData['errors'][0];
+            $field = $first['field'] ?? '';
+            $message = $first['message'] ?? '';
+            $detail .= ' Field: ' . $field . ($message ? ' - ' . $message : '');
+        }
+        \Illuminate\Support\Facades\Log::warning('Manual import - Mailchimp API error', [
+            'email' => $subscriber['email_address'] ?? '',
+            'status' => $response->status(),
+            'detail' => $detail,
+            'errors' => $responseData['errors'] ?? [],
+            'merge_fields_sent' => array_keys($mergeFields),
+        ]);
+        throw new \Exception('Failed to add/update subscriber in Mailchimp list: ' . $detail);
     }
 
     // Helper method for smart field detection in manual imports
@@ -466,10 +486,44 @@ class MailchimpService
                 $value = $this->getSubscriberField($subscriber, $sourceFields);
                 $normalized = $normalizeValue($value, $mailchimpField);
                 if ($normalized !== null) {
-                    $mergeFieldMap[$mailchimpField] = $normalized;
+                    // For dropdown/radio, value must match an allowed choice (USA/ANZ strict validation)
+                    if (in_array($fieldType, ['dropdown', 'radio']) && isset($info['options']['choices']) && is_array($info['options']['choices'])) {
+                        $choices = $info['options']['choices'];
+                        $valueStr = (string) $normalized;
+                        $matched = false;
+                        foreach ($choices as $choice) {
+                            $choiceStr = is_string($choice) ? $choice : ($choice['value'] ?? (string) $choice);
+                            if (strcasecmp(trim($choiceStr), trim($valueStr)) === 0) {
+                                $mergeFieldMap[$mailchimpField] = $choiceStr;
+                                $matched = true;
+                                break;
+                            }
+                        }
+                        if (!$matched) {
+                            if ($info && !empty($info['required']) && count($choices) > 0) {
+                                $first = $choices[0];
+                                $mergeFieldMap[$mailchimpField] = is_string($first) ? $first : ($first['value'] ?? $placeholderForRequired);
+                            }
+                            // optional dropdown/radio with invalid value: skip to avoid "merge fields invalid"
+                        }
+                    } else {
+                        $mergeFieldMap[$mailchimpField] = $normalized;
+                    }
                 }
             }
         }
+
+        // Build a complete address for Mailchimp (required: addr1, city, state, zip, country must be non-empty)
+        $addressPlaceholder = function () use ($placeholderForRequired) {
+            return [
+                'addr1' => $placeholderForRequired,
+                'addr2' => '',
+                'city' => $placeholderForRequired,
+                'state' => $placeholderForRequired,
+                'zip' => $placeholderForRequired,
+                'country' => $placeholderForRequired,
+            ];
+        };
 
         // Handle special ADDRESS field format if it exists
         if (in_array('ADDRESS', $availableFieldTags)) {
@@ -481,10 +535,50 @@ class MailchimpService
                 'zip' => $this->getSubscriberField($subscriber, ['zip_code', 'zipcode', 'postal_code', 'postcode', 'Zip Code', 'Postal Code']),
                 'country' => $this->getSubscriberField($subscriber, ['country', 'Country']),
             ];
-            
-            // Only add ADDRESS if we have at least addr1 or city
-            if (!empty($addressData['addr1']) || !empty($addressData['city'])) {
-                $mergeFieldMap['ADDRESS'] = $addressData;
+            // Mailchimp requires a "complete" address: fill any empty required parts with placeholder so import succeeds
+            $addr1 = trim((string) ($addressData['addr1'] ?? ''));
+            $city = trim((string) ($addressData['city'] ?? ''));
+            $state = trim((string) ($addressData['state'] ?? ''));
+            $zip = trim((string) ($addressData['zip'] ?? ''));
+            $country = trim((string) ($addressData['country'] ?? ''));
+            if ($addr1 === '') {
+                $addressData['addr1'] = $placeholderForRequired;
+            }
+            if ($city === '') {
+                $addressData['city'] = $placeholderForRequired;
+            }
+            if ($state === '') {
+                $addressData['state'] = $placeholderForRequired;
+            }
+            if ($zip === '') {
+                $addressData['zip'] = $placeholderForRequired;
+            }
+            if ($country === '') {
+                $addressData['country'] = $placeholderForRequired;
+            }
+            $addressData['addr2'] = $addressData['addr2'] ?? '';
+            $mergeFieldMap['ADDRESS'] = $addressData;
+        }
+
+        // Fill any required merge fields from the audience that we haven't set (USA/ANZ may have different required fields)
+        foreach ($availableMergeFields as $field) {
+            $tag = $field['tag'] ?? null;
+            if (!$tag || !empty($field['required']) === false) {
+                continue;
+            }
+            if (array_key_exists($tag, $mergeFieldMap)) {
+                continue;
+            }
+            $type = $field['type'] ?? 'text';
+            if ($type === 'address') {
+                $mergeFieldMap[$tag] = $addressPlaceholder();
+            } elseif ($type === 'number') {
+                $mergeFieldMap[$tag] = 0;
+            } elseif (in_array($type, ['dropdown', 'radio']) && isset($field['options']['choices']) && is_array($field['options']['choices']) && count($field['options']['choices']) > 0) {
+                $first = $field['options']['choices'][0];
+                $mergeFieldMap[$tag] = is_string($first) ? $first : ($first['value'] ?? $placeholderForRequired);
+            } else {
+                $mergeFieldMap[$tag] = $placeholderForRequired;
             }
         }
 
@@ -500,20 +594,31 @@ class MailchimpService
                         $mergeFieldMap[$addressField] = (string) $streetAddress;
                     }
                 } elseif ($addressField === 'ADDRESSWIN') {
-                    // ADDRESSWIN is an Address type field - needs full address object
+                    // ADDRESSWIN is an Address type field - needs full address object; use placeholders for missing parts
                     $addressData = [
-                        'addr1' => $this->getSubscriberField($subscriber, ['street_address', 'address', 'Street Address', 'Address', 'street']) ?: '',
-                        'addr2' => $this->getSubscriberField($subscriber, ['street_address_2', 'address_2', 'address_line_2', 'Address Line 2']) ?: '',
-                        'city' => $this->getSubscriberField($subscriber, ['city', 'City', 'town', 'Town']) ?: '',
-                        'state' => $this->getSubscriberField($subscriber, ['state', 'State', 'province', 'Province']) ?: '',
-                        'zip' => $this->getSubscriberField($subscriber, ['zip_code', 'zipcode', 'postal_code', 'postcode', 'Zip Code', 'Postal Code']) ?: '',
-                        'country' => $this->getSubscriberField($subscriber, ['country', 'Country']) ?: ''
+                        'addr1' => trim((string) $this->getSubscriberField($subscriber, ['street_address', 'address', 'Street Address', 'Address', 'street'])),
+                        'addr2' => trim((string) $this->getSubscriberField($subscriber, ['street_address_2', 'address_2', 'address_line_2', 'Address Line 2'])),
+                        'city' => trim((string) $this->getSubscriberField($subscriber, ['city', 'City', 'town', 'Town'])),
+                        'state' => trim((string) $this->getSubscriberField($subscriber, ['state', 'State', 'province', 'Province'])),
+                        'zip' => trim((string) $this->getSubscriberField($subscriber, ['zip_code', 'zipcode', 'postal_code', 'postcode', 'Zip Code', 'Postal Code'])),
+                        'country' => trim((string) $this->getSubscriberField($subscriber, ['country', 'Country'])),
                     ];
-                    
-                    // Only add if we have at least addr1 or city
-                    if (!empty($addressData['addr1']) || !empty($addressData['city'])) {
-                        $mergeFieldMap[$addressField] = $addressData;
+                    if ($addressData['addr1'] === '') {
+                        $addressData['addr1'] = $placeholderForRequired;
                     }
+                    if ($addressData['city'] === '') {
+                        $addressData['city'] = $placeholderForRequired;
+                    }
+                    if ($addressData['state'] === '') {
+                        $addressData['state'] = $placeholderForRequired;
+                    }
+                    if ($addressData['zip'] === '') {
+                        $addressData['zip'] = $placeholderForRequired;
+                    }
+                    if ($addressData['country'] === '') {
+                        $addressData['country'] = $placeholderForRequired;
+                    }
+                    $mergeFieldMap[$addressField] = $addressData;
                 }
             }
         }
