@@ -90,13 +90,6 @@ const userRole = computed(() => user.value?.role);
                                 >
                                     Report
                                 </NavLink>
-                                <NavLink
-                                    v-if="userRole === 'admin' || userRole === 'host'"
-                                    :href="route('mailchimpImportLogs.index')"
-                                    :active="route().current('mailchimpImportLogs.index')"
-                                >
-                                    Mailchimp import logs
-                                </NavLink>
                             </div>
                         </div>
 
@@ -133,6 +126,12 @@ const userRole = computed(() => user.value?.role);
                                             :href="route('profile.edit')"
                                         >
                                             Profile
+                                        </DropdownLink>
+                                        <DropdownLink
+                                            v-if="userRole === 'admin' || userRole === 'host'"
+                                            :href="route('mailchimpImportLogs.index')"
+                                        >
+                                            MC Logs
                                         </DropdownLink>
                                         <DropdownLink
                                             :href="route('logout')"
@@ -248,13 +247,6 @@ const userRole = computed(() => user.value?.role);
                                 >
                                     Weekly Report
                         </ResponsiveNavLink>
-                        <ResponsiveNavLink
-                                v-if="userRole === 'admin' || userRole === 'host'"
-                                    :href="route('mailchimpImportLogs.index')"
-                                    :active="route().current('mailchimpImportLogs.index')"
-                                >
-                                    Mailchimp import logs
-                        </ResponsiveNavLink>
                     </div>
 
                     <!-- Responsive Settings Options -->
@@ -275,6 +267,12 @@ const userRole = computed(() => user.value?.role);
                         <div class="mt-3 space-y-1">
                             <ResponsiveNavLink :href="route('profile.edit')">
                                 Profile
+                            </ResponsiveNavLink>
+                            <ResponsiveNavLink
+                                v-if="userRole === 'admin' || userRole === 'host'"
+                                :href="route('mailchimpImportLogs.index')"
+                            >
+                                MC Logs
                             </ResponsiveNavLink>
                             <ResponsiveNavLink
                                 :href="route('logout')"

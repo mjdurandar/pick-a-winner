@@ -196,7 +196,8 @@ const fetchMailchimpSettings = async () => {
 };
 
 // ✅ Generate location-specific Mailchimp tags
-const generateLocationTags = () => {
+// sourceType: 'signup_form' -> SOURCE uses COMP; 'ticket_data' (Eventbrite/CSV) -> SOURCE uses TIX
+const generateLocationTags = (sourceType = 'signup_form') => {
     const tags = [];
     const filmTour = mailchimpSettings.value.film_tour || 'WM';
     const year = new Date().getFullYear();
@@ -236,11 +237,12 @@ const generateLocationTags = () => {
         : fullLocationTag;
     tags.push(`SHOW - ${showTagLocation}`);
     
-    // Add SOURCE tag with configured film tour code (location only, no state for USA/CANADA)
+    // SOURCE: TIX for ticket/Eventbrite/CSV import, COMP for signup form import
+    const sourceWord = sourceType === 'ticket_data' ? 'TIX' : 'COMP';
     const sourceTagLocation = isUsaOrCanada && inferredState
         ? baseLocationTag
         : fullLocationTag;
-    tags.push(`SOURCE - ${filmTour.toUpperCase()} ${sourceTagLocation} COMP ${year}`);
+    tags.push(`SOURCE - ${filmTour.toUpperCase()} ${sourceTagLocation} ${sourceWord} ${year}`);
     
     // Add any default tags if they exist
     if (mailchimpSettings.value.default_tags) {
@@ -738,7 +740,9 @@ const loadMailchimpListsForAccount = async (account) => {
 const openMailchimpImportModal = async () => {
     isOpeningMailchimpModal.value = true;
     try {
-        const locationTags = generateLocationTags();
+        const isTicketImport = !!(mailchimpImportSubscribers.value && mailchimpImportSubscribers.value.length);
+        const sourceType = isTicketImport ? 'ticket_data' : 'signup_form';
+        const locationTags = generateLocationTags(sourceType);
         customTags.value = locationTags.join(TAG_SEP_DISPLAY);
         // Load lists for account auto-selected from event/location country
         await loadMailchimpListsForAccount(mailchimpAccount.value);
@@ -1819,7 +1823,7 @@ const downloadLogFile = (content, filename) => {
                             </p>
                             <button 
                                 type="button"
-                                @click="customTags = generateLocationTags().join(TAG_SEP_DISPLAY)"
+                                @click="customTags = generateLocationTags(mailchimpImportSubscribers?.length ? 'ticket_data' : 'signup_form').join(TAG_SEP_DISPLAY)"
                                 class="text-sm bg-gray-100 hover:bg-gray-200 px-2 py-1 rounded"
                                 :disabled="isImporting"
                             >

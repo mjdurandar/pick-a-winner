@@ -163,12 +163,12 @@ const exportToCsv = () => {
 </script>
 
 <template>
-    <Head title="Mailchimp import logs" />
+    <Head title="MC Logs" />
 
     <AuthenticatedLayout>
         <template #header>
             <h2 class="text-xl font-semibold leading-tight text-gray-800">
-                Mailchimp import logs
+                MC Logs
             </h2>
         </template>
 
@@ -216,7 +216,7 @@ const exportToCsv = () => {
                         </div>
 
                         <div v-if="filteredLogs.length === 0" class="text-gray-600 py-8 text-center">
-                            No Mailchimp import logs found.
+                            No MC logs found.
                             <span v-if="filterEventId || filterSource">Try changing the event or source filter.</span>
                         </div>
 
