@@ -146,6 +146,35 @@ class AttendeesController extends Controller
         return redirect()->route('attendees.location', ['eventId' => $event, 'locationId' => $location])
                          ->with('success', 'Attendee deleted successfully.');
     }
-    
-    
+
+    /**
+     * Return ALL attendees for an event (for export). No limit – same data as the table, every location.
+     */
+    public function exportAll($eventId)
+    {
+        $event = Events::findOrFail($eventId);
+        $signupForm = SignUpForm::where('event_id', $eventId)->first();
+        if (!$signupForm) {
+            return response()->json(['success' => false, 'error' => 'Sign-up form not found'], 404);
+        }
+        $tableName = $signupForm->table_name;
+
+        $signupColumns = Schema::getColumnListing($tableName);
+        $selectSignupColumns = array_map(fn ($col) => "{$tableName}.{$col}", $signupColumns);
+        $selectClause = array_merge($selectSignupColumns, [DB::raw('locations.name as location_name')]);
+
+        $attendees = DB::table($tableName)
+            ->leftJoin('locations', "{$tableName}.location_id", '=', 'locations.id')
+            ->where("{$tableName}.event_id", $eventId)
+            ->select($selectClause)
+            ->orderBy("{$tableName}.location_id")
+            ->orderBy("{$tableName}.id")
+            ->get();
+
+        return response()->json([
+            'success' => true,
+            'attendees' => $attendees,
+            'form' => $signupForm ? $signupForm->toArray() : null,
+        ]);
+    }
 }

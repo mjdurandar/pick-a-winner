@@ -4,6 +4,7 @@ import Swal from 'sweetalert2';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout.vue';
 import { Head, router } from '@inertiajs/vue3';
 import { debounce } from 'lodash';
+import axios from 'axios';
 
 const props = defineProps({
     event: Object,
@@ -21,7 +22,7 @@ const itemsPerPage = 20;
 const showExportModal = ref(false);
 const exportTags = ref('');
 const defaultSourceWord = ref('WM'); // Default word for SOURCE tag
-const exportAllAttendees = ref(true); // If true, export all data; if false, export only search results
+const isExporting = ref(false); // Loading state when fetching all for export
 
 // Debounce the search to prevent excessive filtering
 const updateDebouncedSearch = debounce((value) => {
@@ -128,65 +129,74 @@ const showExportModalDialog = () => {
     showExportModal.value = true;
 };
 
-// ✅ Data to export: all attendees or filtered (search results)
-const attendeesToExport = computed(() => exportAllAttendees.value ? props.attendees : filteredAttendees.value);
+// ✅ Build column headers for export from an attendees array (and optional form for labels)
+function getExportColumns(attendees, form = null) {
+    if (!attendees.length) return [];
+    const allKeys = new Set();
+    attendees.forEach(a => {
+        Object.keys(a).forEach(key => {
+            if (!excludedExportColumns.includes(key)) allKeys.add(key);
+        });
+    });
+    const firstRowKeys = Object.keys(attendees[0]).filter(col => !excludedExportColumns.includes(col));
+    const ordered = [...firstRowKeys];
+    allKeys.forEach(key => { if (!ordered.includes(key)) ordered.push(key); });
+    return ordered;
+}
 
-// ✅ Export data to CSV with tags (all attendees by default)
-const exportToCSV = () => {
-    const data = attendeesToExport.value;
-    if (data.length === 0) {
-        Swal.fire('No Data', exportAllAttendees.value ? 'No attendees in database.' : 'No attendees match your search.', 'warning');
-        return;
-    }
+// ✅ Get question text for a column (optionally pass form from export response)
+function getQuestionTextForExport(columnName, form = null) {
+    const f = form || props.form;
+    if (!f?.questions) return formatHeader(columnName);
+    const questions = typeof f.questions === 'string' ? JSON.parse(f.questions) : f.questions;
+    const q = questions.find(x => x.column_name === columnName);
+    return q ? q.text : formatHeader(columnName);
+}
 
-    let csvContent = "data:text/csv;charset=utf-8,";
-
-    // Use full column set so we export every column that exists in any attendee
-    const cols = exportColumnHeaders.value;
+// ✅ Build and download CSV from an attendees array (used for both in-memory and API export)
+function buildAndDownloadCSV(data, form = null) {
+    const cols = getExportColumns(data, form);
     const headers = [
-        ...cols.map(col => `"${getQuestionText(col)}"`),
+        ...cols.map(col => `"${getQuestionTextForExport(col, form)}"`),
         '"Opt In Date"',
         '"Tags"'
     ];
-    csvContent += headers.join(",") + "\n";
-
-    // Process manual tags - convert to uppercase and split by comma
-    const manualTags = exportTags.value
-        .split(',')
-        .map(tag => tag.trim().toUpperCase())
-        .filter(tag => tag);
-
-    // Add data rows
+    let csvContent = "data:text/csv;charset=utf-8," + headers.join(",") + "\n";
+    const manualTags = exportTags.value.split(',').map(tag => tag.trim().toUpperCase()).filter(Boolean);
     data.forEach(attendee => {
         const dataRow = cols.map(col => `"${(attendee[col] ?? '').toString().replace(/"/g, '""')}"`);
-        
-        // Add Opt In Date (formatted created_at) before Tags
-        const optInDate = formatOptInDate(attendee.created_at);
-        dataRow.push(`"${optInDate}"`);
-        
-        // Generate automated tags for this attendee
+        dataRow.push(`"${formatOptInDate(attendee.created_at)}"`);
         const automatedTags = generateAutomatedTags(attendee);
-        
-        // Combine automated and manual tags
-        const allTags = [...automatedTags, ...manualTags];
-        const finalTags = allTags.join(', ');
-        
+        const finalTags = [...automatedTags, ...manualTags].join(', ');
         dataRow.push(`"${finalTags.replace(/"/g, '""')}"`);
         csvContent += dataRow.join(",") + "\n";
     });
-
-    // Create a downloadable link
-    const encodedUri = encodeURI(csvContent);
     const link = document.createElement("a");
-    link.setAttribute("href", encodedUri);
-    link.setAttribute("download", `attendees_${props.event.event_name}.csv`);
+    link.setAttribute("href", encodeURI(csvContent));
+    link.setAttribute("download", `attendees_${props.event?.event_name || 'event'}.csv`);
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
+}
 
-    // Close modal and show success message
-    showExportModal.value = false;
-    Swal.fire('Success!', 'CSV file has been exported with tags.', 'success');
+// ✅ Export all data in the table – always fetches ALL attendees from server (every location)
+const exportToCSV = async () => {
+    isExporting.value = true;
+    try {
+        const { data } = await axios.get(route('attendees.exportAll', { eventId: props.event.id }));
+        if (!data.success || !data.attendees?.length) {
+            Swal.fire('No Data', 'No attendees in database.', 'info');
+            return;
+        }
+        buildAndDownloadCSV(data.attendees, data.form);
+        showExportModal.value = false;
+        Swal.fire('Success!', `Exported ${data.attendees.length} attendee(s) with tags.`, 'success');
+    } catch (err) {
+        console.error(err);
+        Swal.fire('Error', err.response?.data?.error || 'Failed to load attendees for export.', 'error');
+    } finally {
+        isExporting.value = false;
+    }
 };
 
 // ✅ Close export modal
@@ -366,7 +376,7 @@ const deleteAttendee = (attendeeId, eventId) => {
                                 <button 
                                     @click="showExportModalDialog" 
                                     class="bg-green-500 text-white px-4 py-2 rounded hover:bg-green-700"
-                                    title="Export to CSV with Tags"
+                                    title="Export all data from the table below (CSV with tags)"
                                 >
                                     Export Attendees
                                     <i class="fa-solid fa-file-csv"></i>
@@ -432,7 +442,7 @@ const deleteAttendee = (attendeeId, eventId) => {
         <div v-if="showExportModal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
             <div class="bg-white p-6 rounded-lg shadow-xl max-w-md w-full mx-4">
                 <div class="flex justify-between items-center mb-4">
-                    <h3 class="text-lg font-semibold">Export CSV with Tags</h3>
+                    <h3 class="text-lg font-semibold">Export all attendees (CSV with tags)</h3>
                     <button @click="closeExportModal" class="text-gray-500 hover:text-gray-700">
                         <i class="fa-solid fa-times"></i>
                     </button>
@@ -440,22 +450,8 @@ const deleteAttendee = (attendeeId, eventId) => {
                 
                 <div class="space-y-4">
                     <p class="text-gray-600">
-                        Configure automated tags and add additional manual tags for the exported CSV file.
+                        This will export <strong>all attendees</strong> from the table below (all locations). Configure tags for the CSV file.
                     </p>
-
-                    <!-- Export scope: all vs search results -->
-                    <div class="mb-4 p-3 bg-gray-50 rounded-lg">
-                        <label class="flex items-center gap-2 cursor-pointer">
-                            <input type="checkbox" v-model="exportAllAttendees" class="rounded border-gray-300" />
-                            <span class="font-medium">Export all attendees ({{ props.attendees.length }} total)</span>
-                        </label>
-                        <p v-if="!exportAllAttendees" class="text-sm text-gray-600 mt-1">
-                            Exporting {{ filteredAttendees.length }} attendee(s) matching your search.
-                        </p>
-                        <p v-else class="text-sm text-gray-500 mt-1">
-                            Uncheck to export only the attendees matching your current search.
-                        </p>
-                    </div>
 
                     <!-- Default Source Word Input -->
                     <div class="mb-4">
@@ -477,7 +473,7 @@ const deleteAttendee = (attendeeId, eventId) => {
                     <div class="mb-4 p-3 bg-blue-50 rounded-lg">
                         <h4 class="font-semibold text-blue-800 mb-2">Automated Tags Preview:</h4>
                         <div class="text-sm text-blue-700">
-                            <div v-if="filteredAttendees.length > 0">
+                            <div v-if="props.attendees.length > 0">
                                 <div class="mb-1">
                                     <strong>SHOW - {LOCATION}</strong> (extracted from Location Name before the dash)
                                 </div>
@@ -521,10 +517,12 @@ const deleteAttendee = (attendeeId, eventId) => {
                         </button>
                         <button 
                             @click="exportToCSV"
-                            class="px-4 py-2 bg-green-500 text-white rounded hover:bg-green-600"
+                            :disabled="isExporting"
+                            class="px-4 py-2 bg-green-500 text-white rounded hover:bg-green-600 disabled:opacity-50 disabled:cursor-not-allowed"
                         >
-                            <i class="fa-solid fa-file-csv mr-2"></i>
-                            Export CSV
+                            <i v-if="isExporting" class="fa-solid fa-spinner fa-spin mr-2"></i>
+                            <i v-else class="fa-solid fa-file-csv mr-2"></i>
+                            {{ isExporting ? 'Exporting...' : 'Export attendees' }}
                         </button>
                     </div>
                 </div>
