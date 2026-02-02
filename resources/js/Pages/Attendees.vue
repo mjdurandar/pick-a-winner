@@ -10,7 +10,8 @@ const props = defineProps({
     event: Object,
     attendees: Array,
     form: Object,
-    prizes: { type: Array, default: () => [] }
+    prizes: { type: Array, default: () => [] },
+    mailchimpImportLogs: { type: Array, default: () => [] }
 });
 
 const searchQuery = ref("");
@@ -77,6 +78,26 @@ const getQuestionText = (columnName) => {
 // ✅ Format column headers (fallback for columns without questions)
 const formatHeader = (header) => {
     return header.replace(/_/g, " ").replace(/\b\w/g, (char) => char.toUpperCase());
+};
+
+// Format Mailchimp import log date
+const formatImportDate = (dateStr) => {
+    if (!dateStr) return '—';
+    const d = new Date(dateStr);
+    return isNaN(d.getTime()) ? dateStr : d.toLocaleString(undefined, { dateStyle: 'short', timeStyle: 'short' });
+};
+
+// Format tags array for display
+const formatTags = (tags) => {
+    if (!tags) return '—';
+    if (Array.isArray(tags)) return tags.filter(Boolean).join(', ') || '—';
+    return String(tags);
+};
+
+// Format errors array for display
+const formatErrors = (errors) => {
+    if (!errors || !Array.isArray(errors) || errors.length === 0) return '—';
+    return errors.filter(Boolean).join('; ');
 };
 
 // ✅ Optimized filtered attendees based on search query
@@ -442,6 +463,50 @@ const deleteAttendee = (attendeeId, eventId) => {
 
                         <div v-if="attendees.length === 0" class="text-gray-600 text-center mt-4">
                             No attendees have registered for this event.
+                        </div>
+
+                        <!-- Mailchimp import history table -->
+                        <div v-if="(mailchimpImportLogs || []).length > 0" class="mt-8 pt-6 border-t border-gray-200">
+                            <h3 class="text-lg font-semibold text-gray-800 mb-3">
+                                <i class="fa-solid fa-envelope mr-2"></i> Mailchimp import history
+                            </h3>
+                            <p class="text-sm text-gray-600 mb-3">
+                                All Mailchimp imports for this event. Data is saved when you import attendees to Mailchimp from a location page.
+                            </p>
+                            <div class="overflow-x-auto">
+                                <table class="w-full border-collapse border border-gray-300 text-sm">
+                                    <thead class="bg-gray-100">
+                                        <tr>
+                                            <th class="border border-gray-300 p-2 text-left whitespace-nowrap">Location</th>
+                                            <th class="border border-gray-300 p-2 text-left whitespace-nowrap">Imported Date</th>
+                                            <th class="border border-gray-300 p-2 text-left whitespace-nowrap">Imported By</th>
+                                            <th class="border border-gray-300 p-2 text-right whitespace-nowrap">Total Data</th>
+                                            <th class="border border-gray-300 p-2 text-right whitespace-nowrap">New Contacts</th>
+                                            <th class="border border-gray-300 p-2 text-right whitespace-nowrap">Updated Data</th>
+                                            <th class="border border-gray-300 p-2 text-right whitespace-nowrap">Data with Error</th>
+                                            <th class="border border-gray-300 p-2 text-left whitespace-nowrap">Errors</th>
+                                            <th class="border border-gray-300 p-2 text-left whitespace-nowrap">Tags</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        <tr
+                                            v-for="log in (mailchimpImportLogs || [])"
+                                            :key="log.id"
+                                            class="text-left even:bg-gray-50"
+                                        >
+                                            <td class="border border-gray-300 p-2">{{ log.location_name || '—' }}</td>
+                                            <td class="border border-gray-300 p-2 whitespace-nowrap">{{ formatImportDate(log.created_at) }}</td>
+                                            <td class="border border-gray-300 p-2">{{ log.imported_by_name || '—' }}</td>
+                                            <td class="border border-gray-300 p-2 text-right">{{ log.total_data ?? 0 }}</td>
+                                            <td class="border border-gray-300 p-2 text-right">{{ log.new_contacts ?? 0 }}</td>
+                                            <td class="border border-gray-300 p-2 text-right">{{ log.updated_data ?? 0 }}</td>
+                                            <td class="border border-gray-300 p-2 text-right">{{ log.data_with_error ?? 0 }}</td>
+                                            <td class="border border-gray-300 p-2 text-gray-600 max-w-xs" :title="formatErrors(log.errors)">{{ formatErrors(log.errors) }}</td>
+                                            <td class="border border-gray-300 p-2 text-gray-600 max-w-xs truncate" :title="formatTags(log.tags)">{{ formatTags(log.tags) }}</td>
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
                         </div>
                     </div>
                 </div>

@@ -9,6 +9,7 @@ use App\Http\Controllers\PickaWinnerController;
 use App\Http\Controllers\SignUpFormController;
 use App\Http\Controllers\PrizeController;
 use App\Http\Controllers\LocationController;
+use App\Http\Controllers\MailchimpImportLogsController;
 use App\Http\Controllers\MailchimpAutoSyncController;
 use App\Http\Controllers\FilmsController;
 use Illuminate\Support\Facades\Route;
@@ -50,6 +51,11 @@ Route::middleware(['auth', RoleMiddleware::class . ':admin,host'])->group(functi
     //films page
     Route::get('/films', [FilmsController::class, 'index'])->name('films.index');
 
+    //MAILCHIMP IMPORT LOGS (dedicated page + export)
+    Route::get('/mailchimp-import-logs', [MailchimpImportLogsController::class, 'index'])->name('mailchimpImportLogs.index');
+    Route::get('/mailchimp-import-logs/{id}/download', [MailchimpImportLogsController::class, 'download'])->name('mailchimpImportLogs.download');
+    Route::delete('/mailchimp-import-logs/{id}', [MailchimpImportLogsController::class, 'destroy'])->name('mailchimpImportLogs.destroy');
+
     //ATTENDEES ROUTES
     Route::get('/attendees/{eventId}', [AttendeesController::class, 'index'])->name('attendees.index');
     Route::get('/attendees/{eventId}/export-all', [AttendeesController::class, 'exportAll'])->name('attendees.exportAll');
@@ -76,6 +82,7 @@ Route::middleware(['auth', RoleMiddleware::class . ':admin,host'])->group(functi
     //IMPORT DATA TO MAILCHIMP ROUTES
     Route::post('/location/import-data-to-mailchimp', [LocationController::class, 'importDataToMailChimp'])->name('location.importDataToMailChimp');
     Route::post('/location/manual-import-to-mailchimp', [LocationController::class, 'manualImportToMailchimp'])->name('location.manualImportToMailchimp');
+    Route::post('/location/log-mailchimp-import', [LocationController::class, 'logMailchimpImport'])->name('location.logMailchimpImport');
     Route::post('/location/generate-spreadsheet-data', [LocationController::class, 'generateSpreadsheetData'])->name('location.generateSpreadsheetData');
     Route::get('/location/{locationId}/mailchimp-report', [LocationController::class, 'getMailchimpLocationReport'])->name('location.mailchimpReport');
     Route::get('/api/location/mailchimp/lists', [LocationController::class, 'getMailchimpLists'])->name('location.mailchimpLists');

@@ -13,12 +13,14 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Schema;
+use Illuminate\Support\Facades\Storage;
 use App\Services\MailchimpLogService;
 use App\Services\SpreadsheetLogService;
 use App\Models\TicketAttendee;
 use App\Models\Films;
 use App\Models\SignUpForm;
 use App\Models\MailchimpLog;
+use App\Models\MailchimpImportLog;
 use Carbon\Carbon;
 
 class LocationController extends Controller
@@ -199,10 +201,15 @@ class LocationController extends Controller
         return back()->with('success', 'All location passwords updated successfully');
     }
 
-    public function getMailchimpLists()
+    public function getMailchimpLists(Request $request)
     {
+        $account = $request->input('account', 'anz');
+        if (!in_array($account, ['anz', 'usa'])) {
+            $account = 'anz';
+        }
         try {
-            $lists = $this->mailchimpService->getLists();
+            $mailchimpService = new MailchimpService($account);
+            $lists = $mailchimpService->getLists();
             return response()->json(['lists' => $lists]);
         } catch (\Exception $e) {
             return response()->json(['error' => $e->getMessage()], 500);
@@ -213,10 +220,12 @@ class LocationController extends Controller
     {
         try {
             $request->validate([
-                'list_id' => 'required|string'
+                'list_id' => 'required|string',
+                'account' => 'nullable|string|in:anz,usa',
             ]);
-
-            $mergeFields = $this->mailchimpService->getListMergeFields($request->list_id);
+            $account = $request->input('account', 'anz');
+            $mailchimpService = new MailchimpService($account);
+            $mergeFields = $mailchimpService->getListMergeFields($request->list_id);
             
             // Check for your actual available fields based on screenshots
             $availableFields = [
@@ -683,9 +692,13 @@ class LocationController extends Controller
         $request->validate([
             'subscribers' => 'required|array',
             'list_id' => 'required|string',
+            'mailchimp_account' => 'required|string|in:anz,usa',
             'tags' => 'required|array',
             'location_id' => 'sometimes|exists:locations,id'
         ]);
+
+        $mailchimpAccount = $request->mailchimp_account;
+        $mailchimpService = new MailchimpService($mailchimpAccount);
 
         try {
             $results = [
@@ -703,7 +716,7 @@ class LocationController extends Controller
             $successfulSubscribers = [];
             $newSubscribers = [];
             $updatedSubscribers = [];
-            Log::info('Manual import using tags:', ['tags' => $tags]);
+            Log::info('Manual import using tags:', ['tags' => $tags, 'account' => $mailchimpAccount]);
 
             foreach ($request->subscribers as $subscriber) {
                 try {
@@ -719,8 +732,8 @@ class LocationController extends Controller
                         'available_fields' => array_keys($subscriber)
                     ]);
                     
-                    // Use the new manual import method with smart field mapping
-                    $result = $this->mailchimpService->manualImportSubscriber(
+                    // Use the selected account (USA or ANZ)
+                    $result = $mailchimpService->manualImportSubscriber(
                         $request->list_id,
                         $subscriber,
                         $tags
@@ -793,6 +806,8 @@ class LocationController extends Controller
                     ];
                     
                     $logService->logImport($request->location_id, 'Manual Import', $logStats);
+
+                    // Note: One log per import is created by the frontend via logMailchimpImport() after all chunks complete.
                     
                     // Generate copy-paste data for spreadsheet
                     try {
@@ -836,6 +851,62 @@ class LocationController extends Controller
                 'details' => $e->getMessage()
             ], 500);
         }
+    }
+
+    /**
+     * Create one Mailchimp import log (called once by frontend after all chunks complete).
+     * Optionally saves the imported subscriber data as a CSV file for download from the logs page.
+     */
+    public function logMailchimpImport(Request $request)
+    {
+        $request->validate([
+            'location_id' => 'required|integer|exists:locations,id',
+            'total_data' => 'required|integer|min:0',
+            'new_contacts' => 'required|integer|min:0',
+            'updated_data' => 'required|integer|min:0',
+            'data_with_error' => 'required|integer|min:0',
+            'tags' => 'required|array',
+            'errors' => 'nullable|array',
+            'errors.*' => 'string',
+            'subscribers' => 'nullable|array',
+            'subscribers.*' => 'array',
+            'source' => 'nullable|string|in:signup_form,ticket_data',
+        ]);
+
+        $source = $request->input('source', 'signup_form');
+
+        $log = MailchimpImportLog::create([
+            'location_id' => $request->location_id,
+            'imported_by' => auth()->id(),
+            'total_data' => $request->total_data,
+            'new_contacts' => $request->new_contacts,
+            'updated_data' => $request->updated_data,
+            'data_with_error' => $request->data_with_error,
+            'errors' => $request->input('errors', []),
+            'tags' => $request->tags,
+            'source' => $source,
+        ]);
+
+        $subscribers = $request->input('subscribers', []);
+        if (!empty($subscribers)) {
+            $headers = ['email_address', 'first_name', 'last_name', 'mobile_number', 'street_address', 'street_address_2', 'city', 'state', 'zip_code', 'country', 'gender', 'age'];
+            $escape = function ($v) {
+                $s = $v === null || $v === '' ? '' : (string) $v;
+                return strpos($s, ',') !== false || strpos($s, '"') !== false || strpos($s, "\n") !== false
+                    ? '"' . str_replace('"', '""', $s) . '"' : $s;
+            };
+            $lines = [implode(',', $headers)];
+            foreach ($subscribers as $row) {
+                $lines[] = implode(',', array_map(function ($key) use ($row, $escape) {
+                    return $escape($row[$key] ?? '');
+                }, $headers));
+            }
+            $csv = "\xEF\xBB\xBF" . implode("\r\n", $lines); // UTF-8 BOM
+            Storage::disk('local')->put('mailchimp_imports/' . $log->id . '.csv', $csv);
+            $log->update(['has_import_file' => true]);
+        }
+
+        return response()->json(['ok' => true]);
     }
 
     /**

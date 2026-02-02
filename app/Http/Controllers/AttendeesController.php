@@ -6,6 +6,7 @@ use App\Models\Events;
 use App\Models\SignUpForm;
 use App\Models\Location;
 use App\Models\Prize;
+use App\Models\MailchimpImportLog;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
@@ -48,12 +49,22 @@ class AttendeesController extends Controller
                     : 'National Tour Wide';
                 return $prize;
             });
+
+        // Mailchimp import history (session logs) for this event
+        $mailchimpImportLogs = MailchimpImportLog::query()
+            ->select('mailchimp_import_logs.*', 'locations.name as location_name', 'users.name as imported_by_name')
+            ->join('locations', 'locations.id', '=', 'mailchimp_import_logs.location_id')
+            ->leftJoin('users', 'users.id', '=', 'mailchimp_import_logs.imported_by')
+            ->where('locations.event_id', $eventId)
+            ->orderByDesc('mailchimp_import_logs.created_at')
+            ->get();
         
         return Inertia::render('Attendees', [
             'event' => $event,  // ✅ Pass the full event object instead of just ID
             'attendees' => $attendees,
             'form' => $signupForm, // Pass the form data to get access to questions
-            'prizes' => $prizes
+            'prizes' => $prizes,
+            'mailchimpImportLogs' => $mailchimpImportLogs,
         ]);
     }
 

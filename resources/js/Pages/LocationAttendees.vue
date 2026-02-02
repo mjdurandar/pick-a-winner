@@ -31,10 +31,27 @@ const mailchimpSettings = ref({
 
 // Mailchimp import variables
 const showMailchimpModal = ref(false);
+const isOpeningMailchimpModal = ref(false); // true while loading modal (fetching lists)
 const mailchimpLists = ref([]);
 const selectedList = ref('');
+const isLoadingMailchimpLists = ref(false);
 const isImporting = ref(false);
 const customTags = ref('');
+// Use semicolon to separate tags so commas can appear inside a tag (e.g. "SHOW - SEATTLE, WA")
+const TAG_SEP_DISPLAY = '; ';
+function parseTagsFromInput(str) {
+    return (str || '').split(/[;\n]/).map((t) => t.trim()).filter(Boolean);
+}
+
+// Auto-select Mailchimp account from event/location country: USA/CANADA → usa, Australia/NZ → anz
+const mailchimpAccount = computed(() => {
+    const country = (props.location?.country || props.event?.event_country || '').toUpperCase().trim();
+    const usaCountries = ['USA', 'USA & CANADA', 'CANADA'];
+    const anzCountries = ['AUSTRALIA', 'NEW ZEALAND', 'AUSTRALIA & NEW ZEALAND'];
+    if (usaCountries.includes(country)) return 'usa';
+    if (anzCountries.includes(country)) return 'anz';
+    return 'anz'; // default
+});
 const availableMergeFields = ref([]);
 const isLoadingMergeFields = ref(false);
 const missingFields = ref([]);
@@ -240,7 +257,7 @@ const generateLocationTags = () => {
 // Store last Mailchimp import results in-memory so we can reopen the report
 const lastMailchimpImportResults = ref(null);
 
-// ✅ Watch for list selection changes to fetch merge fields
+// ✅ Watch for list selection changes to fetch merge fields (for selected account)
 const fetchMergeFields = async (listId) => {
     if (!listId) {
         availableMergeFields.value = [];
@@ -250,13 +267,11 @@ const fetchMergeFields = async (listId) => {
     isLoadingMergeFields.value = true;
     try {
         const response = await axios.get('/api/location/mailchimp/merge-fields', {
-            params: { list_id: listId }
+            params: { list_id: listId, account: mailchimpAccount.value }
         });
         availableMergeFields.value = response.data.merge_fields;
         missingFields.value = response.data.missing_required_fields || [];
         fieldSuggestions.value = response.data.field_mapping || {};
-        console.log('Available merge fields:', response.data.merge_fields);
-        console.log('Missing fields:', response.data.missing_common_fields);
     } catch (error) {
         console.error('Failed to fetch merge fields:', error);
         availableMergeFields.value = [];
@@ -701,21 +716,38 @@ const closeMailchimpModal = () => {
     mailchimpImportSubscribers.value = null;
 };
 
-const openMailchimpImportModal = async () => {
+const loadMailchimpListsForAccount = async (account) => {
+    isLoadingMailchimpLists.value = true;
+    mailchimpLists.value = [];
+    selectedList.value = '';
+    availableMergeFields.value = [];
+    missingFields.value = [];
     try {
-        // Get Mailchimp lists
-        const response = await axios.get(route('location.mailchimpLists'));
-        mailchimpLists.value = response.data.lists;
-        
-        // Pre-populate the tags field with auto-generated location tags
-        const locationTags = generateLocationTags();
-        customTags.value = locationTags.join(', ');
-        
-        // Show the modal
-        showMailchimpModal.value = true;
+        const response = await axios.get(route('location.mailchimpLists'), {
+            params: { account: account ?? mailchimpAccount.value }
+        });
+        mailchimpLists.value = response.data.lists || [];
     } catch (error) {
         console.error('Failed to fetch Mailchimp lists:', error);
-        Swal.fire('Error', 'Failed to load Mailchimp audiences', 'error');
+        Swal.fire('Error', error.response?.data?.error || 'Failed to load Mailchimp audiences', 'error');
+    } finally {
+        isLoadingMailchimpLists.value = false;
+    }
+};
+
+const openMailchimpImportModal = async () => {
+    isOpeningMailchimpModal.value = true;
+    try {
+        const locationTags = generateLocationTags();
+        customTags.value = locationTags.join(TAG_SEP_DISPLAY);
+        // Load lists for account auto-selected from event/location country
+        await loadMailchimpListsForAccount(mailchimpAccount.value);
+        showMailchimpModal.value = true;
+    } catch (error) {
+        console.error('Failed to open Mailchimp modal:', error);
+        Swal.fire('Error', 'Failed to load Mailchimp', 'error');
+    } finally {
+        isOpeningMailchimpModal.value = false;
     }
 };
 
@@ -741,13 +773,10 @@ const handleMailchimpImport = async () => {
         const attendeesToImport = attendeesToUse;
         const totalAttendees = attendeesToImport.length;
 
-        // Use the editable tags field (which contains both auto-generated and custom tags)
+        // Use the editable tags field (split by semicolon so commas inside a tag are preserved)
         let allTags = [];
         if (customTags.value.trim()) {
-            allTags = customTags.value
-                .split(',')
-                .map(tag => tag.trim())
-                .filter(tag => tag);
+            allTags = parseTagsFromInput(customTags.value);
         }
 
         console.log('Final tags for import:', allTags);
@@ -818,6 +847,7 @@ const handleMailchimpImport = async () => {
                 const response = await axios.post('/location/manual-import-to-mailchimp', {
                     subscribers: chunk,
                     list_id: selectedList.value,
+                    mailchimp_account: mailchimpAccount.value,
                     tags: allTags,
                     location_id: props.location.id
                 });
@@ -901,6 +931,26 @@ const handleMailchimpImport = async () => {
                 console.error('Chunk import error:', error);
                 errors.push(`Chunk ${i + 1} failed: ${error.message}`);
             }
+        }
+
+        // One log per import: save cumulative stats and optional import file for download
+        try {
+            await axios.post(route('location.logMailchimpImport'), {
+                location_id: props.location.id,
+                total_data: totalAttendees,
+                new_contacts: newCount,
+                updated_data: updateCount,
+                data_with_error: failureCount,
+                errors: errors,
+                tags: allTags,
+                subscribers: attendeesToImport,
+                source: (mailchimpImportSubscribers.value && mailchimpImportSubscribers.value.length) ? 'ticket_data' : 'signup_form',
+            }, {
+                headers: { 'X-XSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '', 'Accept': 'application/json' },
+                withCredentials: true,
+            });
+        } catch (err) {
+            console.error('Failed to log Mailchimp import', err);
         }
 
         // Close progress modal
@@ -1059,7 +1109,7 @@ const showDetailedResults = async (results) => {
                         </div>
                         <div class="flex justify-between">
                             <span>📋 Tags Applied:</span>
-                            <span class="font-medium">${customTags.value ? customTags.value.split(',').filter(t => t.trim()).length : 0}</span>
+                            <span class="font-medium">${customTags.value ? parseTagsFromInput(customTags.value).length : 0}</span>
                         </div>
                     </div>
                 </div>
@@ -1531,9 +1581,15 @@ const downloadLogFile = (content, filename) => {
                                 <!-- ✅ Mailchimp Import Button -->
                                 <button 
                                     @click="openMailchimpImportModal" 
-                                    class="bg-orange-500 text-white px-4 py-2 rounded hover:bg-orange-700"
+                                    class="bg-orange-500 text-white px-4 py-2 rounded hover:bg-orange-700 disabled:opacity-70 disabled:cursor-wait"
+                                    :disabled="isOpeningMailchimpModal"
                                 >
-                                    <i class="fa-solid fa-envelope"></i> Import to Mailchimp
+                                    <span v-if="isOpeningMailchimpModal">
+                                        <i class="fa-solid fa-spinner fa-spin mr-2"></i> Loading...
+                                    </span>
+                                    <span v-else>
+                                        <i class="fa-solid fa-envelope"></i> Import to Mailchimp
+                                    </span>
                                 </button>
                             </div>
                         </div>
@@ -1754,16 +1810,16 @@ const downloadLogFile = (content, filename) => {
                         <textarea 
                             v-model="customTags"
                             class="w-full border rounded px-3 py-2 h-24"
-                            placeholder="Enter tags separated by commas..."
+                            placeholder="Enter tags separated by semicolons (e.g. TAG1; TAG2; SHOW - SEATTLE, WA)"
                             :disabled="isImporting"
                         ></textarea>
                         <div class="mt-2 flex items-start justify-between">
                             <p class="text-sm text-gray-600">
-                                <strong>Auto-populated</strong> with location-specific tags. You can edit, add, or remove any tags before importing.
+                                <strong>Auto-populated</strong> with location-specific tags. Separate tags with <strong>semicolons</strong> so commas inside a tag (e.g. SHOW - SEATTLE, WA) stay as one tag.
                             </p>
                             <button 
                                 type="button"
-                                @click="customTags = generateLocationTags().join(', ')"
+                                @click="customTags = generateLocationTags().join(TAG_SEP_DISPLAY)"
                                 class="text-sm bg-gray-100 hover:bg-gray-200 px-2 py-1 rounded"
                                 :disabled="isImporting"
                             >
@@ -1776,15 +1832,15 @@ const downloadLogFile = (content, filename) => {
                         <div v-if="customTags.trim()" class="mt-3 p-3 bg-blue-50 rounded-lg">
                             <h5 class="text-sm font-medium text-blue-800 mb-2">
                                 <i class="fa-solid fa-eye mr-1"></i>
-                                Preview: {{ customTags.split(',').filter(tag => tag.trim()).length }} tags will be applied
+                                Preview: {{ parseTagsFromInput(customTags).length }} tags will be applied
                             </h5>
                             <div class="flex flex-wrap gap-2">
                                 <span 
-                                    v-for="tag in customTags.split(',').filter(tag => tag.trim())" 
-                                    :key="tag.trim()" 
+                                    v-for="tag in parseTagsFromInput(customTags)" 
+                                    :key="tag" 
                                     class="bg-blue-200 text-blue-800 px-2 py-1 rounded text-sm"
                                 >
-                                    {{ tag.trim() }}
+                                    {{ tag }}
                                 </span>
                             </div>
                         </div>
@@ -1810,16 +1866,19 @@ const downloadLogFile = (content, filename) => {
                     </div>
 
                     <div class="mb-4">
+                        <p class="text-sm text-gray-600 mb-2">
+                            Using Mailchimp <strong>{{ mailchimpAccount === 'usa' ? 'USA' : 'ANZ' }}</strong> (based on event country: {{ location.country || event.event_country || '—' }}).
+                        </p>
                         <label class="block text-sm font-medium text-gray-700 mb-2">
-                            Select Mailchimp Audience
+                            Select Mailchimp audience
                         </label>
                         <select 
                             v-model="selectedList"
                             class="w-full border rounded px-3 py-2"
-                            :disabled="isImporting"
+                            :disabled="isImporting || isLoadingMailchimpLists"
                             @change="fetchMergeFields(selectedList)"
                         >
-                            <option value="">Select an audience...</option>
+                            <option value="">{{ isLoadingMailchimpLists ? 'Loading audiences...' : 'Select an audience...' }}</option>
                             <option 
                                 v-for="list in mailchimpLists" 
                                 :key="list.id" 
@@ -1903,7 +1962,7 @@ const downloadLogFile = (content, filename) => {
                                 <i class="fa-solid fa-envelope mr-2"></i>
                                 Import {{ mailchimpAttendeeCount }} Attendees
                                 <span v-if="customTags.trim()" class="text-sm opacity-90">
-                                    ({{ customTags.split(',').filter(tag => tag.trim()).length }} tags)
+                                    ({{ parseTagsFromInput(customTags).length }} tags)
                                 </span>
                             </span>
                         </button>

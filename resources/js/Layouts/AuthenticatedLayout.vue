@@ -90,6 +90,13 @@ const userRole = computed(() => user.value?.role);
                                 >
                                     Report
                                 </NavLink>
+                                <NavLink
+                                    v-if="userRole === 'admin' || userRole === 'host'"
+                                    :href="route('mailchimpImportLogs.index')"
+                                    :active="route().current('mailchimpImportLogs.index')"
+                                >
+                                    Mailchimp import logs
+                                </NavLink>
                             </div>
                         </div>
 
@@ -240,6 +247,13 @@ const userRole = computed(() => user.value?.role);
                                     :active="route().current('weekly-report')"
                                 >
                                     Weekly Report
+                        </ResponsiveNavLink>
+                        <ResponsiveNavLink
+                                v-if="userRole === 'admin' || userRole === 'host'"
+                                    :href="route('mailchimpImportLogs.index')"
+                                    :active="route().current('mailchimpImportLogs.index')"
+                                >
+                                    Mailchimp import logs
                         </ResponsiveNavLink>
                     </div>
 

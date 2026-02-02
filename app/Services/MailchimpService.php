@@ -352,11 +352,43 @@ class MailchimpService
     }
 
     // Create dynamic merge field mapping based on available Mailchimp fields
+    // Only sends merge fields that exist on the audience; respects required fields and types to avoid "Your merge fields were invalid"
     private function createDynamicMergeFieldMap($availableMergeFields, $subscriber, $ageValue, &$rejectedFields = [])
     {
         $mergeFieldMap = [];
         $availableFieldTags = array_column($availableMergeFields, 'tag');
-        
+        $fieldInfoByTag = [];
+        foreach ($availableMergeFields as $f) {
+            $fieldInfoByTag[$f['tag']] = $f;
+        }
+        $placeholderForRequired = '—';
+
+        // Helper: normalize value for Mailchimp (type, length, required)
+        $normalizeValue = function ($value, $tag) use ($fieldInfoByTag, $placeholderForRequired) {
+            if ($value === null || $value === '') {
+                $info = $fieldInfoByTag[$tag] ?? null;
+                if ($info && !empty($info['required'])) {
+                    return $placeholderForRequired;
+                }
+                return null;
+            }
+            if (is_string($value)) {
+                $value = trim($value);
+                if ($value === '') {
+                    $info = $fieldInfoByTag[$tag] ?? null;
+                    if ($info && !empty($info['required'])) {
+                        return $placeholderForRequired;
+                    }
+                    return null;
+                }
+                // Mailchimp text fields ~255 char limit
+                if (mb_strlen($value) > 255) {
+                    $value = mb_substr($value, 0, 255);
+                }
+            }
+            return $value;
+        };
+
         // Define field mappings based on your EXACT Mailchimp merge fields from screenshot
         $fieldMappings = [
             // Name fields - EXACT tags from your Mailchimp
@@ -369,6 +401,7 @@ class MailchimpService
             'CITY' => ['city', 'City', 'town', 'Town'],
             'SHOWCITY' => ['city', 'City', 'town', 'Town'], // Show City (duplicate of city)
             'STATE' => ['state', 'State', 'province', 'Province', 'region', 'Region'],
+            'STATEWIN' => ['state', 'State', 'province', 'Province', 'region', 'Region'],
             'ZIPCODE' => ['zip_code', 'zipcode', 'postal_code', 'postcode', 'Zip Code', 'Postal Code', 'zip'],
             'ZIPCODEWIN' => ['zip_code', 'zipcode', 'postal_code', 'postcode', 'Zip Code', 'Postal Code', 'zip'], // Your actual zip field
             'COUNTRY' => ['country', 'Country'],
@@ -405,31 +438,35 @@ class MailchimpService
             'MERGE30' => ['mobile_number', 'phone', 'mobile', 'Phone Number', 'Mobile Number', 'phone_number'], // SMS Phone backup
         ];
 
-        // Only map fields that exist in the Mailchimp audience
+        // Only map fields that exist in the Mailchimp audience (never send a tag the audience doesn't have)
         foreach ($fieldMappings as $mailchimpField => $sourceFields) {
-            if (in_array($mailchimpField, $availableFieldTags)) {
-                if (in_array($mailchimpField, ['AGE', 'AGEWIN', 'MMERGE14', 'MERGE14'])) {
-                    // Special handling for age fields
-                    if ($ageValue !== null) {
-                        $mergeFieldMap[$mailchimpField] = $ageValue;
-                    }
-                } elseif (in_array($mailchimpField, ['ZIPCODE', 'ZIPCODEWIN'])) {
-                    // Special handling for zip code - convert to number
-                    $zipValue = $this->getSubscriberField($subscriber, $sourceFields);
-                    if (!empty($zipValue)) {
-                        // Convert to integer for Number type fields
-                        $mergeFieldMap[$mailchimpField] = (int) $zipValue;
-                    }
-                } else {
-                    // Regular field mapping
-                    $value = $this->getSubscriberField($subscriber, $sourceFields);
-                    if (!empty($value)) {
-                        $mergeFieldMap[$mailchimpField] = $value;
-                                    } else {
-                    // Don't track missing optional data as "rejected" - only track actual failures
-                    // Missing data for optional fields like ADDRESSWIN (street_address_2) is normal
-                    // and should not be considered a rejection if the subscriber imports successfully
+            if (!in_array($mailchimpField, $availableFieldTags)) {
+                continue;
+            }
+            $info = $fieldInfoByTag[$mailchimpField] ?? null;
+            $fieldType = $info['type'] ?? 'text';
+
+            if (in_array($mailchimpField, ['AGE', 'AGEWIN', 'MMERGE14', 'MERGE14'])) {
+                if ($ageValue !== null) {
+                    $mergeFieldMap[$mailchimpField] = $ageValue;
+                } elseif ($info && !empty($info['required'])) {
+                    $mergeFieldMap[$mailchimpField] = $placeholderForRequired;
                 }
+            } elseif (in_array($mailchimpField, ['ZIPCODE', 'ZIPCODEWIN'])) {
+                $zipValue = $this->getSubscriberField($subscriber, $sourceFields);
+                $normalized = $normalizeValue($zipValue ?: '', $mailchimpField);
+                if ($normalized !== null) {
+                    if ($normalized === $placeholderForRequired || $zipValue === '') {
+                        $mergeFieldMap[$mailchimpField] = ($fieldType === 'number') ? 0 : $placeholderForRequired;
+                    } else {
+                        $mergeFieldMap[$mailchimpField] = ($fieldType === 'number') ? (int) $zipValue : (string) $zipValue;
+                    }
+                }
+            } else {
+                $value = $this->getSubscriberField($subscriber, $sourceFields);
+                $normalized = $normalizeValue($value, $mailchimpField);
+                if ($normalized !== null) {
+                    $mergeFieldMap[$mailchimpField] = $normalized;
                 }
             }
         }
@@ -451,68 +488,7 @@ class MailchimpService
             }
         }
 
-        // Force-map ZIPCODEWIN even if not detected in available fields
-        $zipValue = $this->getSubscriberField($subscriber, ['zip_code', 'zipcode', 'postal_code', 'postcode', 'Zip Code', 'Postal Code', 'zip']);
-        if (!empty($zipValue)) {
-            $mergeFieldMap['ZIPCODEWIN'] = (int) $zipValue;
-            \Illuminate\Support\Facades\Log::info('Manual import - force mapping ZIPCODEWIN', [
-                'email' => $subscriber['email_address'] ?? 'no email',
-                'zip_value' => $zipValue,
-                'zip_as_int' => (int) $zipValue
-            ]);
-        }
-
-        // Force-map STATEWIN even if not detected in available fields
-        $stateValue = $this->getSubscriberField($subscriber, ['state', 'State', 'province', 'Province', 'region', 'Region']);
-        if (!empty($stateValue)) {
-            $mergeFieldMap['STATEWIN'] = (string) $stateValue;
-            \Illuminate\Support\Facades\Log::info('Manual import - force mapping STATEWIN', [
-                'email' => $subscriber['email_address'] ?? 'no email',
-                'state_value' => $stateValue
-            ]);
-        }
-
-        // Force-map PHONE even if not detected in available fields
-        $phoneValue = $this->getSubscriberField($subscriber, ['mobile_number', 'phone', 'mobile', 'Phone Number', 'Mobile Number', 'phone_number']);
-        if (!empty($phoneValue)) {
-            try {
-                $mergeFieldMap['PHONE'] = (string) $phoneValue;
-                \Illuminate\Support\Facades\Log::info('Manual import - force mapping PHONE', [
-                    'email' => $subscriber['email_address'] ?? 'no email',
-                    'phone_value' => $phoneValue
-                ]);
-            } catch (\Exception $e) {
-                \Illuminate\Support\Facades\Log::warning('Manual import - PHONE field mapping failed', [
-                    'email' => $subscriber['email_address'] ?? 'no email',
-                    'phone_value' => $phoneValue,
-                    'error' => $e->getMessage()
-                ]);
-            }
-        }
-
-        // Skip SMSPHONE for international numbers to prevent import failure
-        // Only add SMSPHONE for Australian numbers - be very conservative
-        if (!empty($phoneValue)) {
-            // Only treat as Australian if it explicitly starts with +61 or 04 (mobile)
-            // Avoid 02/03/07/08 which can be confused with other countries
-            $isAustralianNumber = preg_match('/^(\+61|04)/', $phoneValue);
-            
-            if ($isAustralianNumber) {
-                $mergeFieldMap['SMSPHONE'] = (string) $phoneValue;
-                \Illuminate\Support\Facades\Log::info('Manual import - force mapping SMSPHONE (Australian number)', [
-                    'email' => $subscriber['email_address'] ?? 'no email',
-                    'sms_phone_value' => $phoneValue
-                ]);
-            } else {
-                // Don't track SMSPHONE as rejected - we're intentionally skipping non-Australian numbers
-                // to prevent import failure. This is expected behavior, not a rejection.
-                \Illuminate\Support\Facades\Log::info('Manual import - SKIPPING SMSPHONE (international number)', [
-                    'email' => $subscriber['email_address'] ?? 'no email',
-                    'phone_value' => $phoneValue,
-                    'note' => 'Skipping SMSPHONE to prevent import failure - Mailchimp SMS only supports Australian numbers'
-                ]);
-            }
-        }
+        // Do NOT force-map fields that don't exist on the audience — sending unknown tags causes "Your merge fields were invalid"
 
         // Handle address fields with proper formatting for Mailchimp
         foreach (['MMERGE10', 'MMERGE11', 'ADDRESSWIN'] as $addressField) {
