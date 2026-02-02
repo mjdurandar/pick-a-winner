@@ -179,24 +179,34 @@ function buildAndDownloadCSV(data, form = null) {
     document.body.removeChild(link);
 }
 
-// ✅ Export all data in the table – always fetches ALL attendees from server (every location)
-const exportToCSV = async () => {
-    isExporting.value = true;
-    try {
-        const { data } = await axios.get(route('attendees.exportAll', { eventId: props.event.id }));
-        if (!data.success || !data.attendees?.length) {
-            Swal.fire('No Data', 'No attendees in database.', 'info');
-            return;
-        }
-        buildAndDownloadCSV(data.attendees, data.form);
-        showExportModal.value = false;
-        Swal.fire('Success!', `Exported ${data.attendees.length} attendee(s) with tags.`, 'success');
-    } catch (err) {
-        console.error(err);
-        Swal.fire('Error', err.response?.data?.error || 'Failed to load attendees for export.', 'error');
-    } finally {
-        isExporting.value = false;
-    }
+// ✅ Export all data in the table – POST to server which streams the full CSV (no limit, every location)
+const exportToCSV = () => {
+    const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '';
+    const form = document.createElement('form');
+    form.method = 'POST';
+    form.action = route('attendees.exportCsv', { eventId: props.event.id });
+    form.target = '_blank';
+    form.style.display = 'none';
+    const tokenInput = document.createElement('input');
+    tokenInput.type = 'hidden';
+    tokenInput.name = '_token';
+    tokenInput.value = csrfToken;
+    form.appendChild(tokenInput);
+    const sourceInput = document.createElement('input');
+    sourceInput.type = 'hidden';
+    sourceInput.name = 'defaultSourceWord';
+    sourceInput.value = defaultSourceWord.value || 'WM';
+    form.appendChild(sourceInput);
+    const tagsInput = document.createElement('input');
+    tagsInput.type = 'hidden';
+    tagsInput.name = 'exportTags';
+    tagsInput.value = exportTags.value || '';
+    form.appendChild(tagsInput);
+    document.body.appendChild(form);
+    form.submit();
+    document.body.removeChild(form);
+    showExportModal.value = false;
+    Swal.fire('Export started', 'Your CSV is downloading. It includes all attendees from every location.', 'success');
 };
 
 // ✅ Close export modal

@@ -10,6 +10,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Inertia\Inertia;
+use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class AttendeesController extends Controller
 {
@@ -176,5 +177,97 @@ class AttendeesController extends Controller
             'attendees' => $attendees,
             'form' => $signupForm ? $signupForm->toArray() : null,
         ]);
+    }
+
+    /**
+     * Stream ALL attendees as CSV (no limit). Use this when export must include every row in the table.
+     */
+    public function exportCsv(Request $request, $eventId): StreamedResponse
+    {
+        $event = Events::findOrFail($eventId);
+        $signupForm = SignUpForm::where('event_id', $eventId)->first();
+        if (!$signupForm) {
+            abort(404, 'Sign-up form not found');
+        }
+
+        $tableName = $signupForm->table_name;
+        $defaultSourceWord = $request->input('defaultSourceWord', 'WM');
+        $exportTags = $request->input('exportTags', '');
+        $questions = is_string($signupForm->questions) ? json_decode($signupForm->questions, true) : ($signupForm->questions ?? []);
+        $questionByColumn = collect($questions)->keyBy('column_name');
+
+        $excluded = ['id', 'event_id', 'location_id', 'updated_at', 'events_location', 'mobile_number_format'];
+        $signupColumns = Schema::getColumnListing($tableName);
+        $exportCols = array_values(array_filter($signupColumns, fn ($c) => !in_array($c, $excluded)));
+        $exportCols[] = 'location_name';
+
+        $filename = 'attendees_' . preg_replace('/[^a-zA-Z0-9_-]/', '_', $event->event_name ?? 'event') . '.csv';
+
+        return new StreamedResponse(function () use ($tableName, $eventId, $event, $exportCols, $questionByColumn, $defaultSourceWord, $exportTags) {
+            $handle = fopen('php://output', 'w');
+            $headerLabels = array_map(function ($col) use ($questionByColumn) {
+                $q = $questionByColumn->get($col);
+                return (is_array($q) && isset($q['text'])) ? $q['text'] : ucfirst(str_replace('_', ' ', $col));
+            }, $exportCols);
+            fputcsv($handle, array_merge($headerLabels, ['Opt In Date', 'Tags']));
+
+            $signupColumnsFull = array_map(fn ($c) => "{$tableName}.{$c}", Schema::getColumnListing($tableName));
+            $selectClause = array_merge($signupColumnsFull, [DB::raw('locations.name as location_name')]);
+
+            $query = DB::table($tableName)
+                ->leftJoin('locations', "{$tableName}.location_id", '=', 'locations.id')
+                ->where("{$tableName}.event_id", $eventId)
+                ->select($selectClause)
+                ->orderBy("{$tableName}.location_id")
+                ->orderBy("{$tableName}.id");
+
+            foreach ($query->cursor() as $row) {
+                $rowArray = (array) $row;
+                $dataRow = [];
+                foreach ($exportCols as $col) {
+                    $val = $rowArray[$col] ?? '';
+                    $dataRow[] = $val;
+                }
+                $optInDate = isset($rowArray['created_at']) ? date('Y-m-d H:i:s', strtotime($rowArray['created_at'])) : '';
+                $tags = $this->buildTagsForExport($rowArray, $event, $defaultSourceWord, $exportTags);
+                fputcsv($handle, array_merge($dataRow, [$optInDate, $tags]));
+            }
+            fclose($handle);
+        }, 200, [
+            'Content-Type' => 'text/csv; charset=UTF-8',
+            'Content-Disposition' => 'attachment; filename="' . $filename . '"',
+        ]);
+    }
+
+    private function buildTagsForExport(array $row, $event, string $defaultSourceWord, ?string $manualTagsStr): string
+    {
+        $manualTagsStr = $manualTagsStr ?? '';
+        $locationName = $row['location_name'] ?? '';
+        $extracted = $locationName;
+        if (strpos($locationName, ' - ') !== false) {
+            $extracted = trim(explode(' - ', $locationName, 2)[0] ?? '');
+        }
+        $eventYear = $event->event_year ?? date('Y');
+        $eventCountry = strtoupper($event->event_country ?? '');
+        $isUsaOrCanada = in_array($eventCountry, ['USA', 'CANADA', 'USA & CANADA']);
+        $state = '';
+        $locationWithoutState = strtoupper($extracted);
+        if ($isUsaOrCanada && $extracted !== '') {
+            $parts = preg_split('/\s+/', strtoupper($extracted), -1, PREG_SPLIT_NO_EMPTY);
+            if (count($parts) > 1 && preg_match('/^[A-Z]{2,3}$/', end($parts))) {
+                $state = end($parts);
+                $locationWithoutState = trim(implode(' ', array_slice($parts, 0, -1)));
+            }
+        }
+        $tags = [];
+        if ($extracted !== '') {
+            $showTag = $isUsaOrCanada && $state ? "{$locationWithoutState}, {$state}" : $locationWithoutState;
+            $sourceTag = strtoupper($defaultSourceWord) . ' ' . $locationWithoutState . ' COMP ' . $eventYear;
+            $tags[] = 'SHOW - ' . $showTag;
+            $tags[] = 'SOURCE - ' . $sourceTag;
+        }
+        $manual = array_map('trim', array_filter(explode(',', $manualTagsStr)));
+        $manual = array_map('strtoupper', $manual);
+        return implode(', ', array_merge($tags, $manual));
     }
 }
