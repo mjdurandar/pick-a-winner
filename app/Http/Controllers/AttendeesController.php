@@ -8,6 +8,7 @@ use App\Models\Location;
 use App\Models\Prize;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 use Inertia\Inertia;
 
 class AttendeesController extends Controller
@@ -23,11 +24,17 @@ class AttendeesController extends Controller
         }
         $tableName = $signupForm->table_name;
 
-        // ✅ Fetch attendees and join with locations
+        // ✅ Fetch attendees from ALL locations – explicitly select signup table columns so join doesn't overwrite id
+        $signupColumns = Schema::getColumnListing($tableName);
+        $selectSignupColumns = array_map(fn ($col) => "{$tableName}.{$col}", $signupColumns);
+        $selectClause = array_merge($selectSignupColumns, [DB::raw('locations.name as location_name')]);
+
         $attendees = DB::table($tableName)
-            ->leftJoin('locations', "$tableName.location_id", '=', 'locations.id') // ✅ LEFT JOIN to get location name
-            ->where("$tableName.event_id", $eventId)
-            ->select("$tableName.*", 'locations.name as location_name') // ✅ Fetch location name
+            ->leftJoin('locations', "{$tableName}.location_id", '=', 'locations.id')
+            ->where("{$tableName}.event_id", $eventId)
+            ->select($selectClause)
+            ->orderBy("{$tableName}.location_id")
+            ->orderBy("{$tableName}.id")
             ->get();
 
         // ✅ Fetch all prizes (winners) for this event with location names for export on Database page
