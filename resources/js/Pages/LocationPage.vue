@@ -2718,7 +2718,7 @@ watch(
         <div v-if="showEventbriteModal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
             <div class="bg-white p-6 rounded-lg shadow-xl max-w-4xl w-full mx-4 max-h-[90vh] overflow-y-auto">
                 <div class="flex justify-between items-center mb-4">
-                    <h3 class="text-lg font-semibold">Import Attendees from Eventbrite</h3>
+                    <h3 class="text-lg font-semibold">Import Ticket Data</h3>
                     <button @click="closeEventbriteModal" class="text-gray-500 hover:text-gray-700">
                         <i class="fa-solid fa-times"></i>
                     </button>
@@ -2726,7 +2726,7 @@ watch(
                 
                 <div class="space-y-4">
                     <p class="text-gray-600">
-                        Import attendees from Eventbrite for <strong>{{ selectedLocation?.name }}</strong>
+                        Import Ticket Data for <strong>{{ selectedLocation?.name }}</strong>
                     </p>
 
                     <div class="mb-4">

@@ -1012,6 +1012,147 @@ class LocationController extends Controller
     }
 
     /**
+     * Parse CSV file and return headers + rows.
+     * column_mapping: { email: "Email", first_name: "First Name", ... } maps our fields to CSV header names.
+     */
+    public function importCsvTicketAttendees(Request $request)
+    {
+        $request->validate([
+            'location_id' => 'required|integer|exists:locations,id',
+            'csv_file' => 'required|file|mimes:csv,txt|max:10240',
+            'column_mapping' => 'required',
+        ]);
+
+        $locationId = (int) $request->location_id;
+        $mapping = is_string($request->column_mapping)
+            ? json_decode($request->column_mapping, true)
+            : $request->column_mapping;
+        if (!is_array($mapping)) {
+            return response()->json(['error' => 'Invalid column_mapping.'], 422);
+        }
+        $file = $request->file('csv_file');
+
+        $location = Location::findOrFail($locationId);
+        $eventId = $location->event_id;
+
+        $required = ['email'];
+        foreach ($required as $field) {
+            if (empty($mapping[$field])) {
+                return response()->json(['error' => "Column mapping must include 'email'."], 422);
+            }
+        }
+
+        $rows = [];
+        $headers = [];
+        $path = $file->getRealPath();
+        $handle = fopen($path, 'r');
+        if ($handle === false) {
+            return response()->json(['error' => 'Could not read CSV file.'], 422);
+        }
+
+        // Read first row as headers (normalize: trim, UTF-8)
+        $firstRow = fgetcsv($handle);
+        if ($firstRow === false) {
+            fclose($handle);
+            return response()->json(['error' => 'CSV file is empty.'], 422);
+        }
+        $headers = array_map(function ($h) {
+            return trim(preg_replace('/^\xEF\xBB\xBF/', '', $h));
+        }, $firstRow);
+
+        $headerToIndex = array_flip($headers);
+        $fieldToCsvHeader = array_filter($mapping);
+        $fieldToIndex = [];
+        foreach ($fieldToCsvHeader as $field => $csvHeader) {
+            if (isset($headerToIndex[$csvHeader])) {
+                $fieldToIndex[$field] = $headerToIndex[$csvHeader];
+            }
+        }
+
+        if (!isset($fieldToIndex['email'])) {
+            fclose($handle);
+            return response()->json(['error' => "CSV must have a column mapped to 'email'."], 422);
+        }
+
+        $seenEmails = [];
+        $savedCount = 0;
+        $errors = [];
+
+        TicketAttendee::where('location_id', $locationId)->delete();
+
+        while (($data = fgetcsv($handle)) !== false) {
+            $email = isset($fieldToIndex['email']) && isset($data[$fieldToIndex['email']])
+                ? strtolower(trim($data[$fieldToIndex['email']]))
+                : '';
+            if ($email === '') {
+                continue;
+            }
+            if (isset($seenEmails[$email])) {
+                continue;
+            }
+            $seenEmails[$email] = true;
+
+            $get = function ($key, $default = '') use ($data, $fieldToIndex) {
+                if (!isset($fieldToIndex[$key])) {
+                    return $default;
+                }
+                $idx = $fieldToIndex[$key];
+                return isset($data[$idx]) ? trim($data[$idx]) : $default;
+            };
+
+            try {
+                TicketAttendee::create([
+                    'location_id' => $locationId,
+                    'event_id' => $eventId,
+                    'email' => $email,
+                    'first_name' => $get('first_name'),
+                    'last_name' => $get('last_name'),
+                    'phone' => $get('phone'),
+                    'city' => $get('city'),
+                    'state' => $get('state'),
+                    'country' => $get('country'),
+                ]);
+                $savedCount++;
+            } catch (\Exception $e) {
+                $errors[] = "Row {$email}: " . $e->getMessage();
+            }
+        }
+        fclose($handle);
+
+        return response()->json([
+            'saved' => $savedCount,
+            'total' => count($seenEmails),
+            'errors' => array_slice($errors, 0, 20),
+        ]);
+    }
+
+    /**
+     * Get ticket attendees for a location in Mailchimp subscriber format.
+     */
+    public function getTicketAttendees($locationId)
+    {
+        $location = Location::findOrFail($locationId);
+        $attendees = TicketAttendee::where('location_id', $locationId)->get();
+
+        $subscribers = $attendees->map(function ($a) {
+            return [
+                'email_address' => $a->email,
+                'first_name' => $a->first_name ?? '',
+                'last_name' => $a->last_name ?? '',
+                'mobile_number' => $a->phone ?? '',
+                'city' => $a->city ?? '',
+                'state' => $a->state ?? '',
+                'country' => $a->country ?? '',
+            ];
+        })->values()->all();
+
+        return response()->json([
+            'total' => count($subscribers),
+            'subscribers' => $subscribers,
+        ]);
+    }
+
+    /**
      * Import Eventbrite attendees to Mailchimp
      */
     public function importEventbriteToMailchimp(Request $request, MailchimpLogService $logService)

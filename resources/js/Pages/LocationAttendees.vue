@@ -39,6 +39,28 @@ const availableMergeFields = ref([]);
 const isLoadingMergeFields = ref(false);
 const missingFields = ref([]);
 const fieldSuggestions = ref({});
+// When set, Mailchimp modal uses these subscribers (e.g. from CSV import) instead of filteredAttendees
+const mailchimpImportSubscribers = ref(null);
+
+// Ticket import modal: 'eventbrite' | 'csv' (manual CSV / Event Groove)
+const ticketImportTab = ref('eventbrite');
+// CSV import variables (used inside ticket modal when tab is 'csv')
+const csvImportStep = ref(1);
+const csvFile = ref(null);
+const csvHeaders = ref([]);
+const csvPreviewRows = ref([]);
+const csvColumnMapping = ref({ email: '', first_name: '', last_name: '', phone: '', city: '', state: '', country: '' });
+const isImportingCsv = ref(false);
+const importedCsvCount = ref(0);
+const CSV_FIELDS = [
+    { key: 'email', label: 'Email (required)', required: true },
+    { key: 'first_name', label: 'First name', required: false },
+    { key: 'last_name', label: 'Last name', required: false },
+    { key: 'phone', label: 'Phone', required: false },
+    { key: 'city', label: 'City', required: false },
+    { key: 'state', label: 'State', required: false },
+    { key: 'country', label: 'Country', required: false },
+];
 
 // Debounce the search to prevent excessive filtering
 const updateDebouncedSearch = debounce((value) => {
@@ -116,6 +138,14 @@ const paginatedAttendees = computed(() => {
 // ✅ Total pages
 const totalPages = computed(() => {
     return Math.ceil(filteredAttendees.value.length / itemsPerPage);
+});
+
+// Attendees count for Mailchimp modal (signup form or ticket/CSV import)
+const mailchimpAttendeeCount = computed(() => {
+    if (mailchimpImportSubscribers.value && mailchimpImportSubscribers.value.length > 0) {
+        return mailchimpImportSubscribers.value.length;
+    }
+    return filteredAttendees.value.length;
 });
 
 // ✅ Navigate pages
@@ -320,20 +350,141 @@ const extractEventIdFromLink = (link) => {
     }
 };
 
-// Open Eventbrite modal
+// Open ticket import modal (Eventbrite or manual CSV)
 const openEventbriteModal = () => {
+    ticketImportTab.value = 'eventbrite';
     eventbriteLink.value = '';
     eventbriteAttendees.value = [];
     eventbriteEventId.value = '';
+    csvImportStep.value = 1;
+    csvFile.value = null;
+    csvHeaders.value = [];
+    csvPreviewRows.value = [];
+    csvColumnMapping.value = { email: '', first_name: '', last_name: '', phone: '', city: '', state: '', country: '' };
+    importedCsvCount.value = 0;
     showEventbriteModal.value = true;
 };
 
-// Close Eventbrite modal
+// Close ticket import modal
 const closeEventbriteModal = () => {
     showEventbriteModal.value = false;
     eventbriteLink.value = '';
     eventbriteAttendees.value = [];
     eventbriteEventId.value = '';
+    ticketImportTab.value = 'eventbrite';
+    csvImportStep.value = 1;
+    csvFile.value = null;
+};
+
+// Parse a single CSV line (handles quoted commas)
+const parseCsvLine = (line) => {
+    const result = [];
+    let current = '';
+    let inQuotes = false;
+    for (let i = 0; i < line.length; i++) {
+        const c = line[i];
+        if (c === '"') {
+            inQuotes = !inQuotes;
+        } else if ((c === ',' && !inQuotes) || (c === '\r' && !inQuotes)) {
+            result.push(current.trim());
+            current = '';
+        } else {
+            current += c;
+        }
+    }
+    result.push(current.trim());
+    return result;
+};
+
+// Parse CSV text into { headers, rows }
+const parseCsvText = (text) => {
+    const lines = text.split('\n').filter(l => l.length > 0);
+    if (lines.length === 0) return { headers: [], rows: [] };
+    const headers = parseCsvLine(lines[0].replace(/^\uFEFF/, ''));
+    const rows = lines.slice(1, 6).map(parseCsvLine);
+    return { headers, rows };
+};
+
+// Guess default column mapping from CSV headers
+const guessColumnMapping = (headers) => {
+    const lower = headers.map(h => (h || '').toLowerCase());
+    const map = { email: '', first_name: '', last_name: '', phone: '', city: '', state: '', country: '' };
+    lower.forEach((h, i) => {
+        const orig = headers[i];
+        if (/email|e-mail|e_mail/.test(h)) map.email = orig;
+        else if (/first|fname|firstname|given/.test(h)) map.first_name = orig;
+        else if (/last|lname|lastname|surname|family/.test(h)) map.last_name = orig;
+        else if (/phone|mobile|cell|tel/.test(h)) map.phone = orig;
+        else if (/^city$|town/.test(h)) map.city = orig;
+        else if (/state|region|province/.test(h)) map.state = orig;
+        else if (/country/.test(h)) map.country = orig;
+    });
+    return map;
+};
+
+// Switch to CSV tab inside ticket modal (no separate modal)
+const switchToCsvTab = () => {
+    ticketImportTab.value = 'csv';
+    csvImportStep.value = 1;
+    csvFile.value = null;
+    csvHeaders.value = [];
+    csvPreviewRows.value = [];
+    csvColumnMapping.value = { email: '', first_name: '', last_name: '', phone: '', city: '', state: '', country: '' };
+    importedCsvCount.value = 0;
+};
+
+const onCsvFileSelected = (event) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    csvFile.value = file;
+    const reader = new FileReader();
+    reader.onload = (e) => {
+        const { headers, rows } = parseCsvText(e.target.result || '');
+        csvHeaders.value = headers;
+        csvPreviewRows.value = rows;
+        csvColumnMapping.value = guessColumnMapping(headers);
+        csvImportStep.value = 2;
+    };
+    reader.readAsText(file, 'UTF-8');
+};
+
+const submitCsvImport = async () => {
+    if (!csvFile.value || !csvColumnMapping.value.email) {
+        Swal.fire('Error', 'Please map at least the Email column.', 'error');
+        return;
+    }
+    isImportingCsv.value = true;
+    try {
+        const formData = new FormData();
+        formData.append('csv_file', csvFile.value);
+        formData.append('location_id', props.location.id);
+        formData.append('column_mapping', JSON.stringify(csvColumnMapping.value));
+
+        const response = await axios.post(route('location.importCsvTicketAttendees'), formData, {
+            headers: { 'X-XSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '', 'Accept': 'application/json' },
+            withCredentials: true,
+        });
+        importedCsvCount.value = response.data.saved ?? 0;
+        csvImportStep.value = 3;
+        if (response.data.saved > 0) {
+            router.reload();
+        }
+    } catch (err) {
+        Swal.fire('Error', err.response?.data?.error || 'Failed to import CSV.', 'error');
+    } finally {
+        isImportingCsv.value = false;
+    }
+};
+
+const openMailchimpWithTicketAttendees = async () => {
+    try {
+        const response = await axios.get(route('location.getTicketAttendees', { locationId: props.location.id }));
+        mailchimpImportSubscribers.value = response.data.subscribers || [];
+        closeEventbriteModal();
+        await openMailchimpImportModal();
+    } catch (err) {
+        Swal.fire('Error', err.response?.data?.error || 'Failed to load attendees for Mailchimp.', 'error');
+    }
 };
 
 // Fetch Eventbrite attendees
@@ -545,6 +696,11 @@ const closeEditPrizeModal = () => {
 };
 
 // ✅ Mailchimp import functions
+const closeMailchimpModal = () => {
+    showMailchimpModal.value = false;
+    mailchimpImportSubscribers.value = null;
+};
+
 const openMailchimpImportModal = async () => {
     try {
         // Get Mailchimp lists
@@ -569,7 +725,11 @@ const handleMailchimpImport = async () => {
         return;
     }
 
-    if (filteredAttendees.value.length === 0) {
+    const attendeesToUse = (mailchimpImportSubscribers.value && mailchimpImportSubscribers.value.length)
+        ? mailchimpImportSubscribers.value
+        : filteredAttendees.value;
+
+    if (attendeesToUse.length === 0) {
         Swal.fire('Error!', 'No attendees found to import.', 'error');
         return;
     }
@@ -577,8 +737,8 @@ const handleMailchimpImport = async () => {
     isImporting.value = true;
 
     try {
-        // Get all attendees data
-        const attendeesToImport = filteredAttendees.value;
+        // Get all attendees data (from CSV/ticket attendees or signup form)
+        const attendeesToImport = attendeesToUse;
         const totalAttendees = attendeesToImport.length;
 
         // Use the editable tags field (which contains both auto-generated and custom tags)
@@ -821,6 +981,7 @@ const handleMailchimpImport = async () => {
         
         // Close the Mailchimp modal and reset form
         showMailchimpModal.value = false;
+        mailchimpImportSubscribers.value = null;
         selectedList.value = '';
         customTags.value = '';
         isImporting.value = false;
@@ -1360,12 +1521,12 @@ const downloadLogFile = (content, filename) => {
                                 >
                                     <i class="fa-solid fa-trophy"></i> Export winners
                                 </button>
-                                <!-- ✅ Eventbrite Import Button -->
+                                <!-- ✅ Import Ticket Data (Eventbrite or CSV / Event Groove) -->
                                 <button 
                                     @click="openEventbriteModal" 
                                     class="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-700"
                                 >
-                                    <i class="fa-solid fa-ticket"></i> Import Eventbrite ticket data
+                                    <i class="fa-solid fa-ticket"></i> Import ticket data
                                 </button>
                                 <!-- ✅ Mailchimp Import Button -->
                                 <button 
@@ -1573,14 +1734,15 @@ const downloadLogFile = (content, filename) => {
             <div class="bg-white p-6 rounded-lg shadow-xl max-w-4xl w-full mx-4 max-h-[90vh] overflow-y-auto">
                 <div class="flex justify-between items-center mb-4">
                     <h3 class="text-lg font-semibold">Import Attendees to Mailchimp</h3>
-                    <button @click="showMailchimpModal = false" class="text-gray-500 hover:text-gray-700">
+                    <button @click="closeMailchimpModal" class="text-gray-500 hover:text-gray-700">
                         <i class="fa-solid fa-times"></i>
                     </button>
                 </div>
                 
                 <div class="space-y-4">
                     <p class="text-gray-600">
-                        Import <strong>{{ filteredAttendees.length }}</strong> attendees from <strong>{{ location.name }}</strong> to Mailchimp
+                        Import <strong>{{ mailchimpAttendeeCount }}</strong> attendees from <strong>{{ location.name }}</strong> to Mailchimp
+                        <span v-if="mailchimpImportSubscribers?.length" class="text-sm text-blue-600">(from imported CSV/ticket data)</span>
                     </p>
 
                     <!-- Editable Tags Section -->
@@ -1722,7 +1884,7 @@ const downloadLogFile = (content, filename) => {
 
                     <div class="flex justify-end space-x-3">
                         <button 
-                            @click="showMailchimpModal = false"
+                            @click="closeMailchimpModal"
                             class="px-4 py-2 border rounded text-gray-600 hover:bg-gray-50"
                             :disabled="isImporting"
                         >
@@ -1739,7 +1901,7 @@ const downloadLogFile = (content, filename) => {
                             </span>
                             <span v-else>
                                 <i class="fa-solid fa-envelope mr-2"></i>
-                                Import {{ filteredAttendees.length }} Attendees
+                                Import {{ mailchimpAttendeeCount }} Attendees
                                 <span v-if="customTags.trim()" class="text-sm opacity-90">
                                     ({{ customTags.split(',').filter(tag => tag.trim()).length }} tags)
                                 </span>
@@ -1750,21 +1912,41 @@ const downloadLogFile = (content, filename) => {
             </div>
         </div>
 
-        <!-- Eventbrite Import Modal -->
+        <!-- Import Ticket Data Modal (Eventbrite link OR manual CSV / Event Groove) -->
         <div v-if="showEventbriteModal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
             <div class="bg-white p-6 rounded-lg shadow-xl max-w-4xl w-full mx-4 max-h-[90vh] overflow-y-auto">
                 <div class="flex justify-between items-center mb-4">
-                    <h3 class="text-lg font-semibold">Import Attendees from Eventbrite</h3>
+                    <h3 class="text-lg font-semibold">Import Ticket Data</h3>
                     <button @click="closeEventbriteModal" class="text-gray-500 hover:text-gray-700">
                         <i class="fa-solid fa-times"></i>
                     </button>
                 </div>
-                
-                <div class="space-y-4">
-                    <p class="text-gray-600">
-                        Import attendees from Eventbrite for <strong>{{ location.name }}</strong>
-                    </p>
+                <p class="text-gray-600 mb-4">
+                    Import ticket data for <strong>{{ location.name }}</strong>
+                </p>
 
+                <!-- Tabs: Eventbrite | Import manually (CSV / Event Groove) -->
+                <div class="flex border-b border-gray-200 mb-4">
+                    <button
+                        type="button"
+                        @click="ticketImportTab = 'eventbrite'"
+                        :class="ticketImportTab === 'eventbrite' ? 'border-b-2 border-blue-500 text-blue-600 font-medium' : 'text-gray-500 hover:text-gray-700'"
+                        class="px-4 py-2"
+                    >
+                        <i class="fa-solid fa-ticket mr-2"></i> Eventbrite link
+                    </button>
+                    <button
+                        type="button"
+                        @click="switchToCsvTab"
+                        :class="ticketImportTab === 'csv' ? 'border-b-2 border-blue-500 text-blue-600 font-medium' : 'text-gray-500 hover:text-gray-700'"
+                        class="px-4 py-2"
+                    >
+                        <i class="fa-solid fa-file-csv mr-2"></i> Import manually (CSV / Event Groove)
+                    </button>
+                </div>
+
+                <!-- Tab: Eventbrite link -->
+                <div v-if="ticketImportTab === 'eventbrite'" class="space-y-4">
                     <div class="mb-4">
                         <label class="block text-sm font-medium text-gray-700 mb-2">
                             Eventbrite Event Link
@@ -1780,8 +1962,7 @@ const downloadLogFile = (content, filename) => {
                             Paste the Eventbrite event URL. The system will extract the event ID and fetch all attendees.
                         </p>
                     </div>
-
-                    <div class="flex justify-end space-x-3 mb-4">
+                    <div class="flex justify-end space-x-3">
                         <button 
                             @click="closeEventbriteModal"
                             class="px-4 py-2 border rounded text-gray-600 hover:bg-gray-50"
@@ -1803,6 +1984,101 @@ const downloadLogFile = (content, filename) => {
                                 Fetch Attendees
                             </span>
                         </button>
+                    </div>
+                </div>
+
+                <!-- Tab: Import manually (CSV / Event Groove) -->
+                <div v-if="ticketImportTab === 'csv'" class="space-y-4">
+                    <!-- Step 1: Choose file -->
+                    <div v-if="csvImportStep === 1">
+                        <p class="text-gray-600 mb-3">
+                            Upload a CSV (e.g. from Event Groove). You will map columns to Email, First name, Last name, etc. Other columns will be ignored.
+                        </p>
+                        <label class="block">
+                            <span class="sr-only">Choose CSV file</span>
+                            <input
+                                type="file"
+                                accept=".csv,.txt"
+                                class="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded file:border-0 file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
+                                @change="onCsvFileSelected"
+                            />
+                        </label>
+                    </div>
+
+                    <!-- Step 2: Map columns -->
+                    <div v-if="csvImportStep === 2" class="space-y-4">
+                        <p class="text-gray-600">
+                            Map each CSV column to a field. <strong>Email</strong> is required. Unmapped columns are ignored.
+                        </p>
+                        <div class="overflow-x-auto">
+                            <table class="w-full border border-gray-300 text-sm">
+                                <thead class="bg-gray-100">
+                                    <tr>
+                                        <th class="border border-gray-300 p-2 text-left">Our field</th>
+                                        <th class="border border-gray-300 p-2 text-left">CSV column</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <tr v-for="field in CSV_FIELDS" :key="field.key" class="border border-gray-300">
+                                        <td class="border border-gray-300 p-2">
+                                            {{ field.label }}
+                                            <span v-if="field.required" class="text-red-500">*</span>
+                                        </td>
+                                        <td class="border border-gray-300 p-2">
+                                            <select
+                                                v-model="csvColumnMapping[field.key]"
+                                                class="w-full border rounded px-2 py-1"
+                                            >
+                                                <option value="">Don't import</option>
+                                                <option v-for="h in csvHeaders" :key="h" :value="h">{{ h }}</option>
+                                            </select>
+                                        </td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                        <p class="text-xs text-gray-500">Preview (first 5 rows):</p>
+                        <div class="overflow-x-auto max-h-32 border border-gray-200 rounded">
+                            <table class="w-full text-xs border-collapse">
+                                <thead class="bg-gray-50 sticky top-0">
+                                    <tr>
+                                        <th v-for="h in csvHeaders" :key="h" class="border p-1 text-left whitespace-nowrap">{{ h }}</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <tr v-for="(row, ri) in csvPreviewRows" :key="ri">
+                                        <td v-for="(cell, ci) in row" :key="ci" class="border p-1 truncate max-w-[120px]">{{ cell }}</td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                        <div class="flex justify-end gap-2">
+                            <button @click="csvImportStep = 1" class="px-4 py-2 border rounded text-gray-600 hover:bg-gray-50">Back</button>
+                            <button
+                                @click="submitCsvImport"
+                                :disabled="isImportingCsv || !csvColumnMapping.email"
+                                class="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50"
+                            >
+                                <span v-if="isImportingCsv"><i class="fa-solid fa-spinner fa-spin mr-1"></i> Importing...</span>
+                                <span v-else>Import CSV</span>
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Step 3: Success + Import to Mailchimp -->
+                    <div v-if="csvImportStep === 3" class="space-y-4">
+                        <p class="text-gray-600">
+                            <strong>{{ importedCsvCount }}</strong> attendees were imported. You can now import them to Mailchimp or close.
+                        </p>
+                        <div class="flex justify-end gap-2">
+                            <button @click="closeEventbriteModal" class="px-4 py-2 border rounded text-gray-600 hover:bg-gray-50">Close</button>
+                            <button
+                                @click="openMailchimpWithTicketAttendees"
+                                class="px-4 py-2 bg-orange-500 text-white rounded hover:bg-orange-600"
+                            >
+                                <i class="fa-solid fa-envelope mr-2"></i> Import to Mailchimp
+                            </button>
+                        </div>
                     </div>
                 </div>
             </div>
