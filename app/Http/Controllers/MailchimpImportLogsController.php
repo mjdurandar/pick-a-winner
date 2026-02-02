@@ -78,9 +78,14 @@ class MailchimpImportLogsController extends Controller
 
     /**
      * Delete a Mailchimp import log and its stored file (if any).
+     * Only allowed for mj@adventureentertainment.com.
      */
     public function destroy($id)
     {
+        if (strtolower(auth()->user()?->email ?? '') !== 'mj@adventureentertainment.com') {
+            abort(403, 'You are not allowed to delete import logs.');
+        }
+
         $log = MailchimpImportLog::findOrFail($id);
         if ($log->has_import_file) {
             $path = 'mailchimp_imports/' . $log->id . '.csv';

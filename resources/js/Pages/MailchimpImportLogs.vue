@@ -2,7 +2,10 @@
 import { ref, computed } from 'vue';
 import Swal from 'sweetalert2';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout.vue';
-import { Head, router } from '@inertiajs/vue3';
+import { Head, router, usePage } from '@inertiajs/vue3';
+
+const page = usePage();
+const canDeleteLogs = computed(() => (page.props.auth?.user?.email || '').toLowerCase() === 'mj@adventureentertainment.com');
 
 const props = defineProps({
     mailchimpImportLogs: { type: Array, default: () => [] },
@@ -279,6 +282,7 @@ const exportToCsv = () => {
                                         <td v-for="i in tagColumnIndices" :key="i" class="border border-gray-300 p-2 text-gray-600 whitespace-nowrap">{{ (log.tags && log.tags[i]) || '—' }}</td>
                                         <td class="border border-gray-300 p-2 text-center whitespace-nowrap">
                                             <button
+                                                v-if="canDeleteLogs"
                                                 type="button"
                                                 @click="deleteLog(log)"
                                                 class="text-red-600 hover:text-red-800 hover:underline"
@@ -286,6 +290,7 @@ const exportToCsv = () => {
                                             >
                                                 <i class="fa-solid fa-trash"></i> Delete
                                             </button>
+                                            <span v-else class="text-gray-400">—</span>
                                         </td>
                                     </tr>
                                 </tbody>
