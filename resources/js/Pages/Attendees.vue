@@ -8,7 +8,8 @@ import { debounce } from 'lodash';
 const props = defineProps({
     event: Object,
     attendees: Array,
-    form: Object
+    form: Object,
+    prizes: { type: Array, default: () => [] }
 });
 
 const searchQuery = ref("");
@@ -20,6 +21,7 @@ const itemsPerPage = 20;
 const showExportModal = ref(false);
 const exportTags = ref('');
 const defaultSourceWord = ref('WM'); // Default word for SOURCE tag
+const exportAllAttendees = ref(true); // If true, export all data; if false, export only search results
 
 // Debounce the search to prevent excessive filtering
 const updateDebouncedSearch = debounce((value) => {
@@ -33,13 +35,33 @@ const handleSearchInput = (event) => {
     currentPage.value = 1; // Reset to first page on search
 };
 
-// ✅ Extract column names (exclude unwanted columns)
+const excludedExportColumns = ["created_at", "updated_at", "id", "event_id", "location_id", "events_location", "mobile_number_format"];
+
+// ✅ Extract column names for display (exclude unwanted columns)
 const columnHeaders = computed(() => {
     if (props.attendees.length > 0) {
-        const columns = Object.keys(props.attendees[0]).filter(col => !["created_at", "updated_at", "id", "event_id", "location_id", "events_location", "mobile_number_format"].includes(col));
+        const columns = Object.keys(props.attendees[0]).filter(col => !excludedExportColumns.includes(col));
         return columns;
     }
     return [];
+});
+
+// ✅ Export: use all columns that appear in ANY attendee so we don't miss data
+const exportColumnHeaders = computed(() => {
+    if (props.attendees.length === 0) return [];
+    const allKeys = new Set();
+    props.attendees.forEach(attendee => {
+        Object.keys(attendee).forEach(key => {
+            if (!excludedExportColumns.includes(key)) allKeys.add(key);
+        });
+    });
+    // Stable order: use first row's key order as base, then append any extra keys from other rows
+    const firstRowKeys = Object.keys(props.attendees[0]).filter(col => !excludedExportColumns.includes(col));
+    const ordered = [...firstRowKeys];
+    allKeys.forEach(key => {
+        if (!ordered.includes(key)) ordered.push(key);
+    });
+    return ordered;
 });
 
 // ✅ Get question text for a column name
@@ -106,18 +128,23 @@ const showExportModalDialog = () => {
     showExportModal.value = true;
 };
 
-// ✅ Export filtered data to CSV with tags
+// ✅ Data to export: all attendees or filtered (search results)
+const attendeesToExport = computed(() => exportAllAttendees.value ? props.attendees : filteredAttendees.value);
+
+// ✅ Export data to CSV with tags (all attendees by default)
 const exportToCSV = () => {
-    if (filteredAttendees.value.length === 0) {
-        Swal.fire('No Data', 'No attendees found to export.', 'warning');
+    const data = attendeesToExport.value;
+    if (data.length === 0) {
+        Swal.fire('No Data', exportAllAttendees.value ? 'No attendees in database.' : 'No attendees match your search.', 'warning');
         return;
     }
 
     let csvContent = "data:text/csv;charset=utf-8,";
 
-    // Add headers using questions instead of column names, plus Opt In Date and Tags columns
+    // Use full column set so we export every column that exists in any attendee
+    const cols = exportColumnHeaders.value;
     const headers = [
-        ...columnHeaders.value.map(col => `"${getQuestionText(col)}"`), 
+        ...cols.map(col => `"${getQuestionText(col)}"`),
         '"Opt In Date"',
         '"Tags"'
     ];
@@ -130,8 +157,8 @@ const exportToCSV = () => {
         .filter(tag => tag);
 
     // Add data rows
-    filteredAttendees.value.forEach(attendee => {
-        const dataRow = columnHeaders.value.map(col => `"${attendee[col] || ''}"`);
+    data.forEach(attendee => {
+        const dataRow = cols.map(col => `"${(attendee[col] ?? '').toString().replace(/"/g, '""')}"`);
         
         // Add Opt In Date (formatted created_at) before Tags
         const optInDate = formatOptInDate(attendee.created_at);
@@ -144,7 +171,7 @@ const exportToCSV = () => {
         const allTags = [...automatedTags, ...manualTags];
         const finalTags = allTags.join(', ');
         
-        dataRow.push(`"${finalTags}"`); // Add tags column
+        dataRow.push(`"${finalTags.replace(/"/g, '""')}"`);
         csvContent += dataRow.join(",") + "\n";
     });
 
@@ -167,6 +194,40 @@ const closeExportModal = () => {
     showExportModal.value = false;
     exportTags.value = '';
     defaultSourceWord.value = 'WM'; // Reset to default
+};
+
+// Export all winners to CSV (inside Database page) – only include rows with a winner email
+const exportWinnersToCSV = () => {
+    const allPrizes = props.prizes || [];
+    const hasWinnerEmail = (p) => {
+        const email = (p.winner_email || '').toString().trim();
+        return email && email !== 'No Winner Yet';
+    };
+    const prizes = allPrizes.filter(hasWinnerEmail);
+    if (prizes.length === 0) {
+        Swal.fire('No Data', allPrizes.length ? 'No winners with an email to export.' : 'No winner data to export.', 'info');
+        return;
+    }
+    const headers = ['Location', 'Prize Name', 'Winner Name', 'Winner Email', 'Winner Mobile'];
+    const escape = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`;
+    let csv = 'data:text/csv;charset=utf-8,' + headers.map(escape).join(',') + '\n';
+    prizes.forEach((p) => {
+        const row = [
+            p.location_name ?? '',
+            p.prize_name ?? '',
+            p.winner ?? '',
+            p.winner_email ?? '',
+            p.winner_mobile_number ?? ''
+        ];
+        csv += row.map(escape).join(',') + '\n';
+    });
+    const link = document.createElement('a');
+    link.setAttribute('href', encodeURI(csv));
+    link.setAttribute('download', `winners_${(props.event?.event_name || 'event').replace(/\s+/g, '_')}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    Swal.fire('Exported', `Exported ${prizes.length} winner(s) to CSV.`, 'success');
 };
 
 // ✅ Extract location name from Location Name column
@@ -291,14 +352,26 @@ const deleteAttendee = (attendeeId, eventId) => {
                                 class="w-full md:w-1/3 p-2 border rounded"
                                 @input="handleSearchInput"
                             />
-                            <!-- ✅ Export Button -->
-                            <button 
-                                @click="showExportModalDialog" 
-                                class="bg-green-500 text-white px-4 py-2 rounded hover:bg-green-700"
-                                title="Export to CSV with Tags"
-                            >
-                                <i class="fa-solid fa-file-csv"></i>
-                            </button>
+                            <div class="flex gap-2">
+                                <!-- ✅ Export Winners Button (inside Database page) -->
+                                <button 
+                                    v-if="(prizes || []).length > 0"
+                                    @click="exportWinnersToCSV"
+                                    class="bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700"
+                                    title="Export all winners to CSV"
+                                >
+                                    <i class="fa-solid fa-trophy"></i> Export winners
+                                </button>
+                                <!-- ✅ Export Attendees CSV Button -->
+                                <button 
+                                    @click="showExportModalDialog" 
+                                    class="bg-green-500 text-white px-4 py-2 rounded hover:bg-green-700"
+                                    title="Export to CSV with Tags"
+                                >
+                                    Export Attendees
+                                    <i class="fa-solid fa-file-csv"></i>
+                                </button>
+                            </div>
                         </div>
 
                         <div class="overflow-x-auto">
@@ -369,6 +442,20 @@ const deleteAttendee = (attendeeId, eventId) => {
                     <p class="text-gray-600">
                         Configure automated tags and add additional manual tags for the exported CSV file.
                     </p>
+
+                    <!-- Export scope: all vs search results -->
+                    <div class="mb-4 p-3 bg-gray-50 rounded-lg">
+                        <label class="flex items-center gap-2 cursor-pointer">
+                            <input type="checkbox" v-model="exportAllAttendees" class="rounded border-gray-300" />
+                            <span class="font-medium">Export all attendees ({{ props.attendees.length }} total)</span>
+                        </label>
+                        <p v-if="!exportAllAttendees" class="text-sm text-gray-600 mt-1">
+                            Exporting {{ filteredAttendees.length }} attendee(s) matching your search.
+                        </p>
+                        <p v-else class="text-sm text-gray-500 mt-1">
+                            Uncheck to export only the attendees matching your current search.
+                        </p>
+                    </div>
 
                     <!-- Default Source Word Input -->
                     <div class="mb-4">

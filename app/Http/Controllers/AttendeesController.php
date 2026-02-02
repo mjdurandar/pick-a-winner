@@ -29,11 +29,23 @@ class AttendeesController extends Controller
             ->where("$tableName.event_id", $eventId)
             ->select("$tableName.*", 'locations.name as location_name') // ✅ Fetch location name
             ->get();
+
+        // ✅ Fetch all prizes (winners) for this event with location names for export on Database page
+        $locations = Location::where('event_id', $eventId)->get();
+        $locationById = $locations->keyBy('id');
+        $prizes = Prize::where('event_id', $eventId)->orderBy('location_id')->orderBy('id')->get()
+            ->map(function ($prize) use ($locationById) {
+                $prize->location_name = $prize->location_id
+                    ? ($locationById->get($prize->location_id)->name ?? 'Unknown')
+                    : 'National Tour Wide';
+                return $prize;
+            });
         
         return Inertia::render('Attendees', [
             'event' => $event,  // ✅ Pass the full event object instead of just ID
             'attendees' => $attendees,
-            'form' => $signupForm // Pass the form data to get access to questions
+            'form' => $signupForm, // Pass the form data to get access to questions
+            'prizes' => $prizes
         ]);
     }
 

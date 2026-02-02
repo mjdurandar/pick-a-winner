@@ -11,7 +11,7 @@ import axios from 'axios';
 const props = defineProps({
     event: Object,
     locations: Array,
-    flash: Object // Add this line
+    flash: Object
 });
 
 // ✅ Reactive Data
@@ -2112,7 +2112,7 @@ watch(
                                         <i class="fa-solid fa-file-export"></i> Export Selected ({{ selectedLocationsForExport.length }})
                                     </button>
                                 </div>
-                                <!-- Attendees Database Button - Always Visible on Right Corner -->
+                                <!-- Attendees Database Button - Right Corner -->
                                 <div class="ml-auto">
                                     <button 
                                         @click="goToAttendeesPage"

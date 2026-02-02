@@ -465,6 +465,41 @@ const goBackToLocation = () => {
     router.get(route('location.locationpage', props.event.id));
 };
 
+// Export winner/prize data for this location to CSV – only include rows with a winner email
+const exportWinnersToCSV = () => {
+    const allPrizes = props.prizes || [];
+    const hasWinnerEmail = (p) => {
+        const email = (p.winner_email || '').toString().trim();
+        return email && email !== 'No Winner Yet';
+    };
+    const prizes = allPrizes.filter(hasWinnerEmail);
+    if (prizes.length === 0) {
+        Swal.fire('No Data', allPrizes.length ? 'No winners with an email to export.' : 'No winner data for this location to export.', 'info');
+        return;
+    }
+    const locationName = props.location?.name ?? 'Location';
+    const headers = ['Location', 'Prize Name', 'Winner Name', 'Winner Email', 'Winner Mobile'];
+    const escape = (v) => `"${String(v ?? '').replace(/"/g, '""')}"`;
+    let csv = 'data:text/csv;charset=utf-8,' + headers.map(escape).join(',') + '\n';
+    prizes.forEach((p) => {
+        const row = [
+            locationName,
+            p.prize_name ?? '',
+            p.winner ?? '',
+            p.winner_email ?? '',
+            p.winner_mobile_number ?? ''
+        ];
+        csv += row.map(escape).join(',') + '\n';
+    });
+    const link = document.createElement('a');
+    link.setAttribute('href', encodeURI(csv));
+    link.setAttribute('download', `winners_${(locationName || 'location').replace(/\s+/g, '_').replace(/[^a-zA-Z0-9_-]/g, '_')}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    Swal.fire('Exported', `Exported ${prizes.length} winner(s) to CSV.`, 'success');
+};
+
 // ✅ Edit prize
 const editPrize = (attendee) => {
     const prize = props.prizes.find(p => p.winner_email === attendee.email_address);
@@ -1316,7 +1351,15 @@ const downloadLogFile = (content, filename) => {
                                 class="w-full md:w-1/3 p-2 border rounded"
                                 @input="handleSearchInput"
                             />
-                            <div class="flex gap-2">
+                            <div class="flex gap-2 flex-wrap">
+                                <!-- ✅ Export winners for this location -->
+                                <button 
+                                    v-if="(prizes || []).length > 0"
+                                    @click="exportWinnersToCSV" 
+                                    class="bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700"
+                                >
+                                    <i class="fa-solid fa-trophy"></i> Export winners
+                                </button>
                                 <!-- ✅ Eventbrite Import Button -->
                                 <button 
                                     @click="openEventbriteModal" 
