@@ -23,8 +23,8 @@ class EventImportAllToMailchimpJob implements ShouldQueue
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
-    /** @var int Job timeout in seconds (10 minutes per run; queue worker may run multiple jobs) */
-    public $timeout = 600;
+    /** @var int Job timeout in seconds; large imports need time to finish all locations. */
+    public $timeout;
 
     public function __construct(
         public int $eventId,
@@ -35,7 +35,13 @@ class EventImportAllToMailchimpJob implements ShouldQueue
         public ?int $userId,
         public bool $skipAlreadyImported = false,
         public ?string $importBatchId = null
-    ) {}
+    ) {
+        // Allow production to run until all locations are imported (default 2 hours).
+        $this->timeout = config('queue.mailchimp_import_job_timeout', 7200);
+        if ($this->timeout < 60) {
+            $this->timeout = 7200;
+        }
+    }
 
     public function handle(MailchimpLogService $logService): void
     {
@@ -63,6 +69,7 @@ class EventImportAllToMailchimpJob implements ShouldQueue
         $locationsFailed = 0;
         $locationsSkipped = 0;
         $failureReasons = [];
+        $locationIndex = 0;
 
         Log::info('Event import all (job) started', [
             'event_id' => $this->eventId,
@@ -72,6 +79,8 @@ class EventImportAllToMailchimpJob implements ShouldQueue
         ]);
 
         foreach ($locationsToProcess as $loc) {
+            $locationIndex++;
+
             if ($this->importBatchId && Cache::get('cancel_import_batch_' . $this->importBatchId)) {
                 Log::info('Event import all (job): cancelled by user', ['import_batch_id' => $this->importBatchId]);
                 break;
@@ -108,10 +117,21 @@ class EventImportAllToMailchimpJob implements ShouldQueue
                 }
                 $failureReasons[$reason]['count']++;
                 $failureReasons[$reason]['location_ids'][] = $locationId;
-                // Keep only first 5 location_ids per reason to avoid huge logs
                 if (count($failureReasons[$reason]['location_ids']) > 5) {
                     $failureReasons[$reason]['location_ids'] = array_slice($failureReasons[$reason]['location_ids'], 0, 5);
                 }
+                // One error must not stop the rest: continue to next location (no rethrow).
+            }
+
+            // Progress log every 5 locations so you can see the job is still running
+            if ($locationIndex % 5 === 0 || $locationIndex === $locationsQueued) {
+                Log::info('Event import all (job) progress', [
+                    'event_id' => $this->eventId,
+                    'processed' => $locationIndex,
+                    'total' => $locationsQueued,
+                    'imported_so_far' => $locationsImported,
+                    'failed_so_far' => $locationsFailed,
+                ]);
             }
         }
 
@@ -217,13 +237,17 @@ class EventImportAllToMailchimpJob implements ShouldQueue
                         $locUpdated++;
                     }
                 }
-                $logService->logImport($location->id, $location->name, [
-                    'success' => true,
-                    'email' => $subscriber['email_address'],
-                    'tags' => $tags,
-                    'source' => 'eventbrite',
-                ]);
-            } catch (\Exception $e) {
+                try {
+                    $logService->logImport($location->id, $location->name, [
+                        'success' => true,
+                        'email' => $subscriber['email_address'],
+                        'tags' => $tags,
+                        'source' => 'eventbrite',
+                    ]);
+                } catch (\Throwable $e) {
+                    // Logging failure must not abort the import; continue to next subscriber.
+                }
+            } catch (\Throwable $e) {
                 $locFailed++;
                 $errMsg = substr("{$subscriber['email_address']}: " . $e->getMessage(), 0, 200);
                 $locErrors[] = $errMsg;
@@ -236,13 +260,17 @@ class EventImportAllToMailchimpJob implements ShouldQueue
                         'error_message' => $e->getMessage(),
                     ];
                 }
-                $logService->logImport($location->id, $location->name, [
-                    'success' => false,
-                    'email' => $subscriber['email_address'] ?? 'unknown',
-                    'error' => $e->getMessage(),
-                    'tags' => $tags,
-                    'source' => 'eventbrite',
-                ]);
+                try {
+                    $logService->logImport($location->id, $location->name, [
+                        'success' => false,
+                        'email' => $subscriber['email_address'] ?? 'unknown',
+                        'error' => $e->getMessage(),
+                        'tags' => $tags,
+                        'source' => 'eventbrite',
+                    ]);
+                } catch (\Throwable $e2) {
+                    // Do not let logging failure abort the import.
+                }
             }
         }
 
@@ -351,39 +379,47 @@ class EventImportAllToMailchimpJob implements ShouldQueue
                 'gender' => $row->gender ?? '',
                 'age' => $row->age ?? '',
             ];
-            try {
-                $result = $mailchimpService->manualImportSubscriber($listId, $subscriber, $formTags);
-                $locFormSuccess++;
-                if (isset($result['import_type'])) {
-                    if ($result['import_type'] === 'new') {
-                        $locFormNew++;
-                    } elseif ($result['import_type'] === 'updated') {
-                        $locFormUpdated++;
+                try {
+                    $result = $mailchimpService->manualImportSubscriber($listId, $subscriber, $formTags);
+                    $locFormSuccess++;
+                    if (isset($result['import_type'])) {
+                        if ($result['import_type'] === 'new') {
+                            $locFormNew++;
+                        } elseif ($result['import_type'] === 'updated') {
+                            $locFormUpdated++;
+                        }
+                    }
+                    try {
+                        $logService->logImport($location->id, $location->name, [
+                            'success' => true,
+                            'email' => $subscriber['email_address'],
+                            'tags' => $formTags,
+                            'source' => 'signup_form',
+                        ]);
+                    } catch (\Throwable $e2) {
+                        // Do not let logging failure abort the import.
+                    }
+                } catch (\Throwable $e) {
+                    $locFormFailed++;
+                    $locFormErrors[] = substr("{$subscriber['email_address']}: " . $e->getMessage(), 0, 200);
+                    if (count($failedRowsData) < $maxFailedRowsStored) {
+                        $failedRowsData[] = array_merge(
+                            array_intersect_key($subscriber, array_flip(['email_address', 'first_name', 'last_name', 'mobile_number', 'street_address', 'street_address_2', 'city', 'state', 'zip_code', 'country', 'gender', 'age'])),
+                            ['error_message' => $e->getMessage()]
+                        );
+                    }
+                    try {
+                        $logService->logImport($location->id, $location->name, [
+                            'success' => false,
+                            'email' => $subscriber['email_address'],
+                            'error' => $e->getMessage(),
+                            'tags' => $formTags,
+                            'source' => 'signup_form',
+                        ]);
+                    } catch (\Throwable $e2) {
+                        // Do not let logging failure abort the import.
                     }
                 }
-                $logService->logImport($location->id, $location->name, [
-                    'success' => true,
-                    'email' => $subscriber['email_address'],
-                    'tags' => $formTags,
-                    'source' => 'signup_form',
-                ]);
-            } catch (\Exception $e) {
-                $locFormFailed++;
-                $locFormErrors[] = substr("{$subscriber['email_address']}: " . $e->getMessage(), 0, 200);
-                if (count($failedRowsData) < $maxFailedRowsStored) {
-                    $failedRowsData[] = array_merge(
-                        array_intersect_key($subscriber, array_flip(['email_address', 'first_name', 'last_name', 'mobile_number', 'street_address', 'street_address_2', 'city', 'state', 'zip_code', 'country', 'gender', 'age'])),
-                        ['error_message' => $e->getMessage()]
-                    );
-                }
-                $logService->logImport($location->id, $location->name, [
-                    'success' => false,
-                    'email' => $subscriber['email_address'],
-                    'error' => $e->getMessage(),
-                    'tags' => $formTags,
-                    'source' => 'signup_form',
-                ]);
-            }
         }
 
         $hadPreviousImport = MailchimpImportLog::where('location_id', $locationId)

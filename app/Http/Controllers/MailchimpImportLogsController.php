@@ -323,7 +323,7 @@ class MailchimpImportLogsController extends Controller
 
         return response()->json([
             'queued_imports' => $result,
-            'job_timeout_seconds' => 600,
+            'job_timeout_seconds' => config('queue.mailchimp_import_job_timeout', 7200),
             'queue_connection' => config('queue.default'),
         ]);
     }

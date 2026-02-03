@@ -40,12 +40,11 @@ class MailchimpLogService
             Storage::append($this->logFile, $entry);
 
             return $this->logFile;
-        } catch (\Exception $e) {
-            Log::error('Error in logImport', [
+        } catch (\Throwable $e) {
+            Log::error('Error in logImport (import continues)', [
                 'error' => $e->getMessage(),
-                'trace' => $e->getTraceAsString()
             ]);
-            throw $e;
+            // Do not rethrow: a logging failure must not abort the import.
         }
     }
 

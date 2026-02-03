@@ -17,6 +17,16 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Mailchimp Import All job timeout (seconds)
+    |--------------------------------------------------------------------------
+    | How long a single Import All job may run before being killed. Increase for
+    | production with many locations (e.g. 7200 = 2 hours). Worker must run at
+    | least this long to let one job finish.
+    */
+    'mailchimp_import_job_timeout' => (int) env('MAILCHIMP_IMPORT_JOB_TIMEOUT', 7200),
+
+    /*
+    |--------------------------------------------------------------------------
     | Queue Connections
     |--------------------------------------------------------------------------
     |
