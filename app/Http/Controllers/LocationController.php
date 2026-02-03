@@ -1486,6 +1486,45 @@ class LocationController extends Controller
     }
 
     /**
+     * GET preview of how many contacts will be imported (win form counts per location).
+     * Used by Import All modal to show "Total contacts to be imported" (frontend adds staged ticket count).
+     */
+    public function getEventMailchimpImportPreview($eventId)
+    {
+        $event = Events::findOrFail($eventId);
+        $locations = Location::where('event_id', $eventId)->get();
+        $signUpForm = SignUpForm::where('event_id', $eventId)->first();
+        $byLocation = [];
+        $totalForm = 0;
+        if ($signUpForm && $signUpForm->table_name && Schema::hasTable($signUpForm->table_name)) {
+            foreach ($locations as $loc) {
+                $formCount = (int) DB::table($signUpForm->table_name)
+                    ->where('location_id', $loc->id)
+                    ->where('event_id', $eventId)
+                    ->count();
+                $byLocation[] = [
+                    'location_id' => $loc->id,
+                    'location_name' => $loc->name,
+                    'form_count' => $formCount,
+                ];
+                $totalForm += $formCount;
+            }
+        } else {
+            foreach ($locations as $loc) {
+                $byLocation[] = [
+                    'location_id' => $loc->id,
+                    'location_name' => $loc->name,
+                    'form_count' => 0,
+                ];
+            }
+        }
+        return response()->json([
+            'by_location' => $byLocation,
+            'total_form' => $totalForm,
+        ]);
+    }
+
+    /**
      * Event-level "Import all": save ticket data and/or import win form (sign-up) data per location to Mailchimp.
      * Request: event_id, list_id, mailchimp_account, locations: [{ location_id, attendees?, tags?, form_tags? }].
      * Ticket data is optional per location (only locations with attendees get ticket import + ticket tags).

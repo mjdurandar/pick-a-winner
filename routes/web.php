@@ -93,6 +93,7 @@ Route::middleware(['auth', RoleMiddleware::class . ':admin,host'])->group(functi
     Route::post('/location/fetch-eventbrite-attendees', [LocationController::class, 'fetchEventbriteAttendees'])->name('location.fetchEventbriteAttendees');
     Route::post('/location/fetch-eventbrite-attendees-preview', [LocationController::class, 'fetchEventbriteAttendeesPreview'])->name('location.fetchEventbriteAttendeesPreview');
     Route::post('/location/import-eventbrite-to-mailchimp', [LocationController::class, 'importEventbriteToMailchimp'])->name('location.importEventbriteToMailchimp');
+    Route::get('/event/{eventId}/mailchimp-import-preview', [LocationController::class, 'getEventMailchimpImportPreview'])->name('event.mailchimpImportPreview');
     Route::post('/event/import-all', [LocationController::class, 'eventImportAll'])->name('event.importAll');
 
     //MANUAL CSV IMPORT (ticket attendees)

@@ -2089,6 +2089,15 @@ const openImportAllModal = async () => {
         importAllFormTagsByLocation.value = formTagsByLoc;
         importAllAccounts.value = settingsRes.data.available_accounts || { anz: { name: 'ANZ', enabled: true }, usa: { name: 'USA', enabled: false } };
         await loadImportAllLists(importAllAccount.value);
+        // Fetch import preview (win form counts per location) so we can show total contacts to be imported
+        try {
+            const previewRes = await axios.get(route('event.mailchimpImportPreview', props.event.id));
+            importPreviewFormTotal.value = previewRes.data.total_form ?? 0;
+            importPreviewByLocation.value = previewRes.data.by_location ?? [];
+        } catch (e) {
+            importPreviewFormTotal.value = 0;
+            importPreviewByLocation.value = [];
+        }
     } catch (e) {
         console.error(e);
         importAllAccounts.value = { anz: { name: 'ANZ', enabled: true }, usa: { name: 'USA', enabled: false } };
@@ -2119,6 +2128,8 @@ const closeImportAllModal = () => {
     importAllDefaultTags.value = '';
     importAllTagsByLocation.value = {};
     importAllFormTagsByLocation.value = {};
+    importPreviewFormTotal.value = 0;
+    importPreviewByLocation.value = [];
 };
 
 const loadImportAllLists = async (account) => {
@@ -2267,6 +2278,11 @@ const totalStagedCount = computed(() => {
     return n;
 });
 
+// Import preview: win form counts per location (from backend); ticket count comes from staged data
+const importPreviewFormTotal = ref(0);
+const importPreviewByLocation = ref([]);
+const totalToImport = computed(() => (importPreviewFormTotal.value || 0) + (totalStagedCount.value || 0));
+
 const runImportAll = async () => {
     const listId = (importAllListId.value || '').trim();
     const account = (importAllAccount.value || '').trim();
@@ -2310,9 +2326,10 @@ const runImportAll = async () => {
         return;
     }
     const totalLocations = locationsPayload.length;
+    const totalContacts = totalToImport.value || 0;
     isImportAllLoading.value = true;
     try {
-        // Same progress UI as single-location Mailchimp import
+        // Progress UI: show total to import so user knows how long to wait
         Swal.fire({
             title: 'Importing to Mailchimp',
             html: `
@@ -2320,13 +2337,13 @@ const runImportAll = async () => {
                     <div class="mb-3">
                         <div class="flex justify-between mb-1">
                             <span>Processing:</span>
-                            <span class="font-semibold">All locations (${totalLocations})</span>
+                            <span class="font-semibold">Up to <strong>${totalContacts}</strong> contacts across <strong>${totalLocations}</strong> locations</span>
                         </div>
                         <div class="w-full bg-gray-200 rounded-full h-2">
                             <div id="import-all-progress-bar" class="bg-teal-600 h-2 rounded-full transition-all duration-300" style="width: 0%"></div>
                         </div>
                     </div>
-                    <div class="text-sm text-gray-600 mb-3">Importing win form data for every location${locationsPayload.some(l => l.attendees.length > 0) ? ' and ticket data where added...' : '...'}</div>
+                    <div class="text-sm text-gray-600 mb-3">Importing win form data for every location${locationsPayload.some(l => l.attendees.length > 0) ? ' and ticket data where added...' : '...'} This may take a few minutes for large imports.</div>
                     <div class="grid grid-cols-2 gap-2 text-sm mt-3">
                         <div>✅ Success: <span id="import-all-success-count" class="font-semibold text-green-600">0</span></div>
                         <div>❌ Failed: <span id="import-all-failed-count" class="font-semibold text-red-600">0</span></div>
@@ -3535,6 +3552,17 @@ const runImportAll = async () => {
                                 {{ list.name }} ({{ list.stats?.member_count ?? 0 }} members)
                             </option>
                         </select>
+                    </div>
+                </div>
+
+                <!-- Total contacts to be imported (win form + ticket) -->
+                <div class="mb-4 p-4 bg-gray-100 border border-gray-200 rounded-lg">
+                    <div class="text-sm font-medium text-gray-800 mb-1">Total contacts to be imported</div>
+                    <div class="text-lg font-semibold text-gray-900">{{ totalToImport }}</div>
+                    <div class="text-xs text-gray-600 mt-1">
+                        {{ importPreviewFormTotal }} win form
+                        <span v-if="totalStagedCount"> + {{ totalStagedCount }} ticket</span>
+                        <span v-if="!totalStagedCount"> (add Eventbrite/CSV per location for ticket data)</span>
                     </div>
                 </div>
 
