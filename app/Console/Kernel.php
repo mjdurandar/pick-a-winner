@@ -21,8 +21,8 @@ class Kernel extends ConsoleKernel
      */
     protected function schedule(Schedule $schedule): void
     {
-        // Run the queue processor every minute
-        $schedule->command('queue:process')
+        // Run the queue processor every minute (hosting-friendly: process then exit)
+        $schedule->command('queue:work database --stop-when-empty --max-jobs=50 --max-time=60')
                 ->everyMinute()
                 ->withoutOverlapping();
     }
