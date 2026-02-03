@@ -113,22 +113,6 @@ class MailchimpService
         // Use tags directly without any modification
         $tagsData = array_values(array_unique($tags));
 
-        // Log the data being sent to Mailchimp for debugging
-        \Illuminate\Support\Facades\Log::info('Sending data to Mailchimp', [
-            'email' => $subscriber['email_address'] ?? 'no email',
-            'first_name' => $subscriber['first_name'] ?? 'no first name',
-            'last_name' => $subscriber['last_name'] ?? 'no last name',
-            'city' => $subscriber['city'] ?? 'no city',
-            'state' => $subscriber['state'] ?? 'no state',
-            'zip_code' => $subscriber['zip_code'] ?? 'no zip',
-            'country' => $subscriber['country'] ?? 'no country',
-            'age' => $ageValue,
-            'gender' => $subscriber['gender'] ?? 'no gender',
-            'phone' => $subscriber['mobile_number'] ?? 'no phone',
-            'address' => $subscriber['street_address'] ?? 'no address',
-            'raw_subscriber_data' => $subscriber
-        ]);
-
         // Mailchimp requires a complete address (non-empty addr1, city, state, zip, country). Use placeholder when missing.
         $addrPlaceholder = '—';
         $addr1 = trim((string) ($subscriber['street_address'] ?? ''));
@@ -202,25 +186,11 @@ class MailchimpService
         // Initialize rejected fields tracking
         $rejectedFields = [];
 
-        // Log the data being sent for debugging
-        \Illuminate\Support\Facades\Log::info('Manual import - raw subscriber data', [
-            'email' => $subscriber['email_address'] ?? 'no email',
-            'raw_data' => $subscriber
-        ]);
-
         // Get available merge fields from Mailchimp
         try {
             $availableMergeFields = $this->getListMergeFields($listId);
             $mergeFieldMap = $this->createDynamicMergeFieldMap($availableMergeFields, $subscriber, $ageValue, $rejectedFields);
-            
-            \Illuminate\Support\Facades\Log::info('Manual import - available merge fields', [
-                'email' => $subscriber['email_address'] ?? 'no email',
-                'available_fields' => array_map(function($field) {
-                    return ['tag' => $field['tag'], 'name' => $field['name'], 'type' => $field['type']];
-                }, $availableMergeFields),
-                'mapped_fields' => $mergeFieldMap
-            ]);
-            
+
         } catch (\Exception $e) {
             \Illuminate\Support\Facades\Log::error('Failed to get merge fields, using fallback mapping', [
                 'error' => $e->getMessage()
@@ -235,19 +205,6 @@ class MailchimpService
         }
 
         $mergeFields = $mergeFieldMap;
-
-        // Log the prepared merge fields
-        \Illuminate\Support\Facades\Log::info('Manual import - prepared merge fields', [
-            'email' => $subscriber['email_address'] ?? 'no email',
-            'merge_fields' => $mergeFields,
-            'total_fields_to_send' => count($mergeFields),
-            'mailchimp_request_data' => [
-                'email_address' => $subscriber['email_address'],
-                'status_if_new' => 'subscribed',
-                'merge_fields' => $mergeFields,
-                'tags' => $tags
-            ]
-        ]);
 
         // Try to get existing member first to determine if it's new or updated
         $emailHash = md5(strtolower($subscriber['email_address']));
@@ -284,24 +241,10 @@ class MailchimpService
 
         if ($response->successful()) {
             $result = $response->json();
-            // Add information about whether this was new or updated
             $result['was_existing'] = $isExisting;
             $result['import_type'] = $isExisting ? 'updated' : 'new';
             $result['rejected_fields'] = $rejectedFields;
-            
-            // Log detailed response from Mailchimp
-            \Illuminate\Support\Facades\Log::info('Manual import - Mailchimp API response', [
-                'email' => $subscriber['email_address'] ?? 'no email',
-                'status_code' => $response->status(),
-                'response_status' => $result['status'] ?? 'unknown',
-                'member_id' => $result['id'] ?? 'unknown',
-                'was_existing' => $isExisting,
-                'import_type' => $result['import_type'],
-                'merge_fields_sent' => count($mergeFields),
-                'tags_applied' => count($tags),
-                'full_response' => $result
-            ]);
-            
+
             return $result;
         }
 
@@ -324,12 +267,6 @@ class MailchimpService
             
             // If all errors are MMERGE18 related, treat as successful update
             if ($allErrorsAreMerge18) {
-                \Illuminate\Support\Facades\Log::info('Manual import - MMERGE18 validation error ignored (not our data)', [
-                    'email' => $subscriber['email_address'] ?? 'no email',
-                    'note' => 'Treating as successful because MMERGE18 errors are from existing data, not our import',
-                    'original_error' => $responseBody
-                ]);
-                
                 // Return a successful result structure
                 return [
                     'id' => 'unknown', // We don't have the member ID but that's ok
@@ -354,8 +291,6 @@ class MailchimpService
             'email' => $subscriber['email_address'] ?? '',
             'status' => $response->status(),
             'detail' => $detail,
-            'errors' => $responseData['errors'] ?? [],
-            'merge_fields_sent' => array_keys($mergeFields),
         ]);
         throw new \Exception('Failed to add/update subscriber in Mailchimp list: ' . $detail);
     }
@@ -642,14 +577,6 @@ class MailchimpService
                 }
             }
         }
-
-        // Log final mapping for debugging
-        \Illuminate\Support\Facades\Log::info('Manual import - final merge field mapping', [
-            'email' => $subscriber['email_address'] ?? 'no email',
-            'available_mailchimp_fields' => $availableFieldTags,
-            'final_mapping' => $mergeFieldMap,
-            'subscriber_data_keys' => array_keys($subscriber)
-        ]);
 
         return $mergeFieldMap;
     }

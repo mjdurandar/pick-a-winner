@@ -56,20 +56,25 @@ class EventImportAllToMailchimpJob implements ShouldQueue
             $locationsToProcess = array_values(array_filter($this->locationsPayload, function ($loc) use ($alreadyImportedLocationIds) {
                 return !$alreadyImportedLocationIds->has((int) ($loc['location_id'] ?? 0));
             }));
-            if (count($locationsToProcess) < count($this->locationsPayload)) {
-                Log::info('Event import all (job): skipping already imported locations', [
-                    'event_id' => $this->eventId,
-                    'total_locations' => count($this->locationsPayload),
-                    'locations_to_process' => count($locationsToProcess),
-                    'skipped' => count($this->locationsPayload) - count($locationsToProcess),
-                ]);
-            }
         }
+
+        $locationsQueued = count($locationsToProcess);
+        $locationsImported = 0;
+        $locationsFailed = 0;
+        $locationsSkipped = 0;
+        $failureReasons = [];
+
+        Log::info('Event import all (job) started', [
+            'event_id' => $this->eventId,
+            'locations_queued' => $locationsQueued,
+            'locations_total_before_skip' => count($this->locationsPayload),
+            'skip_already_imported' => $this->skipAlreadyImported,
+        ]);
 
         foreach ($locationsToProcess as $loc) {
             if ($this->importBatchId && Cache::get('cancel_import_batch_' . $this->importBatchId)) {
                 Log::info('Event import all (job): cancelled by user', ['import_batch_id' => $this->importBatchId]);
-                return;
+                break;
             }
 
             $locationId = (int) ($loc['location_id'] ?? 0);
@@ -80,10 +85,7 @@ class EventImportAllToMailchimpJob implements ShouldQueue
             try {
                 $location = Location::with('event')->find($locationId);
                 if (!$location || (int) $location->event_id !== $this->eventId) {
-                    Log::warning('EventImportAllToMailchimpJob: location does not belong to event', [
-                        'location_id' => $locationId,
-                        'event_id' => $this->eventId,
-                    ]);
+                    $locationsSkipped++;
                     continue;
                 }
 
@@ -96,20 +98,35 @@ class EventImportAllToMailchimpJob implements ShouldQueue
                 if (!empty($formTags)) {
                     $this->importFormData($mailchimpService, $logService, $location, $formTags);
                 }
+
+                $locationsImported++;
             } catch (\Throwable $e) {
-                Log::error('EventImportAllToMailchimpJob: location import failed, continuing with next', [
-                    'location_id' => $locationId,
-                    'event_id' => $this->eventId,
-                    'error' => $e->getMessage(),
-                    'trace' => $e->getTraceAsString(),
-                ]);
-                // Continue to next location so we import everything we can
+                $locationsFailed++;
+                $reason = substr($e->getMessage(), 0, 200);
+                if (! isset($failureReasons[$reason])) {
+                    $failureReasons[$reason] = ['count' => 0, 'location_ids' => []];
+                }
+                $failureReasons[$reason]['count']++;
+                $failureReasons[$reason]['location_ids'][] = $locationId;
+                // Keep only first 5 location_ids per reason to avoid huge logs
+                if (count($failureReasons[$reason]['location_ids']) > 5) {
+                    $failureReasons[$reason]['location_ids'] = array_slice($failureReasons[$reason]['location_ids'], 0, 5);
+                }
             }
+        }
+
+        $reasonsSummary = [];
+        foreach ($failureReasons as $msg => $info) {
+            $reasonsSummary[] = $msg . ' (locations: ' . implode(', ', $info['location_ids']) . ', count: ' . $info['count'] . ')';
         }
 
         Log::info('Event import all (job) completed', [
             'event_id' => $this->eventId,
-            'locations_count' => count($this->locationsPayload),
+            'locations_queued' => $locationsQueued,
+            'locations_imported' => $locationsImported,
+            'locations_failed' => $locationsFailed,
+            'locations_skipped' => $locationsSkipped,
+            'failure_reasons' => array_slice($reasonsSummary, 0, 20),
         ]);
     }
 

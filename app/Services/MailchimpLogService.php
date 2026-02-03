@@ -17,12 +17,6 @@ class MailchimpLogService
     public function logImport($locationId, $locationName, $data)
     {
         try {
-            Log::info('Starting logImport', [
-                'locationId' => $locationId,
-                'locationName' => $locationName,
-                'data' => $data
-            ]);
-
             $timestamp = now()->format('Y-m-d H:i:s');
             $entry = "\n=== Import Entry: {$timestamp} ===\n";
             $entry .= "Location ID: {$locationId}\n";
@@ -44,8 +38,6 @@ class MailchimpLogService
             $entry .= str_repeat('-', 50) . "\n";
 
             Storage::append($this->logFile, $entry);
-
-            Log::info('File log created', ['entry' => $entry]);
 
             return $this->logFile;
         } catch (\Exception $e) {
