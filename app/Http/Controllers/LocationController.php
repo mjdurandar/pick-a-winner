@@ -878,19 +878,28 @@ class LocationController extends Controller
             return is_string($t) ? trim($t) : (string) $t;
         }, $tags ?: []), fn ($t) => $t !== ''));
 
+        $locationId = (int) $request->location_id;
+        $listId = $request->input('list_id');
+        $mailchimpAccount = $request->input('mailchimp_account');
+        $hadPreviousImport = $listId && $mailchimpAccount
+            ? MailchimpImportLog::where('location_id', $locationId)->where('list_id', $listId)->where('mailchimp_account', $mailchimpAccount)->exists()
+            : false;
+
         $log = MailchimpImportLog::create([
-            'location_id' => $request->location_id,
+            'location_id' => $locationId,
             'imported_by' => auth()->id(),
             'total_data' => $request->total_data,
             'new_contacts' => $request->new_contacts,
             'updated_data' => $request->updated_data,
             'data_with_error' => $request->data_with_error,
             'errors' => $request->input('errors', []),
+            'failed_rows' => $request->input('failed_rows'),
             'tags' => $tags,
             'source' => $source,
-            'mailchimp_account' => $request->input('mailchimp_account'),
-            'list_id' => $request->input('list_id'),
+            'mailchimp_account' => $mailchimpAccount,
+            'list_id' => $listId,
             'list_name' => $request->input('list_name'),
+            'status' => $hadPreviousImport ? 'reimport' : 'import',
         ]);
 
         $subscribers = $request->input('subscribers', []);
@@ -1579,6 +1588,7 @@ class LocationController extends Controller
             return response()->json(['error' => 'Mailchimp configuration error.', 'message' => $e->getMessage()], 500);
         }
 
+        $importBatchId = Str::uuid()->toString();
         EventImportAllToMailchimpJob::dispatch(
             $eventId,
             $listId,
@@ -1586,7 +1596,8 @@ class LocationController extends Controller
             $listName,
             $locationsPayload,
             auth()->id(),
-            $skipAlreadyImported
+            $skipAlreadyImported,
+            $importBatchId
         );
 
         Log::info('Event import all queued', [

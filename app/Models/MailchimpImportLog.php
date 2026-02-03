@@ -15,17 +15,20 @@ class MailchimpImportLog extends Model
         'updated_data',
         'data_with_error',
         'errors',
+        'failed_rows',
         'tags',
         'source',
         'mailchimp_account',
         'list_id',
         'list_name',
+        'status',
         'has_import_file',
     ];
 
     protected $casts = [
         'tags' => 'array',
         'errors' => 'array',
+        'failed_rows' => 'array',
         'has_import_file' => 'boolean',
     ];
 

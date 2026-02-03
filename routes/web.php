@@ -53,7 +53,11 @@ Route::middleware(['auth', RoleMiddleware::class . ':admin,host'])->group(functi
 
     //MAILCHIMP IMPORT LOGS (dedicated page + export)
     Route::get('/mailchimp-import-logs', [MailchimpImportLogsController::class, 'index'])->name('mailchimpImportLogs.index');
+    Route::get('/mailchimp-import-logs/queued-imports', [MailchimpImportLogsController::class, 'queuedImports'])->name('mailchimpImportLogs.queuedImports');
+    Route::post('/mailchimp-import-logs/queued-imports/cancel-location', [MailchimpImportLogsController::class, 'cancelQueuedLocation'])->name('mailchimpImportLogs.cancelQueuedLocation');
+    Route::delete('/mailchimp-import-logs/queued-imports/{jobId}', [MailchimpImportLogsController::class, 'cancelQueuedImport'])->name('mailchimpImportLogs.cancelQueuedImport');
     Route::get('/mailchimp-import-logs/{id}/download', [MailchimpImportLogsController::class, 'download'])->name('mailchimpImportLogs.download');
+    Route::post('/mailchimp-import-logs/reimport-failed', [MailchimpImportLogsController::class, 'reimportFailedRows'])->name('mailchimpImportLogs.reimportFailed');
     Route::delete('/mailchimp-import-logs/{id}', [MailchimpImportLogsController::class, 'destroy'])->name('mailchimpImportLogs.destroy');
 
     //ATTENDEES ROUTES

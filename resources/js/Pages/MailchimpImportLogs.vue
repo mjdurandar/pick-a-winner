@@ -1,10 +1,20 @@
 <script setup>
 import { ref, computed } from 'vue';
 import Swal from 'sweetalert2';
+import axios from 'axios';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout.vue';
 import { Head, router, usePage } from '@inertiajs/vue3';
 
 const page = usePage();
+const showErrorsModal = ref(false);
+const errorsModalLog = ref(null);
+const editableFailedRows = ref([]);
+const isReimporting = ref(false);
+const showQueuedImportsModal = ref(false);
+const queuedImports = ref([]);
+const loadingQueuedImports = ref(false);
+const cancellingJobId = ref(null);
+let queuedRefreshInterval = null;
 const canDeleteLogs = computed(() => (page.props.auth?.user?.email || '').toLowerCase() === 'mj@adventureentertainment.com');
 
 const props = defineProps({
@@ -35,17 +45,146 @@ const hasErrors = (errors) => {
     return errors && Array.isArray(errors) && errors.filter(Boolean).length > 0;
 };
 
+// Normalize failed_rows (backend may send array or JSON string)
+const getFailedRows = (log) => {
+    let rows = log.failed_rows;
+    if (typeof rows === 'string') {
+        try {
+            rows = JSON.parse(rows) || [];
+        } catch {
+            rows = [];
+        }
+    }
+    return Array.isArray(rows) ? rows : [];
+};
+
+const hasFailedRows = (log) => {
+    const rows = getFailedRows(log);
+    return rows.length > 0;
+};
+
+const statusLabel = (status) => {
+    if (!status) return '—';
+    return status === 'reimport' ? 'Reimport' : 'Import';
+};
+
+// Parse error strings like "email@x.com: Invalid email" to get email + message (for logs without failed_rows)
+const parseErrorsToRows = (errors) => {
+    if (!errors || !Array.isArray(errors)) return [];
+    return errors.filter(Boolean).map((err) => {
+        const s = String(err).trim();
+        const colonIdx = s.indexOf(': ');
+        const dashIdx = s.indexOf(' - ');
+        const splitAt = colonIdx >= 0 ? colonIdx : (dashIdx >= 0 ? dashIdx : -1);
+        const email = splitAt >= 0 ? s.slice(0, splitAt).trim() : '';
+        const msg = splitAt >= 0 ? s.slice(splitAt + (colonIdx >= 0 ? 2 : 3)).trim() : s;
+        return {
+            email_address: email,
+            first_name: '',
+            last_name: '',
+            mobile_number: '',
+            street_address: '',
+            street_address_2: '',
+            city: '',
+            state: '',
+            zip_code: '',
+            country: '',
+            gender: '',
+            age: '',
+            error_message: msg,
+        };
+    }).filter((row) => row.email_address || row.error_message);
+};
+
 const showFullErrors = (log) => {
-    const text = formatErrors(log.errors);
-    if (!text || text === '—') return;
-    Swal.fire({
-        title: 'Import errors',
-        html: `<div class="text-left text-sm text-gray-700 whitespace-pre-wrap break-words max-h-96 overflow-y-auto p-2 bg-gray-50 rounded border border-gray-200">${escapeHtml(text)}</div>`,
-        width: '32rem',
-        showCloseButton: true,
-        showConfirmButton: true,
-        confirmButtonText: 'Close',
-    });
+    if (hasFailedRows(log)) {
+        errorsModalLog.value = log;
+        const rows = getFailedRows(log);
+        // Pre-fill every field from the failed row data so you can fix and re-import
+        editableFailedRows.value = rows.map((row) => ({
+            email_address: row.email_address ?? '',
+            first_name: row.first_name ?? '',
+            last_name: row.last_name ?? '',
+            mobile_number: row.mobile_number ?? '',
+            street_address: row.street_address ?? '',
+            street_address_2: row.street_address_2 ?? '',
+            city: row.city ?? '',
+            state: row.state ?? '',
+            zip_code: row.zip_code ?? '',
+            country: row.country ?? '',
+            gender: row.gender ?? '',
+            age: row.age ?? '',
+            error_message: row.error_message ?? '',
+        }));
+        showErrorsModal.value = true;
+    } else if (hasErrors(log.errors)) {
+        // Fallback: no failed_rows (e.g. old log) – parse error strings so user can still fix & re-import
+        errorsModalLog.value = log;
+        editableFailedRows.value = parseErrorsToRows(log.errors);
+        if (editableFailedRows.value.length > 0) {
+            showErrorsModal.value = true;
+        } else {
+            const text = formatErrors(log.errors);
+            Swal.fire({
+                title: 'Import errors',
+                html: `<div class="text-left text-sm text-gray-700 whitespace-pre-wrap break-words max-h-96 overflow-y-auto p-2 bg-gray-50 rounded border border-gray-200">${escapeHtml(text)}</div><p class="text-xs text-gray-500 mt-2">To fix and re-import, the log needs stored failed rows. New imports will support that.</p>`,
+                width: '32rem',
+                showCloseButton: true,
+                confirmButtonText: 'Close',
+            });
+        }
+    } else {
+        const text = formatErrors(log.errors);
+        if (!text || text === '—') return;
+        Swal.fire({
+            title: 'Import errors',
+            html: `<div class="text-left text-sm text-gray-700 whitespace-pre-wrap break-words max-h-96 overflow-y-auto p-2 bg-gray-50 rounded border border-gray-200">${escapeHtml(text)}</div>`,
+            width: '32rem',
+            showCloseButton: true,
+            showConfirmButton: true,
+            confirmButtonText: 'Close',
+        });
+    }
+};
+
+const closeErrorsModal = () => {
+    showErrorsModal.value = false;
+    errorsModalLog.value = null;
+    editableFailedRows.value = [];
+};
+
+const reimportCorrectedData = async () => {
+    if (!errorsModalLog.value || !editableFailedRows.value.length) return;
+    isReimporting.value = true;
+    try {
+        const res = await axios.post(route('mailchimpImportLogs.reimportFailed'), {
+            log_id: errorsModalLog.value.id,
+            subscribers: editableFailedRows.value.map((row) => ({
+                email_address: row.email_address,
+                first_name: row.first_name,
+                last_name: row.last_name,
+                mobile_number: row.mobile_number,
+                street_address: row.street_address,
+                street_address_2: row.street_address_2,
+                city: row.city,
+                state: row.state,
+                zip_code: row.zip_code,
+                country: row.country,
+                gender: row.gender,
+                age: row.age,
+            })),
+        });
+        const d = res.data;
+        closeErrorsModal();
+        Swal.fire('Done', d.message || 'Re-import completed. Check the log for results.', d.data_with_error > 0 ? 'warning' : 'success').then(() => {
+            router.reload();
+        });
+    } catch (err) {
+        const msg = err.response?.data?.message || err.response?.data?.error || err.message || 'Re-import failed.';
+        Swal.fire('Error', msg, 'error');
+    } finally {
+        isReimporting.value = false;
+    }
 };
 
 function escapeHtml(str) {
@@ -53,6 +192,111 @@ function escapeHtml(str) {
     div.textContent = str;
     return div.innerHTML;
 }
+
+const fetchQueuedImports = async () => {
+    loadingQueuedImports.value = true;
+    try {
+        const res = await axios.get(route('mailchimpImportLogs.queuedImports'));
+        queuedImports.value = res.data.queued_imports || [];
+    } catch {
+        queuedImports.value = [];
+    } finally {
+        loadingQueuedImports.value = false;
+    }
+};
+
+const openQueuedImportsModal = async () => {
+    showQueuedImportsModal.value = true;
+    await fetchQueuedImports();
+    queuedRefreshInterval = setInterval(fetchQueuedImports, 5000);
+};
+
+const closeQueuedImportsModal = () => {
+    showQueuedImportsModal.value = false;
+    if (queuedRefreshInterval) {
+        clearInterval(queuedRefreshInterval);
+        queuedRefreshInterval = null;
+    }
+};
+
+// Flatten queued imports to one row per location (for table with per-location cancel)
+const queuedImportRows = computed(() => {
+    const rows = [];
+    for (const job of queuedImports.value) {
+        const locations = job.locations || [];
+        for (const loc of locations) {
+            rows.push({
+                job_id: job.job_id,
+                location_id: loc.location_id,
+                location_name: loc.location_name || '—',
+                event_name: job.event_name || '—',
+                status: job.status,
+                created_at: job.created_at,
+            });
+        }
+        if (locations.length === 0 && (job.job_id || job.event_name)) {
+            rows.push({
+                job_id: job.job_id,
+                location_id: null,
+                location_name: '—',
+                event_name: job.event_name || '—',
+                status: job.status,
+                created_at: job.created_at,
+            });
+        }
+    }
+    return rows;
+});
+
+const cancelQueuedImportInProgress = async (row) => {
+    if (row.status !== 'in_progress' || !row.job_id) return;
+    const ok = await Swal.fire({
+        title: 'Stop this import?',
+        text: 'The import will finish the current location, then stop. Remaining locations will not be imported.',
+        icon: 'warning',
+        showCancelButton: true,
+        confirmButtonText: 'Yes, stop it',
+        cancelButtonText: 'Let it run',
+        confirmButtonColor: '#dc2626',
+    }).then((r) => r.isConfirmed);
+    if (!ok) return;
+    cancellingJobId.value = 'inprogress-' + row.job_id;
+    try {
+        await axios.delete(route('mailchimpImportLogs.cancelQueuedImport', row.job_id));
+        await fetchQueuedImports();
+        Swal.fire('Stopping', 'The import will stop after the current location finishes.', 'success');
+    } catch (err) {
+        const msg = err.response?.data?.error || err.response?.data?.message || err.message || 'Failed to stop.';
+        Swal.fire('Error', msg, 'error');
+    } finally {
+        cancellingJobId.value = null;
+    }
+};
+
+const cancelQueuedLocation = async (row) => {
+    if (row.status !== 'queued' || !row.job_id || row.location_id == null) return;
+    const ok = await Swal.fire({
+        title: 'Cancel this location?',
+        text: `"${row.location_name}" will be removed from the import. Other locations in this import will still run.`,
+        icon: 'warning',
+        showCancelButton: true,
+        confirmButtonText: 'Yes, cancel this location',
+        cancelButtonText: 'Keep',
+        confirmButtonColor: '#dc2626',
+    }).then((r) => r.isConfirmed);
+    if (!ok) return;
+    cancellingJobId.value = `${row.job_id}-${row.location_id}`;
+    try {
+        await axios.post(route('mailchimpImportLogs.cancelQueuedLocation'), { job_id: row.job_id, location_id: row.location_id });
+        await fetchQueuedImports();
+        Swal.fire('Cancelled', 'That location was removed from the import. Remaining locations are still queued.', 'success');
+    } catch (err) {
+        const msg = err.response?.data?.error || err.response?.data?.message || err.message || 'Failed to cancel.';
+        Swal.fire('Error', msg, 'error');
+    } finally {
+        cancellingJobId.value = null;
+    }
+};
 
 const filteredLogs = computed(() => props.mailchimpImportLogs);
 
@@ -127,7 +371,7 @@ const deleteLog = (log) => {
 const exportToCsv = () => {
     const n = maxTagColumns.value;
     const headers = [
-        'Event', 'Location', 'Imported Date', 'Imported By', 'Source', 'Total Data', 'New Contacts', 'Updated Data', 'Data with Error', 'Errors', 'Imported data file',
+        'Event', 'Location', 'Imported Date', 'Imported By', 'Source', 'Status', 'Total Data', 'New Contacts', 'Updated Data', 'Data with Error', 'Errors', 'Imported data file',
         ...Array.from({ length: n }, (_, i) => `Tag ${i + 1}`)
     ];
     const escape = (v) => {
@@ -142,6 +386,7 @@ const exportToCsv = () => {
             formatImportDate(log.created_at),
             log.imported_by_name ?? '—',
             sourceLabel(log.source),
+            statusLabel(log.status),
             log.total_data ?? 0,
             log.new_contacts ?? 0,
             log.updated_data ?? 0,
@@ -208,6 +453,14 @@ const exportToCsv = () => {
                             </div>
                             <button
                                 type="button"
+                                @click="openQueuedImportsModal"
+                                class="bg-amber-600 text-white px-4 py-2 rounded hover:bg-amber-700 text-sm font-medium"
+                                title="See locations still importing (queued or in progress)"
+                            >
+                                <i class="fa-solid fa-clock-rotate-left mr-2"></i> View queued imports
+                            </button>
+                            <button
+                                type="button"
                                 @click="exportToCsv"
                                 class="bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700 text-sm font-medium"
                             >
@@ -231,6 +484,7 @@ const exportToCsv = () => {
                                         <th class="border border-gray-300 p-2 text-left whitespace-nowrap">Mailchimp Account</th>
                                         <th class="border border-gray-300 p-2 text-left whitespace-nowrap">Audience</th>
                                         <th class="border border-gray-300 p-2 text-left whitespace-nowrap">Source</th>
+                                        <th class="border border-gray-300 p-2 text-left whitespace-nowrap">Status</th>
                                         <th class="border border-gray-300 p-2 text-right whitespace-nowrap">Total Data</th>
                                         <th class="border border-gray-300 p-2 text-right whitespace-nowrap">New Contacts</th>
                                         <th class="border border-gray-300 p-2 text-right whitespace-nowrap">Updated Data</th>
@@ -254,6 +508,9 @@ const exportToCsv = () => {
                                         <td class="border border-gray-300 p-2 whitespace-nowrap">{{ log.mailchimp_account ? (log.mailchimp_account === 'usa' ? 'USA' : log.mailchimp_account === 'anz' ? 'ANZ' : log.mailchimp_account) : '—' }}</td>
                                         <td class="border border-gray-300 p-2 whitespace-nowrap max-w-xs truncate" :title="log.list_name || log.list_id">{{ log.list_name || log.list_id || '—' }}</td>
                                         <td class="border border-gray-300 p-2 whitespace-nowrap">{{ sourceLabel(log.source) }}</td>
+                                        <td class="border border-gray-300 p-2 whitespace-nowrap">
+                                            <span :class="log.status === 'reimport' ? 'text-amber-600 font-medium' : 'text-gray-700'">{{ statusLabel(log.status) }}</span>
+                                        </td>
                                         <td class="border border-gray-300 p-2 text-right whitespace-nowrap">{{ log.total_data ?? 0 }}</td>
                                         <td class="border border-gray-300 p-2 text-right whitespace-nowrap">{{ log.new_contacts ?? 0 }}</td>
                                         <td class="border border-gray-300 p-2 text-right whitespace-nowrap">{{ log.updated_data ?? 0 }}</td>
@@ -328,6 +585,132 @@ const exportToCsv = () => {
                             </div>
                         </div>
                     </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Queued / in-progress imports modal -->
+        <div v-if="showQueuedImportsModal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+            <div class="bg-white rounded-lg shadow-xl max-w-4xl w-full max-h-[85vh] flex flex-col">
+                <div class="p-4 border-b flex justify-between items-center">
+                    <h3 class="text-lg font-semibold">Imports still in queue</h3>
+                    <button type="button" @click="closeQueuedImportsModal" class="text-gray-500 hover:text-gray-700 text-2xl leading-none">&times;</button>
+                </div>
+                <div class="p-4 overflow-auto flex-1">
+                    <p class="text-sm text-gray-600 mb-3">One row per location. You can cancel individual queued locations; in-progress locations cannot be cancelled. List refreshes every 5 seconds.</p>
+                    <div v-if="loadingQueuedImports && queuedImports.length === 0" class="text-center py-8 text-gray-500">
+                        <i class="fa-solid fa-spinner fa-spin text-2xl mb-2"></i>
+                        <p>Loading...</p>
+                    </div>
+                    <div v-else-if="queuedImportRows.length === 0" class="text-center py-8 text-gray-500">
+                        <i class="fa-solid fa-check-circle text-2xl mb-2 text-green-500"></i>
+                        <p>No imports in queue. All Import All jobs have been processed.</p>
+                    </div>
+                    <div v-else class="overflow-x-auto border rounded">
+                        <table class="w-full text-sm border-collapse">
+                            <thead class="bg-gray-100">
+                                <tr>
+                                    <th class="border border-gray-300 p-2 text-left whitespace-nowrap">Event</th>
+                                    <th class="border border-gray-300 p-2 text-left whitespace-nowrap">Location</th>
+                                    <th class="border border-gray-300 p-2 text-left whitespace-nowrap">Status</th>
+                                    <th class="border border-gray-300 p-2 text-left whitespace-nowrap">Queued at</th>
+                                    <th class="border border-gray-300 p-2 text-center whitespace-nowrap">Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr
+                                    v-for="(row, idx) in queuedImportRows"
+                                    :key="(row.job_id || '') + '-' + (row.location_id ?? idx)"
+                                    class="hover:bg-gray-50"
+                                >
+                                    <td class="border border-gray-300 p-2 font-medium text-gray-900">{{ row.event_name }}</td>
+                                    <td class="border border-gray-300 p-2 text-gray-700">{{ row.location_name }}</td>
+                                    <td class="border border-gray-300 p-2">
+                                        <span
+                                            :class="row.status === 'in_progress' ? 'bg-blue-100 text-blue-800' : 'bg-amber-100 text-amber-800'"
+                                            class="px-2 py-1 rounded text-xs font-medium"
+                                        >
+                                            {{ row.status === 'in_progress' ? 'In progress' : 'Queued' }}
+                                        </span>
+                                    </td>
+                                    <td class="border border-gray-300 p-2 text-gray-500 whitespace-nowrap">{{ row.created_at || '—' }}</td>
+                                    <td class="border border-gray-300 p-2 text-center">
+                                        <button
+                                            v-if="row.status === 'queued' && row.location_id != null"
+                                            type="button"
+                                            @click="cancelQueuedLocation(row)"
+                                            :disabled="cancellingJobId === (row.job_id + '-' + row.location_id)"
+                                            class="text-red-600 hover:text-red-800 hover:underline text-xs font-medium disabled:opacity-50 mr-2"
+                                            title="Remove this location from the import"
+                                        >
+                                            <span v-if="cancellingJobId === (row.job_id + '-' + row.location_id)"><i class="fa-solid fa-spinner fa-spin mr-1"></i></span>
+                                            <i v-else class="fa-solid fa-times-circle mr-1"></i> Cancel
+                                        </button>
+                                        <button
+                                            v-else-if="row.status === 'in_progress'"
+                                            type="button"
+                                            @click="cancelQueuedImportInProgress(row)"
+                                            :disabled="cancellingJobId === 'inprogress-' + row.job_id"
+                                            class="text-amber-600 hover:text-amber-800 hover:underline text-xs font-medium disabled:opacity-50"
+                                            title="Stop import after current location"
+                                        >
+                                            <span v-if="cancellingJobId === 'inprogress-' + row.job_id"><i class="fa-solid fa-spinner fa-spin mr-1"></i></span>
+                                            <i v-else class="fa-solid fa-stop mr-1"></i> Stop import
+                                        </button>
+                                        <span v-else class="text-gray-400 text-xs">—</span>
+                                    </td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+                <div class="p-4 border-t flex justify-end">
+                    <button type="button" @click="fetchQueuedImports" :disabled="loadingQueuedImports" class="px-4 py-2 border rounded text-gray-700 hover:bg-gray-50 disabled:opacity-50 text-sm">
+                        <i class="fa-solid fa-arrows-rotate mr-2" :class="{ 'fa-spin': loadingQueuedImports }"></i> Refresh now
+                    </button>
+                    <button type="button" @click="closeQueuedImportsModal" class="px-4 py-2 bg-gray-600 text-white rounded hover:bg-gray-700 ml-2">Close</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Fix and re-import failed rows modal -->
+        <div v-if="showErrorsModal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+            <div class="bg-white rounded-lg shadow-xl max-w-4xl w-full max-h-[90vh] flex flex-col">
+                <div class="p-4 border-b flex justify-between items-center">
+                    <h3 class="text-lg font-semibold">Fix and re-import failed data</h3>
+                    <button type="button" @click="closeErrorsModal" class="text-gray-500 hover:text-gray-700 text-2xl leading-none">&times;</button>
+                </div>
+                <div class="p-4 overflow-auto flex-1">
+                    <p class="text-sm text-gray-600 mb-3">The rows below are <strong>pre-filled with the data that had errors</strong>. Edit any field (e.g. fix email typos like mj@yaho.com → mj@yahoo.com), then click Re-import to send the corrected data to Mailchimp. A new log entry will be created.</p>
+                    <div class="overflow-x-auto border rounded">
+                        <table class="w-full text-sm border-collapse">
+                            <thead class="bg-gray-100">
+                                <tr>
+                                    <th class="border p-2 text-left">Email</th>
+                                    <th class="border p-2 text-left">First name</th>
+                                    <th class="border p-2 text-left">Last name</th>
+                                    <th class="border p-2 text-left">Phone</th>
+                                    <th class="border p-2 text-left text-red-600">Error</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr v-for="(row, idx) in editableFailedRows" :key="idx" class="hover:bg-gray-50">
+                                    <td class="border p-1"><input v-model="row.email_address" type="text" class="w-full border rounded px-2 py-1 text-sm" placeholder="Email" /></td>
+                                    <td class="border p-1"><input v-model="row.first_name" type="text" class="w-full border rounded px-2 py-1 text-sm" placeholder="First" /></td>
+                                    <td class="border p-1"><input v-model="row.last_name" type="text" class="w-full border rounded px-2 py-1 text-sm" placeholder="Last" /></td>
+                                    <td class="border p-1"><input v-model="row.mobile_number" type="text" class="w-full border rounded px-2 py-1 text-sm" placeholder="Phone" /></td>
+                                    <td class="border p-2 text-red-600 text-xs">{{ row.error_message }}</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+                <div class="p-4 border-t flex justify-end gap-2">
+                    <button type="button" @click="closeErrorsModal" class="px-4 py-2 border rounded text-gray-700 hover:bg-gray-50">Cancel</button>
+                    <button type="button" @click="reimportCorrectedData" :disabled="isReimporting" class="px-4 py-2 bg-teal-600 text-white rounded hover:bg-teal-700 disabled:opacity-50">
+                        <span v-if="isReimporting"><i class="fa-solid fa-spinner fa-spin mr-2"></i> Re-importing...</span>
+                        <span v-else><i class="fa-solid fa-upload mr-2"></i> Re-import corrected data</span>
+                    </button>
                 </div>
             </div>
         </div>

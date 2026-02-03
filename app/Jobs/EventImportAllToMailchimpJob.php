@@ -13,6 +13,7 @@ use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Schema;
@@ -32,7 +33,8 @@ class EventImportAllToMailchimpJob implements ShouldQueue
         public ?string $listName,
         public array $locationsPayload,
         public ?int $userId,
-        public bool $skipAlreadyImported = false
+        public bool $skipAlreadyImported = false,
+        public ?string $importBatchId = null
     ) {}
 
     public function handle(MailchimpLogService $logService): void
@@ -65,6 +67,11 @@ class EventImportAllToMailchimpJob implements ShouldQueue
         }
 
         foreach ($locationsToProcess as $loc) {
+            if ($this->importBatchId && Cache::get('cancel_import_batch_' . $this->importBatchId)) {
+                Log::info('Event import all (job): cancelled by user', ['import_batch_id' => $this->importBatchId]);
+                return;
+            }
+
             $locationId = (int) ($loc['location_id'] ?? 0);
             $attendees = $loc['attendees'] ?? [];
             $tags = $loc['tags'] ?? [];
@@ -155,13 +162,24 @@ class EventImportAllToMailchimpJob implements ShouldQueue
         $locNew = 0;
         $locUpdated = 0;
         $locErrors = [];
+        $failedRowsData = [];
         $listId = $this->listId;
+        $maxFailedRowsStored = 100;
 
         foreach ($subscribers as $subscriber) {
             try {
                 if (empty($subscriber['email_address'])) {
                     $locFailed++;
                     $locErrors[] = 'Skipped: Missing email';
+                    if (count($failedRowsData) < $maxFailedRowsStored) {
+                        $failedRowsData[] = [
+                            'email_address' => '',
+                            'first_name' => $subscriber['first_name'] ?? '',
+                            'last_name' => $subscriber['last_name'] ?? '',
+                            'mobile_number' => $subscriber['mobile_number'] ?? '',
+                            'error_message' => 'Skipped: Missing email',
+                        ];
+                    }
                     continue;
                 }
                 $result = $mailchimpService->manualImportSubscriber(
@@ -190,7 +208,17 @@ class EventImportAllToMailchimpJob implements ShouldQueue
                 ]);
             } catch (\Exception $e) {
                 $locFailed++;
-                $locErrors[] = substr("{$subscriber['email_address']}: " . $e->getMessage(), 0, 200);
+                $errMsg = substr("{$subscriber['email_address']}: " . $e->getMessage(), 0, 200);
+                $locErrors[] = $errMsg;
+                if (count($failedRowsData) < $maxFailedRowsStored) {
+                    $failedRowsData[] = [
+                        'email_address' => $subscriber['email_address'] ?? '',
+                        'first_name' => $subscriber['first_name'] ?? '',
+                        'last_name' => $subscriber['last_name'] ?? '',
+                        'mobile_number' => $subscriber['mobile_number'] ?? '',
+                        'error_message' => $e->getMessage(),
+                    ];
+                }
                 $logService->logImport($location->id, $location->name, [
                     'success' => false,
                     'email' => $subscriber['email_address'] ?? 'unknown',
@@ -201,6 +229,11 @@ class EventImportAllToMailchimpJob implements ShouldQueue
             }
         }
 
+        $hadPreviousImport = MailchimpImportLog::where('location_id', $locationId)
+            ->where('list_id', $this->listId)
+            ->where('mailchimp_account', $this->mailchimpAccount)
+            ->exists();
+
         $ticketLog = MailchimpImportLog::create([
             'location_id' => $locationId,
             'imported_by' => $this->userId,
@@ -209,11 +242,13 @@ class EventImportAllToMailchimpJob implements ShouldQueue
             'updated_data' => $locUpdated,
             'data_with_error' => $locFailed,
             'errors' => array_slice($locErrors, 0, 50),
+            'failed_rows' => array_slice($failedRowsData, 0, $maxFailedRowsStored),
             'tags' => $tags,
             'source' => 'ticket_data',
             'mailchimp_account' => $this->mailchimpAccount,
             'list_id' => $this->listId,
             'list_name' => $this->listName,
+            'status' => $hadPreviousImport ? 'reimport' : 'import',
         ]);
 
         $csvHeaders = ['email_address', 'first_name', 'last_name', 'mobile_number', 'street_address', 'street_address_2', 'city', 'state', 'zip_code', 'country', 'gender', 'age'];
@@ -276,7 +311,9 @@ class EventImportAllToMailchimpJob implements ShouldQueue
         $locFormNew = 0;
         $locFormUpdated = 0;
         $locFormErrors = [];
+        $failedRowsData = [];
         $listId = $this->listId;
+        $maxFailedRowsStored = 100;
 
         foreach ($signUpRows as $row) {
             $email = trim((string) ($row->email_address ?? ''));
@@ -316,6 +353,12 @@ class EventImportAllToMailchimpJob implements ShouldQueue
             } catch (\Exception $e) {
                 $locFormFailed++;
                 $locFormErrors[] = substr("{$subscriber['email_address']}: " . $e->getMessage(), 0, 200);
+                if (count($failedRowsData) < $maxFailedRowsStored) {
+                    $failedRowsData[] = array_merge(
+                        array_intersect_key($subscriber, array_flip(['email_address', 'first_name', 'last_name', 'mobile_number', 'street_address', 'street_address_2', 'city', 'state', 'zip_code', 'country', 'gender', 'age'])),
+                        ['error_message' => $e->getMessage()]
+                    );
+                }
                 $logService->logImport($location->id, $location->name, [
                     'success' => false,
                     'email' => $subscriber['email_address'],
@@ -326,6 +369,11 @@ class EventImportAllToMailchimpJob implements ShouldQueue
             }
         }
 
+        $hadPreviousImport = MailchimpImportLog::where('location_id', $locationId)
+            ->where('list_id', $this->listId)
+            ->where('mailchimp_account', $this->mailchimpAccount)
+            ->exists();
+
         $formLog = MailchimpImportLog::create([
             'location_id' => $locationId,
             'imported_by' => $this->userId,
@@ -334,11 +382,13 @@ class EventImportAllToMailchimpJob implements ShouldQueue
             'updated_data' => $locFormUpdated,
             'data_with_error' => $locFormFailed,
             'errors' => array_slice($locFormErrors, 0, 50),
+            'failed_rows' => array_slice($failedRowsData, 0, $maxFailedRowsStored),
             'tags' => $formTags,
             'source' => 'signup_form',
             'mailchimp_account' => $this->mailchimpAccount,
             'list_id' => $this->listId,
             'list_name' => $this->listName,
+            'status' => $hadPreviousImport ? 'reimport' : 'import',
         ]);
 
         $csvHeadersForm = ['email_address', 'first_name', 'last_name', 'mobile_number', 'street_address', 'street_address_2', 'city', 'state', 'zip_code', 'country', 'gender', 'age'];
