@@ -585,13 +585,33 @@ class MailchimpService
         // Do NOT force-map fields that don't exist on the audience — sending unknown tags causes "Your merge fields were invalid"
 
         // Handle address fields with proper formatting for Mailchimp
+        // MMERGE10 can be Address type (ANZ) or text (USA) — check audience field type and send full address object with placeholders when type is address
         foreach (['MMERGE10', 'MMERGE11', 'ADDRESSWIN'] as $addressField) {
             if (in_array($addressField, $availableFieldTags)) {
+                $fieldType = ($fieldInfoByTag[$addressField] ?? [])['type'] ?? 'text';
                 if ($addressField === 'MMERGE10') {
-                    // MMERGE10 should be street address only
-                    $streetAddress = $this->getSubscriberField($subscriber, ['street_address', 'address', 'Street Address', 'Address', 'street']);
-                    if (!empty($streetAddress)) {
-                        $mergeFieldMap[$addressField] = (string) $streetAddress;
+                    if ($fieldType === 'address') {
+                        // ANZ (and any list) where MMERGE10 is Address type: send full address object; use placeholders for missing parts
+                        $addressData = [
+                            'addr1' => trim((string) $this->getSubscriberField($subscriber, ['street_address', 'address', 'Street Address', 'Address', 'street'])),
+                            'addr2' => trim((string) $this->getSubscriberField($subscriber, ['street_address_2', 'address_2', 'address_line_2', 'Address Line 2'])),
+                            'city' => trim((string) $this->getSubscriberField($subscriber, ['city', 'City', 'town', 'Town'])),
+                            'state' => trim((string) $this->getSubscriberField($subscriber, ['state', 'State', 'province', 'Province'])),
+                            'zip' => trim((string) $this->getSubscriberField($subscriber, ['zip_code', 'zipcode', 'postal_code', 'postcode', 'Zip Code', 'Postal Code'])),
+                            'country' => trim((string) $this->getSubscriberField($subscriber, ['country', 'Country'])),
+                        ];
+                        $addressData['addr1'] = $addressData['addr1'] !== '' ? $addressData['addr1'] : $placeholderForRequired;
+                        $addressData['city'] = $addressData['city'] !== '' ? $addressData['city'] : $placeholderForRequired;
+                        $addressData['state'] = $addressData['state'] !== '' ? $addressData['state'] : $placeholderForRequired;
+                        $addressData['zip'] = $addressData['zip'] !== '' ? $addressData['zip'] : $placeholderForRequired;
+                        $addressData['country'] = $addressData['country'] !== '' ? $addressData['country'] : $placeholderForRequired;
+                        $addressData['addr2'] = $addressData['addr2'] ?? '';
+                        $mergeFieldMap[$addressField] = $addressData;
+                    } else {
+                        // Text type: street address string; use placeholder if empty and required
+                        $streetAddress = $this->getSubscriberField($subscriber, ['street_address', 'address', 'Street Address', 'Address', 'street']);
+                        $info = $fieldInfoByTag[$addressField] ?? null;
+                        $mergeFieldMap[$addressField] = (string) ($streetAddress !== '' ? $streetAddress : (!empty($info['required']) ? $placeholderForRequired : ''));
                     }
                 } elseif ($addressField === 'ADDRESSWIN') {
                     // ADDRESSWIN is an Address type field - needs full address object; use placeholders for missing parts
