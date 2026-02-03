@@ -1544,12 +1544,21 @@ class LocationController extends Controller
             'locations.*.form_tags' => 'nullable|array',
         ]);
 
+        // Allow long-running import (many contacts × Mailchimp API calls can take minutes)
+        set_time_limit(600); // 10 minutes
+
         $eventId = (int) $request->event_id;
         $listId = $request->list_id;
         $mailchimpAccount = $request->mailchimp_account;
         $locationsPayload = $request->locations;
 
-        $mailchimpService = new MailchimpService($mailchimpAccount);
+        try {
+            $mailchimpService = new MailchimpService($mailchimpAccount);
+        } catch (\Exception $e) {
+            Log::error('Event import all: MailchimpService init failed', ['error' => $e->getMessage()]);
+            return response()->json(['error' => 'Mailchimp configuration error.', 'message' => $e->getMessage()], 500);
+        }
+
         $results = [
             'message' => '',
             'locations' => [],
@@ -1559,6 +1568,7 @@ class LocationController extends Controller
             'total_updated' => 0,
         ];
 
+        try {
         foreach ($locationsPayload as $loc) {
             $locationId = (int) $loc['location_id'];
             $attendees = $loc['attendees'] ?? [];
@@ -1668,7 +1678,7 @@ class LocationController extends Controller
                 }
             }
 
-            MailchimpImportLog::create([
+            $ticketLog = MailchimpImportLog::create([
                 'location_id' => $locationId,
                 'imported_by' => auth()->id(),
                 'total_data' => count($subscribers),
@@ -1682,6 +1692,41 @@ class LocationController extends Controller
                 'list_id' => $listId,
                 'list_name' => $request->input('list_name'),
             ]);
+            // Save ticket import data as CSV so it can be downloaded from MC logs
+            $csvHeaders = ['email_address', 'first_name', 'last_name', 'mobile_number', 'street_address', 'street_address_2', 'city', 'state', 'zip_code', 'country', 'gender', 'age'];
+            $escapeCsv = function ($v) {
+                $s = $v === null || $v === '' ? '' : (string) $v;
+                return strpos($s, ',') !== false || strpos($s, '"') !== false || strpos($s, "\n") !== false
+                    ? '"' . str_replace('"', '""', $s) . '"' : $s;
+            };
+            $ticketRows = [];
+            foreach ($attendees as $a) {
+                $ticketRows[] = [
+                    'email_address' => $a['email'] ?? '',
+                    'first_name' => $a['first_name'] ?? '',
+                    'last_name' => $a['last_name'] ?? '',
+                    'mobile_number' => $a['phone'] ?? $a['mobile_number'] ?? '',
+                    'street_address' => $a['street_address'] ?? '',
+                    'street_address_2' => $a['street_address_2'] ?? '',
+                    'city' => $a['city'] ?? '',
+                    'state' => $a['state'] ?? '',
+                    'zip_code' => $a['zip_code'] ?? $a['postal_code'] ?? '',
+                    'country' => $a['country'] ?? '',
+                    'gender' => $a['gender'] ?? '',
+                    'age' => $a['age'] ?? '',
+                ];
+            }
+            if (!empty($ticketRows)) {
+                $lines = [implode(',', $csvHeaders)];
+                foreach ($ticketRows as $row) {
+                    $lines[] = implode(',', array_map(function ($key) use ($row, $escapeCsv) {
+                        return $escapeCsv($row[$key] ?? '');
+                    }, $csvHeaders));
+                }
+                $csv = "\xEF\xBB\xBF" . implode("\r\n", $lines);
+                Storage::disk('local')->put('mailchimp_imports/' . $ticketLog->id . '.csv', $csv);
+                $ticketLog->update(['has_import_file' => true]);
+            }
 
             $results['locations'][] = [
                 'location_id' => $locationId,
@@ -1759,7 +1804,7 @@ class LocationController extends Controller
                             ]);
                         }
                     }
-                    MailchimpImportLog::create([
+                    $formLog = MailchimpImportLog::create([
                         'location_id' => $locationId,
                         'imported_by' => auth()->id(),
                         'total_data' => count($signUpRows),
@@ -1773,6 +1818,38 @@ class LocationController extends Controller
                         'list_id' => $listId,
                         'list_name' => $request->input('list_name'),
                     ]);
+                    // Save win form import data as CSV so it can be downloaded from MC logs
+                    $csvHeadersForm = ['email_address', 'first_name', 'last_name', 'mobile_number', 'street_address', 'street_address_2', 'city', 'state', 'zip_code', 'country', 'gender', 'age'];
+                    $escapeCsvForm = function ($v) {
+                        $s = $v === null || $v === '' ? '' : (string) $v;
+                        return strpos($s, ',') !== false || strpos($s, '"') !== false || strpos($s, "\n") !== false
+                            ? '"' . str_replace('"', '""', $s) . '"' : $s;
+                    };
+                    if (!empty($signUpRows)) {
+                        $linesForm = [implode(',', $csvHeadersForm)];
+                        foreach ($signUpRows as $row) {
+                            $r = [
+                                'email_address' => $row->email_address ?? '',
+                                'first_name' => $row->first_name ?? '',
+                                'last_name' => $row->last_name ?? '',
+                                'mobile_number' => $row->mobile_number ?? $row->phone ?? '',
+                                'street_address' => $row->street_address ?? '',
+                                'street_address_2' => $row->street_address_2 ?? '',
+                                'city' => $row->city ?? '',
+                                'state' => $row->state ?? '',
+                                'zip_code' => $row->zip_code ?? $row->postal_code ?? '',
+                                'country' => $row->country ?? '',
+                                'gender' => $row->gender ?? '',
+                                'age' => $row->age ?? '',
+                            ];
+                            $linesForm[] = implode(',', array_map(function ($key) use ($r, $escapeCsvForm) {
+                                return $escapeCsvForm($r[$key] ?? '');
+                            }, $csvHeadersForm));
+                        }
+                        $csvForm = "\xEF\xBB\xBF" . implode("\r\n", $linesForm);
+                        Storage::disk('local')->put('mailchimp_imports/' . $formLog->id . '.csv', $csvForm);
+                        $formLog->update(['has_import_file' => true]);
+                    }
                     $results['locations'][] = [
                         'location_id' => $locationId,
                         'location_name' => $location->name,
@@ -1807,6 +1884,13 @@ class LocationController extends Controller
         ]);
 
         return response()->json($results);
+        } catch (\Exception $e) {
+            Log::error('Event import all failed', ['error' => $e->getMessage(), 'trace' => $e->getTraceAsString()]);
+            return response()->json([
+                'error' => 'Import failed.',
+                'message' => $e->getMessage(),
+            ], 500);
+        }
     }
 
     /**
