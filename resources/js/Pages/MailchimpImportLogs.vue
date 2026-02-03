@@ -371,6 +371,35 @@ const deleteLog = (log) => {
     });
 };
 
+const deletingAllLogs = ref(false);
+const deleteAllLogs = () => {
+    Swal.fire({
+        title: 'Delete all MC logs?',
+        html: 'This will permanently delete <strong>all</strong> Mailchimp import logs and their stored CSV files. This cannot be undone.',
+        icon: 'warning',
+        showCancelButton: true,
+        confirmButtonText: 'Yes, delete all logs',
+        cancelButtonText: 'Cancel',
+        confirmButtonColor: '#dc2626',
+    }).then((result) => {
+        if (!result.isConfirmed) return;
+        deletingAllLogs.value = true;
+        router.delete(route('mailchimpImportLogs.destroyAll'), {
+            onSuccess: () => {
+                deletingAllLogs.value = false;
+                Swal.fire('Deleted', 'All import logs have been removed.', 'success');
+            },
+            onError: () => {
+                deletingAllLogs.value = false;
+                Swal.fire('Error', 'Failed to delete all logs.', 'error');
+            },
+            onFinish: () => {
+                deletingAllLogs.value = false;
+            },
+        });
+    });
+};
+
 const exportToCsv = () => {
     const n = maxTagColumns.value;
     const headers = [
@@ -468,6 +497,17 @@ const exportToCsv = () => {
                                 class="bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700 text-sm font-medium"
                             >
                                 <i class="fa-solid fa-file-csv mr-2"></i> Export to CSV
+                            </button>
+                            <button
+                                v-if="canDeleteLogs"
+                                type="button"
+                                @click="deleteAllLogs"
+                                :disabled="deletingAllLogs || filteredLogs.length === 0"
+                                class="bg-red-600 text-white px-4 py-2 rounded hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed text-sm font-medium"
+                                title="Delete all MC logs and their stored CSV files (mj only)"
+                            >
+                                <span v-if="deletingAllLogs"><i class="fa-solid fa-spinner fa-spin mr-2"></i></span>
+                                <i v-else class="fa-solid fa-trash-can mr-2"></i> Delete all logs
                             </button>
                         </div>
 
