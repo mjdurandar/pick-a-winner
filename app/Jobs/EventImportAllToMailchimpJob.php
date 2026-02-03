@@ -31,7 +31,8 @@ class EventImportAllToMailchimpJob implements ShouldQueue
         public string $mailchimpAccount,
         public ?string $listName,
         public array $locationsPayload,
-        public ?int $userId
+        public ?int $userId,
+        public bool $skipAlreadyImported = false
     ) {}
 
     public function handle(MailchimpLogService $logService): void
@@ -43,29 +44,59 @@ class EventImportAllToMailchimpJob implements ShouldQueue
             throw $e;
         }
 
-        foreach ($this->locationsPayload as $loc) {
+        $locationsToProcess = $this->locationsPayload;
+        if ($this->skipAlreadyImported) {
+            $alreadyImportedLocationIds = MailchimpImportLog::where('list_id', $this->listId)
+                ->where('mailchimp_account', $this->mailchimpAccount)
+                ->distinct()
+                ->pluck('location_id')
+                ->flip();
+            $locationsToProcess = array_values(array_filter($this->locationsPayload, function ($loc) use ($alreadyImportedLocationIds) {
+                return !$alreadyImportedLocationIds->has((int) ($loc['location_id'] ?? 0));
+            }));
+            if (count($locationsToProcess) < count($this->locationsPayload)) {
+                Log::info('Event import all (job): skipping already imported locations', [
+                    'event_id' => $this->eventId,
+                    'total_locations' => count($this->locationsPayload),
+                    'locations_to_process' => count($locationsToProcess),
+                    'skipped' => count($this->locationsPayload) - count($locationsToProcess),
+                ]);
+            }
+        }
+
+        foreach ($locationsToProcess as $loc) {
             $locationId = (int) ($loc['location_id'] ?? 0);
             $attendees = $loc['attendees'] ?? [];
             $tags = $loc['tags'] ?? [];
             $formTags = $loc['form_tags'] ?? [];
 
-            $location = Location::with('event')->find($locationId);
-            if (!$location || (int) $location->event_id !== $this->eventId) {
-                Log::warning('EventImportAllToMailchimpJob: location does not belong to event', [
+            try {
+                $location = Location::with('event')->find($locationId);
+                if (!$location || (int) $location->event_id !== $this->eventId) {
+                    Log::warning('EventImportAllToMailchimpJob: location does not belong to event', [
+                        'location_id' => $locationId,
+                        'event_id' => $this->eventId,
+                    ]);
+                    continue;
+                }
+
+                // --- Ticket data import ---
+                if (!empty($attendees) && !empty($tags)) {
+                    $this->importTicketData($mailchimpService, $logService, $location, $attendees, $tags);
+                }
+
+                // --- Win form (sign-up) data import ---
+                if (!empty($formTags)) {
+                    $this->importFormData($mailchimpService, $logService, $location, $formTags);
+                }
+            } catch (\Throwable $e) {
+                Log::error('EventImportAllToMailchimpJob: location import failed, continuing with next', [
                     'location_id' => $locationId,
                     'event_id' => $this->eventId,
+                    'error' => $e->getMessage(),
+                    'trace' => $e->getTraceAsString(),
                 ]);
-                continue;
-            }
-
-            // --- Ticket data import ---
-            if (!empty($attendees) && !empty($tags)) {
-                $this->importTicketData($mailchimpService, $logService, $location, $attendees, $tags);
-            }
-
-            // --- Win form (sign-up) data import ---
-            if (!empty($formTags)) {
-                $this->importFormData($mailchimpService, $logService, $location, $formTags);
+                // Continue to next location so we import everything we can
             }
         }
 

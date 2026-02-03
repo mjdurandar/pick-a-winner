@@ -11,6 +11,7 @@ import axios from 'axios';
 const props = defineProps({
     event: Object,
     locations: Array,
+    total_participants: { type: Number, default: 0 },
     flash: Object
 });
 
@@ -118,6 +119,7 @@ const isImportAllLoading = ref(false);
 const importAllEventbriteLinkByLocation = ref({}); // { [locationId]: '' }
 const isFetchingPreviewByLocation = ref({}); // { [locationId]: true/false }
 const importAllCsvFileInputByLocation = ref({}); // keep file input ref per location if needed
+const importAllSkipAlreadyImported = ref(false); // when true, skip locations already imported to this audience
 
 // Add computed property for tag preview
 const tagPreview = computed(() => {
@@ -2335,7 +2337,8 @@ const runImportAll = async () => {
             list_id: listId,
             list_name: listName,
             mailchimp_account: account,
-            locations: locationsPayload
+            locations: locationsPayload,
+            skip_already_imported: !!importAllSkipAlreadyImported.value
         }, { timeout: 30000 });
 
         const d = res.data;
@@ -2443,41 +2446,47 @@ const runImportAll = async () => {
 
                             <!-- Category Filter and Database Button -->
                             <div class="flex items-center justify-between gap-2">
-                                <div v-if="selectedCountry && availableCategories.length > 0" class="flex items-center gap-2">
-                                    <label class="text-sm font-medium text-gray-700 whitespace-nowrap">Filter by Category:</label>
-                                    <select 
-                                        v-model="selectedCategory"
-                                        class="border rounded px-3 py-2 text-sm focus:ring focus:ring-blue-300"
-                                        style="min-width: 200px;"
-                                    >
-                                        <option value="">All Categories</option>
-                                        <option 
-                                            v-for="category in availableCategories" 
-                                            :key="category" 
-                                            :value="category"
+                                <div class="flex items-center gap-3 flex-wrap">
+                                    <!-- Total participants - at start on the left -->
+                                    <span class="text-sm font-medium text-gray-700 whitespace-nowrap" title="Total participants (win form) across all locations">
+                                        <i class="fa-solid fa-users mr-1"></i> Total: <strong>{{ total_participants ?? 0 }}</strong> participants
+                                    </span>
+                                    <div v-if="selectedCountry && availableCategories.length > 0" class="flex items-center gap-2">
+                                        <label class="text-sm font-medium text-gray-700 whitespace-nowrap">Filter by Category:</label>
+                                        <select 
+                                            v-model="selectedCategory"
+                                            class="border rounded px-3 py-2 text-sm focus:ring focus:ring-blue-300"
+                                            style="min-width: 200px;"
                                         >
-                                            {{ category }}
-                                        </option>
-                                    </select>
-                                    <button 
-                                        v-if="selectedCategory"
-                                        @click="selectedCategory = ''"
-                                        class="px-3 py-2 text-sm text-gray-600 hover:text-gray-800 underline"
-                                    >
-                                        Clear Filter
-                                    </button>
-                                    <!-- Export Selected Locations Button -->
-                                    <button 
-                                        v-if="selectedLocationsForExport.length > 0"
-                                        style="background-color: #17a2b8; color: white; border-radius: 5px; padding: 10px 20px; cursor: pointer;"
-                                        @click="exportSelectedLocations"
-                                        :title="`Export ${selectedLocationsForExport.length} selected location(s)`"
-                                    >
-                                        <i class="fa-solid fa-file-export"></i> Export Selected ({{ selectedLocationsForExport.length }})
-                                    </button>
+                                            <option value="">All Categories</option>
+                                            <option 
+                                                v-for="category in availableCategories" 
+                                                :key="category" 
+                                                :value="category"
+                                            >
+                                                {{ category }}
+                                            </option>
+                                        </select>
+                                        <button 
+                                            v-if="selectedCategory"
+                                            @click="selectedCategory = ''"
+                                            class="px-3 py-2 text-sm text-gray-600 hover:text-gray-800 underline"
+                                        >
+                                            Clear Filter
+                                        </button>
+                                        <!-- Export Selected Locations Button -->
+                                        <button 
+                                            v-if="selectedLocationsForExport.length > 0"
+                                            style="background-color: #17a2b8; color: white; border-radius: 5px; padding: 10px 20px; cursor: pointer;"
+                                            @click="exportSelectedLocations"
+                                            :title="`Export ${selectedLocationsForExport.length} selected location(s)`"
+                                        >
+                                            <i class="fa-solid fa-file-export"></i> Export Selected ({{ selectedLocationsForExport.length }})
+                                        </button>
+                                    </div>
                                 </div>
-                                <!-- Attendees Database Button - Right Corner -->
-                                <div class="ml-auto flex gap-2">
+                                <!-- Import All + Database - Right -->
+                                <div class="ml-auto flex items-center gap-3">
                                     <button 
                                         @click="openImportAllModal"
                                         style="background-color: #0d9488; color: white; border-radius: 5px; padding: 10px 20px; cursor: pointer;"
@@ -2571,16 +2580,24 @@ const runImportAll = async () => {
                                     @mouseleave="$event.target.style.backgroundColor = 'white'"
                                     title="View Attendees"
                                 >
-                                    <div class="flex items-center justify-between">
+                                    <div class="flex items-center justify-between flex-wrap gap-2">
                                         <div>
                                             <div class="font-semibold">{{ location.name }}</div>
                                             <div class="text-sm font-normal text-gray-600 mt-1">
                                                 {{ formatLocationDateTime(location.date, location.time) }}
                                             </div>
                                         </div>
-                                        <!-- Category Badge -->
-                                        <div v-if="location.category" class="ml-3">
+                                        <div class="flex items-center gap-2 flex-shrink-0">
+                                            <!-- Participants count for this location -->
                                             <span 
+                                                class="px-2 py-1 rounded text-xs font-medium bg-gray-200 text-gray-700"
+                                                title="Participants (win form) for this location"
+                                            >
+                                                <i class="fa-solid fa-user-group mr-1"></i>{{ location.participants_count ?? 0 }}
+                                            </span>
+                                            <!-- Category Badge -->
+                                            <span 
+                                                v-if="location.category"
                                                 class="px-3 py-1 rounded-full text-xs font-semibold"
                                                 style="background-color: #16C3D9; color: white;"
                                             >
@@ -3498,6 +3515,19 @@ const runImportAll = async () => {
                             </option>
                         </select>
                     </div>
+                </div>
+
+                <!-- Skip already imported -->
+                <div class="mb-4 p-3 bg-gray-50 border border-gray-200 rounded-lg">
+                    <label class="flex items-center gap-2 cursor-pointer">
+                        <input
+                            type="checkbox"
+                            v-model="importAllSkipAlreadyImported"
+                            class="w-4 h-4 text-teal-600 border-gray-300 rounded focus:ring-teal-500"
+                        />
+                        <span class="text-sm font-medium text-gray-800">Skip locations already imported to this audience</span>
+                    </label>
+                    <p class="text-xs text-gray-600 mt-1 ml-6">When checked, only locations that have not been imported to this Mailchimp audience will be included. When unchecked, all locations are re-imported.</p>
                 </div>
 
                 <!-- Total contacts to be imported (win form + ticket) -->

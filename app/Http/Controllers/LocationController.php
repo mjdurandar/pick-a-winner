@@ -81,16 +81,35 @@ class LocationController extends Controller
             ->pluck('location_id')
             ->unique();
 
-        // Add import status to each location
-        $locationsWithImportStatus = $locations->map(function ($location) use ($importedLocationIds, $eventbriteImportedLocationIds) {
+        // Participant count per location (from sign-up / win form table)
+        $participantsByLocation = [];
+        $signUpForm = SignUpForm::where('event_id', $eventId)->first();
+        if ($signUpForm && $signUpForm->table_name && Schema::hasTable($signUpForm->table_name)) {
+            foreach ($locationIds as $lid) {
+                $participantsByLocation[$lid] = (int) DB::table($signUpForm->table_name)
+                    ->where('location_id', $lid)
+                    ->where('event_id', $eventId)
+                    ->count();
+            }
+        } else {
+            foreach ($locationIds as $lid) {
+                $participantsByLocation[$lid] = 0;
+            }
+        }
+        $totalParticipants = array_sum($participantsByLocation);
+
+        // Add import status and participants_count to each location
+        $locationsWithImportStatus = $locations->map(function ($location) use ($importedLocationIds, $eventbriteImportedLocationIds, $participantsByLocation) {
             $location->imported_to_mailchimp = $importedLocationIds->contains($location->id);
             $location->imported_eventbrite = $eventbriteImportedLocationIds->contains($location->id);
+            $location->participants_count = $participantsByLocation[$location->id] ?? 0;
             return $location;
         });
 
         return Inertia::render('LocationPage', [
             'event' => $event,
-            'locations' => $locationsWithImportStatus
+            'locations' => $locationsWithImportStatus,
+            'total_participants' => $totalParticipants,
         ]);
     }
 
@@ -1542,6 +1561,7 @@ class LocationController extends Controller
             'locations.*.attendees.*.email' => 'required_with:locations.*.attendees|string|email',
             'locations.*.tags' => 'nullable|array',
             'locations.*.form_tags' => 'nullable|array',
+            'skip_already_imported' => 'nullable|boolean',
         ]);
 
         $eventId = (int) $request->event_id;
@@ -1549,6 +1569,7 @@ class LocationController extends Controller
         $mailchimpAccount = $request->mailchimp_account;
         $listName = $request->input('list_name');
         $locationsPayload = $request->locations;
+        $skipAlreadyImported = $request->boolean('skip_already_imported', false);
 
         // Verify Mailchimp config before queuing
         try {
@@ -1564,7 +1585,8 @@ class LocationController extends Controller
             $mailchimpAccount,
             $listName,
             $locationsPayload,
-            auth()->id()
+            auth()->id(),
+            $skipAlreadyImported
         );
 
         Log::info('Event import all queued', [
