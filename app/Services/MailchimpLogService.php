@@ -4,14 +4,16 @@ namespace App\Services;
 
 use Illuminate\Support\Facades\Storage;
 use App\Models\Location;
-use App\Models\MailchimpLog;
-use Illuminate\Support\Facades\DB;
+use App\Models\MailchimpImportLog;
 use Illuminate\Support\Facades\Log;
 
 class MailchimpLogService
 {
     private $logFile = 'mailchimp-imports.log';
 
+    /**
+     * Log import activity to file only (mailchimp_import_logs is used for DB; batch logs are created in controllers).
+     */
     public function logImport($locationId, $locationName, $data)
     {
         try {
@@ -21,17 +23,16 @@ class MailchimpLogService
                 'data' => $data
             ]);
 
-            // 1. Log to file (keep this for backup and immediate access)
             $timestamp = now()->format('Y-m-d H:i:s');
             $entry = "\n=== Import Entry: {$timestamp} ===\n";
             $entry .= "Location ID: {$locationId}\n";
             $entry .= "Location: {$locationName}\n";
-            $entry .= "Status: " . ($data['success'] ? 'Success' : 'Failed') . "\n";
-            
+            $entry .= "Status: " . (($data['success'] ?? false) ? 'Success' : 'Failed') . "\n";
+
             if (isset($data['email'])) {
                 $entry .= "Email: {$data['email']}\n";
             }
-            
+
             if (isset($data['error'])) {
                 $entry .= "Error: {$data['error']}\n";
             }
@@ -42,23 +43,11 @@ class MailchimpLogService
 
             $entry .= str_repeat('-', 50) . "\n";
 
-            // Append to the log file
             Storage::append($this->logFile, $entry);
 
             Log::info('File log created', ['entry' => $entry]);
 
-            // 2. Log to database
-            $logEntry = MailchimpLog::create([
-                'location_id' => $locationId,
-                'email_address' => $data['email'] ?? null,
-                'status' => $data['success'] ? 'Success' : 'Failed',
-                'error_message' => $data['error'] ?? null,
-                'tags' => $data['tags'] ?? []
-            ]);
-
-            Log::info('Database log created', ['log_entry' => $logEntry]);
-
-            return true;
+            return $this->logFile;
         } catch (\Exception $e) {
             Log::error('Error in logImport', [
                 'error' => $e->getMessage(),
@@ -68,62 +57,53 @@ class MailchimpLogService
         }
     }
 
-    public function getLogContent($eventId = null)
+    /**
+     * Get log content. If only $eventIdOrLocationId given: treat as event_id (for downloadMailchimpLogs).
+     * If $contextName is also given: treat first param as location_id (for getSyncLogs, downloadImportLog).
+     */
+    public function getLogContent($eventIdOrLocationId = null, $contextName = null)
     {
         try {
-            Log::info('Getting log content', ['eventId' => $eventId]);
-
-            if ($eventId === null) {
-                // Return all logs from file if no event ID specified
+            if ($eventIdOrLocationId === null) {
                 $exists = Storage::exists($this->logFile);
-                Log::info('Checking file existence', ['exists' => $exists]);
-                
-                return $exists 
-                    ? Storage::get($this->logFile) 
-                    : "No import logs found.";
+                return $exists ? Storage::get($this->logFile) : "No import logs found.";
             }
 
-            // Get logs from database for specific event
-            $logs = MailchimpLog::query()
-                ->select('mailchimp_logs.*', 'locations.name as location_name')
-                ->join('locations', 'locations.id', '=', 'mailchimp_logs.location_id')
-                ->where('locations.event_id', $eventId)
-                ->orderBy('mailchimp_logs.created_at', 'desc')
-                ->get();
+            $isLocation = $contextName !== null && $contextName !== '';
 
-            Log::info('Retrieved logs from database', [
-                'eventId' => $eventId,
-                'count' => $logs->count()
-            ]);
+            if ($isLocation) {
+                $logs = MailchimpImportLog::where('location_id', $eventIdOrLocationId)
+                    ->with('location')
+                    ->orderBy('created_at', 'desc')
+                    ->get();
+            } else {
+                $locationIds = Location::where('event_id', $eventIdOrLocationId)->pluck('id');
+                $logs = MailchimpImportLog::whereIn('location_id', $locationIds)
+                    ->with('location')
+                    ->orderBy('created_at', 'desc')
+                    ->get();
+            }
 
             if ($logs->isEmpty()) {
-                return "No import logs found for this event.";
+                return $isLocation ? "No import logs found for this location." : "No import logs found for this event.";
             }
 
-            // Format logs in a readable way
-            $formattedLogs = $logs->map(function($log) {
-                $entry = "=== Import Entry: {$log->created_at} ===\n";
+            $formattedLogs = $logs->map(function ($log) {
+                $locationName = $log->relationLoaded('location') ? $log->location->name : ('Location #' . $log->location_id);
+                $entry = "=== Import: {$log->created_at} ===\n";
                 $entry .= "Location ID: {$log->location_id}\n";
-                $entry .= "Location: {$log->location_name}\n";
-                $entry .= "Status: {$log->status}\n";
-                
-                if ($log->email_address) {
-                    $entry .= "Email: {$log->email_address}\n";
-                }
-                
-                if ($log->error_message) {
-                    $entry .= "Error: {$log->error_message}\n";
-                }
-
-                if ($log->tags) {
+                $entry .= "Location: {$locationName}\n";
+                $entry .= "Source: " . ($log->source ?? 'n/a') . "\n";
+                $entry .= "Total: {$log->total_data}, New: {$log->new_contacts}, Updated: {$log->updated_data}, Failed: {$log->data_with_error}\n";
+                if ($log->tags && is_array($log->tags)) {
                     $entry .= "Tags: " . implode(', ', $log->tags) . "\n";
                 }
-
+                if (!empty($log->errors) && is_array($log->errors)) {
+                    $entry .= "Errors: " . implode('; ', array_slice($log->errors, 0, 5)) . "\n";
+                }
                 $entry .= str_repeat('-', 50) . "\n";
                 return $entry;
             })->join("\n");
-
-            Log::info('Formatted logs', ['formattedLogs' => $formattedLogs]);
 
             return $formattedLogs;
         } catch (\Exception $e) {
@@ -135,24 +115,26 @@ class MailchimpLogService
         }
     }
 
+    /**
+     * Get aggregate stats for an event from mailchimp_import_logs.
+     */
     public function getLogStats($eventId)
     {
         try {
-            Log::info('Getting log stats', ['eventId' => $eventId]);
+            $locationIds = Location::where('event_id', $eventId)->pluck('id');
 
-            $stats = MailchimpLog::query()
-                ->join('locations', 'locations.id', '=', 'mailchimp_logs.location_id')
-                ->where('locations.event_id', $eventId)
-                ->select(
-                    DB::raw('COUNT(*) as total_imports'),
-                    DB::raw('SUM(CASE WHEN status = "Success" THEN 1 ELSE 0 END) as successful_imports'),
-                    DB::raw('SUM(CASE WHEN status = "Failed" THEN 1 ELSE 0 END) as failed_imports')
-                )
+            $stats = MailchimpImportLog::whereIn('location_id', $locationIds)
+                ->selectRaw('COUNT(*) as total_imports')
+                ->selectRaw('COALESCE(SUM(total_data), 0) as total_rows')
+                ->selectRaw('COALESCE(SUM(total_data) - SUM(data_with_error), 0) as successful_imports')
+                ->selectRaw('COALESCE(SUM(data_with_error), 0) as failed_imports')
                 ->first();
 
-            Log::info('Retrieved stats', ['stats' => $stats]);
-
-            return $stats;
+            return (object) [
+                'total_imports' => (int) ($stats->total_imports ?? 0),
+                'successful_imports' => (int) ($stats->successful_imports ?? 0),
+                'failed_imports' => (int) ($stats->failed_imports ?? 0),
+            ];
         } catch (\Exception $e) {
             Log::error('Error in getLogStats', [
                 'error' => $e->getMessage(),
@@ -161,4 +143,4 @@ class MailchimpLogService
             throw $e;
         }
     }
-} 
+}

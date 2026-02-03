@@ -65,6 +65,59 @@ const eventbriteDefaultTags = ref([]);
 const selectedCountry = ref(null);
 const selectedCategory = ref('');
 
+// Import All (event-level): one modal to stage ticket data for all locations, then import in one click
+const showImportAllModal = ref(false);
+const stagedByLocation = ref({}); // { [locationId]: { attendees: [...] } }
+const importAllDefaultTags = ref(''); // Default tags applied to ALL locations (separate with ;)
+const importAllTagsByLocation = ref({}); // { [locationId]: 'SHOW - X; SOURCE - ...' } – tags for ticket data for this location (; separator)
+const importAllFormTagsByLocation = ref({}); // { [locationId]: '...' } – tags for form data, for review (; separator)
+const importAllListId = ref('');
+
+// Parse tag string: separate by ; so tags like "SHOW - Mammoth, LA" stay as one tag
+const parseTagStr = (s) => (s || '').split(';').map(t => t.trim()).filter(Boolean);
+
+// Build location tag for SOURCE only: part before " - ", state excluded (SOURCE tag never includes state)
+const locationTagForSource = (name, stateOptional) => {
+    const part = (name || '').split(' - ')[0].trim();
+    if (!part) return 'LOC';
+    let out = part;
+    if (stateOptional && String(stateOptional).trim()) {
+        const state = String(stateOptional).trim();
+        out = part.replace(new RegExp(`,?\\s*${state.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i'), '').trim();
+    } else {
+        out = part.replace(/,?\s+[A-Z]{2,3}$/i, '').trim();
+    }
+    return (out || part).toUpperCase();
+};
+
+// Build location tag for SHOW only: USA = include state (e.g. "DENVER, CO"); Australia/NZ/other = location only, no state (strip state abbrev or full state name)
+const locationTagForShow = (name, stateOptional, countryOptional) => {
+    const part = (name || '').split(' - ')[0].trim();
+    if (!part) return 'LOC';
+    const country = (countryOptional || '').trim().toUpperCase();
+    const isUSA = country === 'USA' || country === 'USA & CANADA' || country === 'USA AND CANADA';
+    const state = (stateOptional || '').trim();
+    if (isUSA && state) {
+        const base = part.replace(/,?\s+[A-Z]{2,3}$/i, '').trim();
+        return (base + ', ' + state).toUpperCase();
+    }
+    if (isUSA) return part.toUpperCase();
+    // Non-USA: strip 2–3 letter abbrev (NSW, VIC) and/or full state name (Victoria, New South Wales) from end
+    let out = part.replace(/,?\s+[A-Z]{2,3}$/i, '').trim() || part;
+    if (state) {
+        const stateEsc = state.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        out = out.replace(new RegExp(`,?\\s*${stateEsc}$`, 'i'), '').trim() || out;
+    }
+    return (out || part).toUpperCase();
+};
+const importAllAccount = ref('');
+const importAllLists = ref([]);
+const importAllAccounts = ref([]);
+const isImportAllLoading = ref(false);
+const importAllEventbriteLinkByLocation = ref({}); // { [locationId]: '' }
+const isFetchingPreviewByLocation = ref({}); // { [locationId]: true/false }
+const importAllCsvFileInputByLocation = ref({}); // keep file input ref per location if needed
+
 // Add computed property for tag preview
 const tagPreview = computed(() => {
     if (!mailchimpSettings.value.film_tour) return [];
@@ -83,11 +136,10 @@ const tagPreview = computed(() => {
     const previewTags = [];
     
     sampleLocations.forEach(locationName => {
-        // Extract everything before hyphen for both SHOW and SOURCE tags
-        const locationTag = locationName.split(' - ')[0].toUpperCase();
-        
-        const showTag = `SHOW - ${locationTag}`;
-        const sourceTag = `SOURCE - ${filmTour.toUpperCase()} ${locationTag} COMP ${year}`;
+        const sourceLoc = locationTagForSource(locationName);
+        const showLoc = locationTagForShow(locationName, '', props.event?.event_country || '');
+        const showTag = `SHOW - ${showLoc}`;
+        const sourceTag = `SOURCE - ${filmTour.toUpperCase()} ${sourceLoc} COMP ${year}`;
         
         previewTags.push({
             location: locationName,
@@ -197,20 +249,14 @@ const formatLocationDateTime = (date, time) => {
     }
 };
 
-const generateLocationTags = (locationName) => {
+const generateLocationTags = (locationName, stateOptional, countryOptional) => {
     const tags = [];
     const filmTour = mailchimpSettings.value.film_tour;
-    const year = new Date().getFullYear(); // Use next year by default
-    
-    // Extract everything before hyphen for both SHOW and SOURCE tags
-    const locationTag = locationName.split(' - ')[0].toUpperCase();
-    
-    // Add SHOW tag
-    tags.push(`SHOW - ${locationTag}`);
-    
-    // Add SOURCE tag with configured film tour code
-    tags.push(`SOURCE - ${filmTour.toUpperCase()} ${locationTag} COMP ${year}`);
-    
+    const year = new Date().getFullYear();
+    const sourceLoc = locationTagForSource(locationName, stateOptional);
+    const showLoc = locationTagForShow(locationName, stateOptional || '', countryOptional || '');
+    tags.push(`SHOW - ${showLoc}`);
+    tags.push(`SOURCE - ${filmTour.toUpperCase()} ${sourceLoc} COMP ${year}`);
     return tags;
 };
 
@@ -242,19 +288,13 @@ const handleMailchimpImport = async () => {
         }
         console.log('Processing tags');
 
-        // Generate location-specific tags
+        // Generate location-specific tags: SHOW includes state for USA; SOURCE never includes state
         const filmTour = mailchimpSettings.value.film_tour;
         const year = new Date().getFullYear();
-        const locationName = selectedLocation.value.name;
-        
-        // Extract everything before hyphen for both SHOW and SOURCE tags
-        const locationTag = locationName.split(' - ')[0].toUpperCase();
-        
-        // Create the SOURCE tag in the exact format
-        const sourceTag = `SOURCE - ${filmTour.toUpperCase()} ${locationTag} COMP ${year}`;
-        const showTag = `SHOW - ${locationTag}`;
-        
-        // Combine with any manual tags
+        const sourceLoc = locationTagForSource(selectedLocation.value.name, selectedLocation.value.state);
+        const showLoc = locationTagForShow(selectedLocation.value.name, selectedLocation.value.state, props.event?.event_country || selectedLocation.value.country);
+        const sourceTag = `SOURCE - ${filmTour.toUpperCase()} ${sourceLoc} COMP ${year}`;
+        const showTag = `SHOW - ${showLoc}`;
         let allTags = [sourceTag, showTag];
         
         // Add any manual tags if they exist
@@ -814,16 +854,10 @@ const generateEventbriteDefaultTags = (settings) => {
     const tags = [];
     const filmTour = settings.film_tour || 'WM';
     const year = new Date().getFullYear();
-    const locationName = selectedLocation.value.name;
-    
-    // Extract everything before hyphen for both SHOW and SOURCE tags
-    const locationTag = locationName.split(' - ')[0].toUpperCase();
-    
-    // Add SHOW tag
-    tags.push(`SHOW - ${locationTag}`);
-    
-    // Add SOURCE tag with configured film tour code (TIX instead of COMP)
-    tags.push(`SOURCE - ${filmTour.toUpperCase()} ${locationTag} TIX ${year}`);
+    const showLoc = locationTagForShow(selectedLocation.value.name, selectedLocation.value.state, props.event?.event_country || selectedLocation.value.country);
+    const sourceLoc = locationTagForSource(selectedLocation.value.name, selectedLocation.value.state);
+    tags.push(`SHOW - ${showLoc}`);
+    tags.push(`SOURCE - ${filmTour.toUpperCase()} ${sourceLoc} TIX ${year}`);
     
     // Add default tags from settings
     if (settings.default_tags && Array.isArray(settings.default_tags) && settings.default_tags.length > 0) {
@@ -2012,6 +2046,343 @@ watch(
     }
 );
 
+// ---- Import All (event-level) ----
+const openImportAllModal = async () => {
+    showImportAllModal.value = true;
+    stagedByLocation.value = {};
+    importAllEventbriteLinkByLocation.value = {};
+    importAllDefaultTags.value = '';
+    importAllTagsByLocation.value = {};
+    importAllFormTagsByLocation.value = {};
+    isFetchingPreviewByLocation.value = {};
+    importAllListId.value = '';
+    importAllAccount.value = '';
+    importAllLists.value = [];
+    try {
+        const settingsRes = await axios.get(route('mailchimp.autosync.settings'), { params: { event_id: props.event.id } });
+        const settings = settingsRes.data.settings || {};
+        importAllAccount.value = settings.mailchimp_account || 'anz';
+        const filmTour = settings.film_tour || 'WM';
+        const year = new Date().getFullYear();
+        if (settings.default_tags) {
+            const arr = Array.isArray(settings.default_tags)
+                ? settings.default_tags
+                : (typeof settings.default_tags === 'string' ? settings.default_tags.split(',').map(t => t.trim()).filter(Boolean) : []);
+            importAllDefaultTags.value = arr.join('; ');
+        }
+        const ticketTagsByLoc = {};
+        const formTagsByLoc = {};
+        // Use event country for "add state to SHOW tag?" so Australia & New Zealand events never get state.
+        const eventCountry = props.event?.event_country || '';
+        props.locations.forEach(loc => {
+            const showLoc = locationTagForShow(loc.name, loc.state, eventCountry || loc.country);
+            const sourceLoc = locationTagForSource(loc.name, loc.state);
+            ticketTagsByLoc[loc.id] = [`SHOW - ${showLoc}`, `SOURCE - ${filmTour.toUpperCase()} ${sourceLoc} TIX ${year}`].join('; ');
+            formTagsByLoc[loc.id] = [`SHOW - ${showLoc}`, `SOURCE - ${filmTour.toUpperCase()} ${sourceLoc} COMP ${year}`].join('; ');
+        });
+        importAllTagsByLocation.value = ticketTagsByLoc;
+        importAllFormTagsByLocation.value = formTagsByLoc;
+        importAllAccounts.value = settingsRes.data.available_accounts || { anz: { name: 'ANZ', enabled: true }, usa: { name: 'USA', enabled: false } };
+        await loadImportAllLists(importAllAccount.value);
+    } catch (e) {
+        console.error(e);
+        importAllAccounts.value = { anz: { name: 'ANZ', enabled: true }, usa: { name: 'USA', enabled: false } };
+    }
+};
+
+const closeImportAllModal = () => {
+    showImportAllModal.value = false;
+    stagedByLocation.value = {};
+    importAllEventbriteLinkByLocation.value = {};
+    importAllDefaultTags.value = '';
+    importAllTagsByLocation.value = {};
+    importAllFormTagsByLocation.value = {};
+};
+
+const loadImportAllLists = async (account) => {
+    if (!account) return;
+    try {
+        const res = await axios.get(route('mailchimp.autosync.lists'), { params: { account } });
+        importAllLists.value = res.data.lists || [];
+    } catch (e) {
+        importAllLists.value = [];
+    }
+};
+
+watch(
+    () => importAllAccount.value,
+    (acc) => { if (acc && showImportAllModal.value) loadImportAllLists(acc); }
+);
+
+const extractEventIdFromLinkForImportAll = (link) => {
+    try {
+        const url = new URL(link);
+        const pathParts = url.pathname.split('/');
+        for (let i = pathParts.length - 1; i >= 0; i--) {
+            const part = pathParts[i];
+            if (/^\d+$/.test(part)) return part;
+            const match = part.match(/-(\d+)$/);
+            if (match) return match[1];
+        }
+        return null;
+    } catch (_) { return null; }
+};
+
+const fetchPreviewForLocation = async (locationId, link) => {
+    const eventId = extractEventIdFromLinkForImportAll(link);
+    if (!eventId) {
+        Swal.fire('Error', 'Could not extract Eventbrite event ID from the link.', 'error');
+        return;
+    }
+    isFetchingPreviewByLocation.value = { ...isFetchingPreviewByLocation.value, [locationId]: true };
+    try {
+        const res = await axios.post(route('location.fetchEventbriteAttendeesPreview'), {
+            event_id: eventId,
+            location_id: locationId
+        });
+        const attendees = (res.data.attendees || []).map(a => ({
+            email: a.email,
+            first_name: a.first_name || '',
+            last_name: a.last_name || '',
+            phone: a.phone || '',
+            city: a.city || '',
+            state: a.state || '',
+            country: a.country || ''
+        }));
+        stagedByLocation.value = { ...stagedByLocation.value, [locationId]: { attendees } };
+        importAllEventbriteLinkByLocation.value = { ...importAllEventbriteLinkByLocation.value, [locationId]: link };
+        Swal.fire('Success', `${attendees.length} attendees staged for this location.`, 'success');
+    } catch (err) {
+        Swal.fire('Error', err.response?.data?.error || 'Failed to fetch attendees.', 'error');
+    } finally {
+        isFetchingPreviewByLocation.value = { ...isFetchingPreviewByLocation.value, [locationId]: false };
+    }
+};
+
+const parseCsvLine = (line) => {
+    const result = []; let current = ''; let inQuotes = false;
+    for (let i = 0; i < line.length; i++) {
+        const c = line[i];
+        if (c === '"') { inQuotes = !inQuotes; continue; }
+        if (!inQuotes && (c === ',' || c === '\t')) { result.push(current.trim()); current = ''; continue; }
+        current += c;
+    }
+    result.push(current.trim());
+    return result;
+};
+
+const parseCsvForLocation = (locationId, file) => {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+        const text = (e.target?.result || '').replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+        const lines = text.split('\n').filter(l => l.trim());
+        if (lines.length < 2) {
+            Swal.fire('Error', 'CSV must have a header row and at least one data row.', 'error');
+            return;
+        }
+        const headers = parseCsvLine(lines[0].replace(/^\uFEFF/, ''));
+        const lower = headers.map(h => (h || '').toLowerCase());
+        let emailIdx = -1, firstIdx = -1, lastIdx = -1, phoneIdx = -1, cityIdx = -1, stateIdx = -1, countryIdx = -1;
+        lower.forEach((h, i) => {
+            if (/email|e-mail|e_mail/.test(h)) emailIdx = i;
+            else if (/first|fname|firstname|given/.test(h)) firstIdx = i;
+            else if (/last|lname|lastname|surname|family/.test(h)) lastIdx = i;
+            else if (/phone|mobile|cell|tel/.test(h)) phoneIdx = i;
+            else if (/^city$|town/.test(h)) cityIdx = i;
+            else if (/state|region|province/.test(h)) stateIdx = i;
+            else if (/country/.test(h)) countryIdx = i;
+        });
+        if (emailIdx === -1) {
+            Swal.fire('Error', 'CSV must have an email column.', 'error');
+            return;
+        }
+        const seen = new Set();
+        const attendees = [];
+        for (let r = 1; r < lines.length; r++) {
+            const row = parseCsvLine(lines[r]);
+            const email = (row[emailIdx] || '').toLowerCase().trim();
+            if (!email || seen.has(email)) continue;
+            seen.add(email);
+            attendees.push({
+                email,
+                first_name: firstIdx >= 0 ? (row[firstIdx] || '').trim() : '',
+                last_name: lastIdx >= 0 ? (row[lastIdx] || '').trim() : '',
+                phone: phoneIdx >= 0 ? (row[phoneIdx] || '').trim() : '',
+                city: cityIdx >= 0 ? (row[cityIdx] || '').trim() : '',
+                state: stateIdx >= 0 ? (row[stateIdx] || '').trim() : '',
+                country: countryIdx >= 0 ? (row[countryIdx] || '').trim() : ''
+            });
+        }
+        stagedByLocation.value = { ...stagedByLocation.value, [locationId]: { attendees } };
+        Swal.fire('Success', `${attendees.length} attendees staged from CSV for this location.`, 'success');
+    };
+    reader.readAsText(file, 'UTF-8');
+};
+
+const removeStagedForLocation = (locationId) => {
+    const next = { ...stagedByLocation.value };
+    delete next[locationId];
+    stagedByLocation.value = next;
+    const nextLink = { ...importAllEventbriteLinkByLocation.value };
+    delete nextLink[locationId];
+    importAllEventbriteLinkByLocation.value = nextLink;
+};
+
+const stagedLocationIds = computed(() => Object.keys(stagedByLocation.value));
+const hasStagedData = computed(() => stagedLocationIds.value.length > 0);
+const totalStagedCount = computed(() => {
+    let n = 0;
+    Object.values(stagedByLocation.value).forEach(v => { if (v && v.attendees) n += v.attendees.length; });
+    return n;
+});
+
+const runImportAll = async () => {
+    const listId = (importAllListId.value || '').trim();
+    const account = (importAllAccount.value || '').trim();
+    if (!listId || !account) {
+        Swal.fire('Error', 'Please select Mailchimp account and audience.', 'error');
+        return;
+    }
+    const defaultTagsArray = parseTagStr(importAllDefaultTags.value);
+    const getLocationCountryTag = (locationId) => {
+        const loc = props.locations.find(l => l.id === parseInt(locationId, 10));
+        const country = (loc?.country || '').trim();
+        return country ? `COUNTRY - ${country.toUpperCase()}` : null;
+    };
+    // Build payload: all locations. Win form data is imported for every location (form_tags). Ticket data only where staged (attendees + tags).
+    const locationsPayload = props.locations.map((loc) => {
+        const locationId = loc.id;
+        const staged = stagedByLocation.value[locationId];
+        const attendees = (staged && Array.isArray(staged.attendees) && staged.attendees.length > 0) ? staged.attendees : [];
+        const countryTag = getLocationCountryTag(locationId);
+        const ticketTags = attendees.length > 0
+            ? [...defaultTagsArray, ...(countryTag ? [countryTag] : []), ...parseTagStr(importAllTagsByLocation.value[locationId] || '')]
+            : [];
+        const formTags = [...defaultTagsArray, ...(countryTag ? [countryTag] : []), ...parseTagStr(importAllFormTagsByLocation.value[locationId] || '')];
+        return {
+            location_id: locationId,
+            attendees,
+            tags: ticketTags,
+            form_tags: formTags
+        };
+    });
+    // Locations with staged ticket data must have at least one ticket tag
+    const missingTicketTags = locationsPayload.filter(loc => loc.attendees.length > 0 && loc.tags.length === 0);
+    if (missingTicketTags.length > 0) {
+        Swal.fire('Error', 'Each location where you added ticket data (Eventbrite/CSV) must have at least one tag in "Tags for ticket data".', 'error');
+        return;
+    }
+    // At least one location must have form tags (we always import win form per location)
+    const hasFormTags = locationsPayload.some(loc => loc.form_tags.length > 0);
+    if (!hasFormTags) {
+        Swal.fire('Error', 'Each location needs tags in "Tags for form data". Win form data is imported for every location.', 'error');
+        return;
+    }
+    const totalLocations = locationsPayload.length;
+    isImportAllLoading.value = true;
+    try {
+        // Same progress UI as single-location Mailchimp import
+        Swal.fire({
+            title: 'Importing to Mailchimp',
+            html: `
+                <div class="text-left">
+                    <div class="mb-3">
+                        <div class="flex justify-between mb-1">
+                            <span>Processing:</span>
+                            <span class="font-semibold">All locations (${totalLocations})</span>
+                        </div>
+                        <div class="w-full bg-gray-200 rounded-full h-2">
+                            <div id="import-all-progress-bar" class="bg-teal-600 h-2 rounded-full transition-all duration-300" style="width: 0%"></div>
+                        </div>
+                    </div>
+                    <div class="text-sm text-gray-600 mb-3">Importing win form data for every location${locationsPayload.some(l => l.attendees.length > 0) ? ' and ticket data where added...' : '...'}</div>
+                    <div class="grid grid-cols-2 gap-2 text-sm mt-3">
+                        <div>✅ Success: <span id="import-all-success-count" class="font-semibold text-green-600">0</span></div>
+                        <div>❌ Failed: <span id="import-all-failed-count" class="font-semibold text-red-600">0</span></div>
+                        <div>🆕 New: <span id="import-all-new-count" class="font-semibold text-blue-600">0</span></div>
+                        <div>🔄 Updated: <span id="import-all-update-count" class="font-semibold text-orange-600">0</span></div>
+                    </div>
+                </div>
+            `,
+            allowOutsideClick: false,
+            allowEscapeKey: false,
+            showConfirmButton: false,
+            didOpen: () => {
+                Swal.showLoading();
+                // Animate progress bar while request is in flight (0 -> 70%)
+                const bar = document.getElementById('import-all-progress-bar');
+                if (bar) {
+                    let w = 0;
+                    const iv = setInterval(() => {
+                        if (w >= 70) { clearInterval(iv); return; }
+                        w += 4;
+                        bar.style.width = w + '%';
+                    }, 150);
+                }
+            }
+        });
+
+        const listName = (importAllLists.value || []).find(l => l.id === listId)?.name || '';
+        const res = await axios.post(route('event.importAll'), {
+            event_id: props.event.id,
+            list_id: listId,
+            list_name: listName,
+            mailchimp_account: account,
+            locations: locationsPayload
+        });
+
+        const d = res.data;
+        const totalSuccess = d.total_success ?? 0;
+        const totalFailed = d.total_failed ?? 0;
+        const totalNew = d.total_new ?? 0;
+        const totalUpdated = d.total_updated ?? 0;
+
+        // Update progress modal to 100% and final counts (same style as single-location import)
+        await Swal.update({
+            html: `
+                <div class="text-left">
+                    <div class="mb-3">
+                        <div class="flex justify-between mb-1">
+                            <span>Processing:</span>
+                            <span class="font-semibold text-green-600">Complete</span>
+                        </div>
+                        <div class="w-full bg-gray-200 rounded-full h-2">
+                            <div id="import-all-progress-bar" class="bg-teal-600 h-2 rounded-full transition-all duration-300" style="width: 100%"></div>
+                        </div>
+                    </div>
+                    <div class="grid grid-cols-2 gap-2 text-sm mt-3">
+                        <div>✅ Success: <span class="font-semibold text-green-600">${totalSuccess}</span></div>
+                        <div>❌ Failed: <span class="font-semibold text-red-600">${totalFailed}</span></div>
+                        <div>🆕 New: <span class="font-semibold text-blue-600">${totalNew}</span></div>
+                        <div>🔄 Updated: <span class="font-semibold text-orange-600">${totalUpdated}</span></div>
+                    </div>
+                    ${d.locations && d.locations.length ? `<div class="mt-3 text-xs text-gray-500 max-h-24 overflow-y-auto">${d.locations.map(l => `${l.location_name}${l.source ? ` (${l.source === 'signup_form' ? 'win form' : 'ticket'})` : ''}: ${l.success} ok, ${l.failed} failed`).join('<br>')}</div>` : ''}
+                </div>
+            `
+        });
+        // Hide loader so user sees the completed state
+        const loader = document.querySelector('.swal2-loader');
+        if (loader) loader.style.display = 'none';
+        // Show completed state for 1.5s then close and show final Done
+        await new Promise(r => setTimeout(r, 1500));
+        await Swal.close();
+
+        let msg = d.message || 'Import completed.';
+        if (d.locations && d.locations.length) {
+            msg += '\n\n' + d.locations.map(l => `${l.location_name}${l.source ? ` (${l.source === 'signup_form' ? 'win form' : 'ticket'})` : ''}: ${l.success} success, ${l.failed} failed`).join('\n');
+        }
+        Swal.fire('Done', msg, 'success').then(() => {
+            closeImportAllModal();
+            router.reload();
+        });
+    } catch (err) {
+        await Swal.close();
+        Swal.fire('Error', err.response?.data?.error || err.response?.data?.message || 'Import failed.', 'error');
+    } finally {
+        isImportAllLoading.value = false;
+    }
+};
+
 </script>
 
 <template>
@@ -2113,7 +2484,14 @@ watch(
                                     </button>
                                 </div>
                                 <!-- Attendees Database Button - Right Corner -->
-                                <div class="ml-auto">
+                                <div class="ml-auto flex gap-2">
+                                    <button 
+                                        @click="openImportAllModal"
+                                        style="background-color: #0d9488; color: white; border-radius: 5px; padding: 10px 20px; cursor: pointer;"
+                                        title="Import all ticket data for this event in one place (Eventbrite or CSV per location), then import to Mailchimp in one click"
+                                    >
+                                        <i class="fa-solid fa-upload"></i> Import All Data
+                                    </button>
                                     <button 
                                         @click="goToAttendeesPage"
                                         style="background-color: #16C3D9; color: white; border-radius: 5px; padding: 10px 20px; cursor: pointer;"
@@ -2978,6 +3356,161 @@ watch(
                                 <i class="fa-solid fa-upload mr-2"></i>
                                 Import to Mailchimp
                             </span>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Import All Data Modal (event-level: stage ticket data per location, then import in one click) -->
+        <div v-if="showImportAllModal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+            <div class="bg-white p-6 rounded-lg shadow-xl max-w-4xl w-full mx-4 max-h-[90vh] overflow-y-auto">
+                <div class="flex justify-between items-center mb-4">
+                    <h3 class="text-lg font-semibold">Import All Data</h3>
+                    <button @click="closeImportAllModal" class="text-gray-500 hover:text-gray-700">
+                        <i class="fa-solid fa-times"></i>
+                    </button>
+                </div>
+                <p class="text-gray-600 text-sm mb-4">
+                    We import <strong>win form (sign-up) data for every location</strong>. Ticket data is added only when you provide an Eventbrite link or upload CSV for that location. Review and edit <strong>tags for ticket data</strong> and <strong>tags for form data</strong> per location. Separate tags with <strong>;</strong> (e.g. <code>SHOW - Mammoth, LA</code> is one tag). Each location gets <strong>COUNTRY - USA</strong>, <strong>COUNTRY - CANADA</strong>, etc. based on its country. Click <strong>Import All</strong> to import win form data (and ticket data where you added it) to Mailchimp. Everything is logged.
+                </p>
+
+                <!-- Default tags (applied to all locations) -->
+                <div class="mb-6 p-4 bg-blue-50 border border-blue-200 rounded-lg">
+                    <label class="block text-sm font-medium text-gray-800 mb-2">Default tags (applied to every location)</label>
+                    <input
+                        v-model="importAllDefaultTags"
+                        type="text"
+                        class="w-full border rounded px-3 py-2"
+                        placeholder="e.g. 2025 Tour; Film Name; SHOW - Mammoth, LA"
+                    />
+                    <p class="text-xs text-gray-600 mt-1">Separate with semicolon (;). These tags are added to every location when you import.</p>
+                </div>
+
+                <!-- Per-location: ticket data (optional), ticket tags, form tags -->
+                <div class="space-y-4 mb-6">
+                    <div v-for="loc in locations" :key="loc.id" class="border rounded-lg p-4 bg-gray-50 space-y-4">
+                        <div class="flex justify-between items-start">
+                            <span class="font-medium">{{ loc.name }}</span>
+                            <span v-if="stagedByLocation[loc.id]?.attendees?.length" class="text-sm text-green-600 font-medium">
+                                {{ stagedByLocation[loc.id].attendees.length }} ticket attendees staged
+                            </span>
+                            <span v-else class="text-xs text-gray-500">No ticket data (optional)</span>
+                        </div>
+
+                        <!-- Ticket data (optional): Eventbrite or CSV -->
+                        <div>
+                            <label class="block text-xs font-medium text-gray-600 mb-2">Ticket data (optional)</label>
+                            <div class="flex flex-wrap gap-3 items-end">
+                                <div class="flex-1 min-w-[200px]">
+                                    <input
+                                        type="text"
+                                        :value="importAllEventbriteLinkByLocation[loc.id] || ''"
+                                        @input="importAllEventbriteLinkByLocation = { ...importAllEventbriteLinkByLocation, [loc.id]: $event.target.value }"
+                                        class="w-full border rounded px-2 py-1.5 text-sm"
+                                        placeholder="Eventbrite link or upload CSV"
+                                    />
+                                </div>
+                                <button
+                                    @click="fetchPreviewForLocation(loc.id, importAllEventbriteLinkByLocation[loc.id] || '')"
+                                    :disabled="!importAllEventbriteLinkByLocation[loc.id]?.trim() || isFetchingPreviewByLocation[loc.id]"
+                                    class="px-3 py-1.5 bg-orange-500 text-white rounded text-sm hover:bg-orange-600 disabled:opacity-50"
+                                >
+                                    <span v-if="isFetchingPreviewByLocation[loc.id]"><i class="fa-solid fa-spinner fa-spin mr-1"></i> Fetch</span>
+                                    <span v-else>Fetch</span>
+                                </button>
+                                <div class="flex items-center gap-2">
+                                    <label class="text-xs text-gray-500">or CSV</label>
+                                    <input
+                                        type="file"
+                                        accept=".csv,.txt"
+                                        class="text-sm"
+                                        @change="(e) => { const f = e.target.files?.[0]; if (f) parseCsvForLocation(loc.id, f); e.target.value = ''; }"
+                                    />
+                                </div>
+                                <button
+                                    v-if="stagedByLocation[loc.id]?.attendees?.length"
+                                    @click="removeStagedForLocation(loc.id)"
+                                    class="text-red-600 text-sm hover:underline"
+                                >
+                                    Clear ticket data
+                                </button>
+                            </div>
+                        </div>
+
+                        <!-- Tags for ticket data (this location) – used when importing this location's ticket data -->
+                        <div>
+                            <label class="block text-xs font-medium text-gray-700 mb-1">Tags for ticket data (this location)</label>
+                            <div class="mb-2 px-2.5 py-1.5 rounded bg-teal-50 border border-teal-200 text-sm">
+                                <span class="text-gray-600">Country tag (auto-applied):</span>
+                                <span v-if="(loc.country || '').trim()" class="ml-1 font-semibold text-teal-800">COUNTRY - {{ (loc.country || '').trim().toUpperCase() }}</span>
+                                <span v-else class="ml-1 text-amber-600">Not set—edit this location to add a country for COUNTRY - USA, etc.</span>
+                            </div>
+                            <input
+                                type="text"
+                                :value="importAllTagsByLocation[loc.id] || ''"
+                                @input="importAllTagsByLocation = { ...importAllTagsByLocation, [loc.id]: $event.target.value }"
+                                class="w-full border rounded px-2 py-1.5 text-sm"
+                                placeholder="SHOW - LOC; SOURCE - WM LOC TIX 2025"
+                            />
+                            <p class="text-xs text-gray-500 mt-1">Separate with ; . These are added on top of the default tags above.</p>
+                        </div>
+
+                        <!-- Tags for form data (this location) – for review when importing form/sign-up data -->
+                        <div>
+                            <label class="block text-xs font-medium text-gray-700 mb-1">Tags for form data (this location)</label>
+                            <input
+                                type="text"
+                                :value="importAllFormTagsByLocation[loc.id] || ''"
+                                @input="importAllFormTagsByLocation = { ...importAllFormTagsByLocation, [loc.id]: $event.target.value }"
+                                class="w-full border rounded px-2 py-1.5 text-sm bg-white"
+                                placeholder="SHOW - LOC; SOURCE - WM LOC COMP 2025"
+                            />
+                            <p class="text-xs text-gray-500 mt-1">For review when you import sign-up form data for this location. Separate with ; .</p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Mailchimp account & list -->
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-6">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-2">Mailchimp account</label>
+                        <select v-model="importAllAccount" class="w-full border rounded px-3 py-2">
+                            <option value="">Select...</option>
+                            <option v-for="(acc, key) in importAllAccounts" :key="key" :value="key" :disabled="!acc?.enabled">
+                                {{ acc?.name || key }} {{ !acc?.enabled ? '(Not configured)' : '' }}
+                            </option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-2">Mailchimp audience</label>
+                        <select v-model="importAllListId" class="w-full border rounded px-3 py-2">
+                            <option value="">Select...</option>
+                            <option v-for="list in importAllLists" :key="list.id" :value="list.id">
+                                {{ list.name }} ({{ list.stats?.member_count ?? 0 }} members)
+                            </option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="flex justify-between items-center pt-4 border-t">
+                    <div class="text-sm text-gray-600">
+                        <span v-if="hasStagedData">{{ stagedLocationIds.length }} location(s), {{ totalStagedCount }} total attendees staged. Ticket tags are applied only for these.</span>
+                        <span v-else>Win form data is imported for every location. Add Eventbrite or CSV per location only if you have ticket data; same tag structure, SOURCE differs (TIX vs COMP).</span>
+                        <span v-if="!importAllListId || !importAllAccount" class="block mt-1 text-amber-600">
+                            To enable Import All: {{ !importAllAccount ? 'select Mailchimp account' : '' }}{{ !importAllAccount && !importAllListId ? ' and ' : '' }}{{ !importAllListId ? 'select Mailchimp audience' : '' }}.
+                        </span>
+                    </div>
+                    <div class="flex gap-3">
+                        <button @click="closeImportAllModal" class="px-4 py-2 border rounded text-gray-600 hover:bg-gray-50">Cancel</button>
+                        <button
+                            @click="runImportAll"
+                            :disabled="!importAllListId || !importAllAccount || isImportAllLoading"
+                            class="px-4 py-2 bg-teal-600 text-white rounded hover:bg-teal-700 disabled:opacity-50"
+                            :title="!importAllAccount ? 'Select Mailchimp account' : !importAllListId ? 'Select Mailchimp audience' : 'Import staged ticket data to Mailchimp (ticket tags only where there is ticket data)'"
+                        >
+                            <span v-if="isImportAllLoading"><i class="fa-solid fa-spinner fa-spin mr-2"></i> Importing...</span>
+                            <span v-else><i class="fa-solid fa-upload mr-2"></i> Import All</span>
                         </button>
                     </div>
                 </div>

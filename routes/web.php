@@ -91,7 +91,9 @@ Route::middleware(['auth', RoleMiddleware::class . ':admin,host'])->group(functi
     
     //EVENTBRITE ROUTES
     Route::post('/location/fetch-eventbrite-attendees', [LocationController::class, 'fetchEventbriteAttendees'])->name('location.fetchEventbriteAttendees');
+    Route::post('/location/fetch-eventbrite-attendees-preview', [LocationController::class, 'fetchEventbriteAttendeesPreview'])->name('location.fetchEventbriteAttendeesPreview');
     Route::post('/location/import-eventbrite-to-mailchimp', [LocationController::class, 'importEventbriteToMailchimp'])->name('location.importEventbriteToMailchimp');
+    Route::post('/event/import-all', [LocationController::class, 'eventImportAll'])->name('event.importAll');
 
     //MANUAL CSV IMPORT (ticket attendees)
     Route::post('/location/import-csv-ticket-attendees', [LocationController::class, 'importCsvTicketAttendees'])->name('location.importCsvTicketAttendees');

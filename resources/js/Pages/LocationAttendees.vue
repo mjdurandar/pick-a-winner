@@ -196,52 +196,51 @@ const fetchMailchimpSettings = async () => {
 };
 
 // ✅ Generate location-specific Mailchimp tags
+// SOURCE tag never includes state. SHOW: USA only = include state (e.g. SHOW - DENVER, CO); Australia/NZ/other = location only, no state.
 // sourceType: 'signup_form' -> SOURCE uses COMP; 'ticket_data' (Eventbrite/CSV) -> SOURCE uses TIX
 const generateLocationTags = (sourceType = 'signup_form') => {
     const tags = [];
     const filmTour = mailchimpSettings.value.film_tour || 'WM';
     const year = new Date().getFullYear();
     const locationName = props.location.name;
-    const country = props.location.country || props.event.event_country || 'Other';
+    // Use event country for tag logic: only USA & Canada events get state in SHOW tag; Australia/NZ/other never do.
+    const eventCountry = (props.event.event_country || props.location.country || 'Other').toString().trim();
+    const locationCountryUpper = (props.location.country || props.event.event_country || 'Other').toString().trim().toUpperCase();
+    const eventCountryUpper = eventCountry.toUpperCase();
+    const isUSA = ['USA', 'USA & CANADA', 'USA AND CANADA'].includes(eventCountryUpper);
     
-    // Extract everything before hyphen as the full location label
-    // e.g. "Bozeman MT - Emerson Center..." -> "BOZEMAN MT"
-    const fullLocationTag = locationName.split(' - ')[0].toUpperCase();
-    
-    // Check if event country is USA or CANADA
-    const eventCountry = (props.event?.event_country || '').toUpperCase();
-    const isUsaOrCanada = ['USA', 'CANADA', 'USA & CANADA'].includes(eventCountry);
-    
-    // Try to infer state from the LAST word of fullLocationTag only for USA/CANADA
-    // If last token is 2–3 letters (e.g. "MT"), treat it as state
-    let inferredState = '';
-    let baseLocationTag = fullLocationTag;
-    
-    if (isUsaOrCanada) {
-        const parts = fullLocationTag.split(' ').filter(Boolean);
-        if (parts.length > 1) {
-            const last = parts[parts.length - 1];
-            if (/^[A-Z]{2,3}$/.test(last)) {
-                inferredState = last;
-                baseLocationTag = parts.slice(0, -1).join(' ').trim();
-            }
+    // Everything before " - " as the location label (e.g. "Bozeman, MT - ..." -> "BOZEMAN, MT")
+    const fullLocationTag = locationName.split(' - ')[0].trim().toUpperCase();
+    const locationState = (props.location.state || '').toString().trim();
+
+    // SOURCE tag: never include state — strip 2–3 letter abbrev (NSW, VIC) and/or location.state (e.g. Victoria, New South Wales)
+    let locationNoState = (fullLocationTag.replace(/,?\s+[A-Z]{2,3}$/i, '').trim()) || fullLocationTag;
+    if (locationState) {
+        const stateEsc = locationState.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        locationNoState = (locationNoState.replace(new RegExp(`,?\\s*${stateEsc}$`, 'i'), '').trim()) || locationNoState;
+    }
+    const sourceTagLocation = locationNoState || fullLocationTag;
+
+    // SHOW tag: USA only = include state (e.g. SHOW - DENVER, CO). Australia/NZ/other = location only, no state (e.g. SHOW - SYDNEY, MELBOURNE).
+    let showTagLocation = sourceTagLocation;
+    if (isUSA) {
+        const stateFromLocation = (props.location.state || '').toString().trim().toUpperCase();
+        const matchStateInName = fullLocationTag.match(/,?\s+([A-Z]{2,3})$/i);
+        const stateInName = matchStateInName ? matchStateInName[1].toUpperCase() : '';
+        const state = stateInName || stateFromLocation;
+        if (state) {
+            const base = (fullLocationTag.replace(/,?\s+[A-Z]{2,3}$/i, '').trim()) || fullLocationTag;
+            showTagLocation = `${base}, ${state}`;
         }
     }
     
     // Add COUNTRY tag (for reporting)
-    tags.push(`COUNTRY - ${country.toUpperCase()}`);
+    tags.push(`COUNTRY - ${locationCountryUpper}`);
     
-    // Add SHOW tag (include comma + state if we inferred one for USA/CANADA)
-    const showTagLocation = isUsaOrCanada && inferredState
-        ? `${baseLocationTag}, ${inferredState}`
-        : fullLocationTag;
     tags.push(`SHOW - ${showTagLocation}`);
     
-    // SOURCE: TIX for ticket/Eventbrite/CSV import, COMP for signup form import
+    // SOURCE: TIX for ticket/Eventbrite/CSV import, COMP for signup form import (no state)
     const sourceWord = sourceType === 'ticket_data' ? 'TIX' : 'COMP';
-    const sourceTagLocation = isUsaOrCanada && inferredState
-        ? baseLocationTag
-        : fullLocationTag;
     tags.push(`SOURCE - ${filmTour.toUpperCase()} ${sourceTagLocation} ${sourceWord} ${year}`);
     
     // Add any default tags if they exist
@@ -782,6 +781,8 @@ const handleMailchimpImport = async () => {
         if (customTags.value.trim()) {
             allTags = parseTagsFromInput(customTags.value);
         }
+        // Send a plain array so the server receives all tags (no reactive/serialization quirks)
+        allTags = Array.isArray(allTags) ? [...allTags] : [];
 
         console.log('Final tags for import:', allTags);
 
@@ -946,9 +947,12 @@ const handleMailchimpImport = async () => {
                 updated_data: updateCount,
                 data_with_error: failureCount,
                 errors: errors,
-                tags: allTags,
+                tags: allTags.slice(0),
                 subscribers: attendeesToImport,
                 source: (mailchimpImportSubscribers.value && mailchimpImportSubscribers.value.length) ? 'ticket_data' : 'signup_form',
+                mailchimp_account: mailchimpAccount.value,
+                list_id: selectedList.value,
+                list_name: (mailchimpLists.value || []).find(l => l.id === selectedList.value)?.name || '',
             }, {
                 headers: { 'X-XSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '', 'Accept': 'application/json' },
                 withCredentials: true,

@@ -228,6 +228,8 @@ const exportToCsv = () => {
                                         <th class="border border-gray-300 p-2 text-left whitespace-nowrap">Location</th>
                                         <th class="border border-gray-300 p-2 text-left whitespace-nowrap">Imported Date</th>
                                         <th class="border border-gray-300 p-2 text-left whitespace-nowrap">Imported By</th>
+                                        <th class="border border-gray-300 p-2 text-left whitespace-nowrap">Mailchimp Account</th>
+                                        <th class="border border-gray-300 p-2 text-left whitespace-nowrap">Audience</th>
                                         <th class="border border-gray-300 p-2 text-left whitespace-nowrap">Source</th>
                                         <th class="border border-gray-300 p-2 text-right whitespace-nowrap">Total Data</th>
                                         <th class="border border-gray-300 p-2 text-right whitespace-nowrap">New Contacts</th>
@@ -249,6 +251,8 @@ const exportToCsv = () => {
                                         <td class="border border-gray-300 p-2 whitespace-nowrap">{{ log.location_name || '—' }}</td>
                                         <td class="border border-gray-300 p-2 whitespace-nowrap">{{ formatImportDate(log.created_at) }}</td>
                                         <td class="border border-gray-300 p-2 whitespace-nowrap">{{ log.imported_by_name || '—' }}</td>
+                                        <td class="border border-gray-300 p-2 whitespace-nowrap">{{ log.mailchimp_account ? (log.mailchimp_account === 'usa' ? 'USA' : log.mailchimp_account === 'anz' ? 'ANZ' : log.mailchimp_account) : '—' }}</td>
+                                        <td class="border border-gray-300 p-2 whitespace-nowrap max-w-xs truncate" :title="log.list_name || log.list_id">{{ log.list_name || log.list_id || '—' }}</td>
                                         <td class="border border-gray-300 p-2 whitespace-nowrap">{{ sourceLabel(log.source) }}</td>
                                         <td class="border border-gray-300 p-2 text-right whitespace-nowrap">{{ log.total_data ?? 0 }}</td>
                                         <td class="border border-gray-300 p-2 text-right whitespace-nowrap">{{ log.new_contacts ?? 0 }}</td>
