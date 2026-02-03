@@ -12,6 +12,7 @@ const editableFailedRows = ref([]);
 const isReimporting = ref(false);
 const showQueuedImportsModal = ref(false);
 const queuedImports = ref([]);
+const queueConnection = ref(null);
 const loadingQueuedImports = ref(false);
 const cancellingJobId = ref(null);
 let queuedRefreshInterval = null;
@@ -198,8 +199,10 @@ const fetchQueuedImports = async () => {
     try {
         const res = await axios.get(route('mailchimpImportLogs.queuedImports'));
         queuedImports.value = res.data.queued_imports || [];
+        queueConnection.value = res.data.queue_connection ?? null;
     } catch {
         queuedImports.value = [];
+        queueConnection.value = null;
     } finally {
         loadingQueuedImports.value = false;
     }
@@ -603,8 +606,15 @@ const exportToCsv = () => {
                         <p>Loading...</p>
                     </div>
                     <div v-else-if="queuedImportRows.length === 0" class="text-center py-8 text-gray-500">
-                        <i class="fa-solid fa-check-circle text-2xl mb-2 text-green-500"></i>
-                        <p>No imports in queue. All Import All jobs have been processed.</p>
+                        <template v-if="queueConnection === 'sync'">
+                            <i class="fa-solid fa-bolt text-2xl mb-2 text-amber-500"></i>
+                            <p class="font-medium">Queue is running in sync mode.</p>
+                            <p class="text-sm mt-1">Imports run immediately and are not stored, so nothing appears here after a refresh. Set <code class="bg-gray-100 px-1 rounded">QUEUE_CONNECTION=database</code> in <code class="bg-gray-100 px-1 rounded">.env</code> to use a queue and see jobs here.</p>
+                        </template>
+                        <template v-else>
+                            <i class="fa-solid fa-check-circle text-2xl mb-2 text-green-500"></i>
+                            <p>No imports in queue. All Import All jobs have been processed.</p>
+                        </template>
                     </div>
                     <div v-else class="overflow-x-auto border rounded">
                         <table class="w-full text-sm border-collapse">

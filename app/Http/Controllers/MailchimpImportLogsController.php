@@ -17,6 +17,20 @@ use Inertia\Inertia;
 class MailchimpImportLogsController extends Controller
 {
     /**
+     * Query builder for the queue's jobs table (same connection/table Laravel uses for queue).
+     * Fixes "queued import gone after refresh" when queue uses a different DB connection or table.
+     */
+    private function jobsTable()
+    {
+        $connection = config('queue.connections.database.connection');
+        $table = config('queue.connections.database.table', 'jobs');
+
+        return $connection
+            ? DB::connection($connection)->table($table)
+            : DB::table($table);
+    }
+
+    /**
      * Display the Mailchimp import logs page. Optional filter by event_id.
      */
     public function index(Request $request)
@@ -225,7 +239,7 @@ class MailchimpImportLogsController extends Controller
      */
     public function queuedImports(Request $request)
     {
-        $jobs = DB::table('jobs')
+        $jobs = $this->jobsTable()
             ->where('queue', config('queue.connections.database.queue', 'default'))
             ->where('payload', 'like', '%EventImportAllToMailchimpJob%')
             ->orderBy('id')
@@ -307,7 +321,11 @@ class MailchimpImportLogsController extends Controller
             unset($item['location_ids']);
         }
 
-        return response()->json(['queued_imports' => $result]);
+        return response()->json([
+            'queued_imports' => $result,
+            'job_timeout_seconds' => 600,
+            'queue_connection' => config('queue.default'),
+        ]);
     }
 
     /**
@@ -323,7 +341,7 @@ class MailchimpImportLogsController extends Controller
         $jobId = (int) $request->job_id;
         $locationIdToRemove = (int) $request->location_id;
 
-        $row = DB::table('jobs')
+        $row = $this->jobsTable()
             ->where('id', $jobId)
             ->where('queue', config('queue.connections.database.queue', 'default'))
             ->where('payload', 'like', '%EventImportAllToMailchimpJob%')
@@ -358,7 +376,7 @@ class MailchimpImportLogsController extends Controller
             return (int) ($loc['location_id'] ?? 0) !== $locationIdToRemove;
         }));
 
-        DB::table('jobs')->where('id', $jobId)->delete();
+        $this->jobsTable()->where('id', $jobId)->delete();
 
         if (count($remaining) > 0) {
             EventImportAllToMailchimpJob::dispatch(
@@ -387,7 +405,7 @@ class MailchimpImportLogsController extends Controller
     public function cancelQueuedImport(Request $request, $jobId)
     {
         $jobId = (int) $jobId;
-        $row = DB::table('jobs')
+        $row = $this->jobsTable()
             ->where('id', $jobId)
             ->where('queue', config('queue.connections.database.queue', 'default'))
             ->where('payload', 'like', '%EventImportAllToMailchimpJob%')
@@ -417,7 +435,7 @@ class MailchimpImportLogsController extends Controller
             return response()->json(['error' => 'Cannot cancel: this import could not be stopped (no batch id).'], 422);
         }
 
-        DB::table('jobs')->where('id', $jobId)->delete();
+        $this->jobsTable()->where('id', $jobId)->delete();
 
         return response()->json(['success' => true, 'message' => 'Queued import cancelled.']);
     }
