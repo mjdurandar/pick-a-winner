@@ -72,6 +72,7 @@ const importAllDefaultTags = ref(''); // Default tags applied to ALL locations (
 const importAllTagsByLocation = ref({}); // { [locationId]: 'SHOW - X; SOURCE - ...' } – tags for ticket data for this location (; separator)
 const importAllFormTagsByLocation = ref({}); // { [locationId]: '...' } – tags for form data, for review (; separator)
 const importAllListId = ref('');
+const importAllSourceYear = ref(new Date().getFullYear()); // Year used in SOURCE tag (e.g. SOURCE - WM LOC COMP 2025)
 
 // Parse tag string: separate by ; so tags like "SHOW - Mammoth, LA" stay as one tag
 const parseTagStr = (s) => (s || '').split(';').map(t => t.trim()).filter(Boolean);
@@ -2063,7 +2064,11 @@ const openImportAllModal = async () => {
         const settings = settingsRes.data.settings || {};
         importAllAccount.value = settings.mailchimp_account || 'anz';
         const filmTour = settings.film_tour || 'WM';
-        const year = new Date().getFullYear();
+        // Use modal year for SOURCE tag; default to current year when opening
+        const year = typeof importAllSourceYear.value === 'number' && importAllSourceYear.value >= 2020 && importAllSourceYear.value <= 2035
+            ? importAllSourceYear.value
+            : new Date().getFullYear();
+        importAllSourceYear.value = year;
         if (settings.default_tags) {
             const arr = Array.isArray(settings.default_tags)
                 ? settings.default_tags
@@ -2090,6 +2095,23 @@ const openImportAllModal = async () => {
     }
 };
 
+// Replace the 4-digit year in SOURCE tags (e.g. SOURCE - WM MELB COMP 2025 → 2026) when user changes Import All year
+const applyImportAllSourceYear = (newYear) => {
+    const y = String(newYear).replace(/\D/g, '');
+    if (y.length !== 4) return;
+    const repl = (str) => (str || '').replace(/(SOURCE\s*-\s*[^;]+?)\s+\d{4}(\s*;|\s*$|$)/gi, (m, prefix, suffix) => prefix + ' ' + y + (suffix || ''));
+    const ticket = {};
+    Object.keys(importAllTagsByLocation.value || {}).forEach((id) => {
+        ticket[id] = repl(importAllTagsByLocation.value[id]);
+    });
+    const form = {};
+    Object.keys(importAllFormTagsByLocation.value || {}).forEach((id) => {
+        form[id] = repl(importAllFormTagsByLocation.value[id]);
+    });
+    importAllTagsByLocation.value = ticket;
+    importAllFormTagsByLocation.value = form;
+};
+
 const closeImportAllModal = () => {
     showImportAllModal.value = false;
     stagedByLocation.value = {};
@@ -2112,6 +2134,15 @@ const loadImportAllLists = async (account) => {
 watch(
     () => importAllAccount.value,
     (acc) => { if (acc && showImportAllModal.value) loadImportAllLists(acc); }
+);
+
+watch(
+    () => importAllSourceYear.value,
+    (newYear) => {
+        if (!showImportAllModal.value) return;
+        const y = typeof newYear === 'number' ? newYear : parseInt(String(newYear).replace(/\D/g, ''), 10);
+        if (y >= 2020 && y <= 2035) applyImportAllSourceYear(y);
+    }
 );
 
 const extractEventIdFromLinkForImportAll = (link) => {
@@ -3374,6 +3405,20 @@ const runImportAll = async () => {
                 <p class="text-gray-600 text-sm mb-4">
                     We import <strong>win form (sign-up) data for every location</strong>. Ticket data is added only when you provide an Eventbrite link or upload CSV for that location. Review and edit <strong>tags for ticket data</strong> and <strong>tags for form data</strong> per location. Separate tags with <strong>;</strong> (e.g. <code>SHOW - Mammoth, LA</code> is one tag). Each location gets <strong>COUNTRY - USA</strong>, <strong>COUNTRY - CANADA</strong>, etc. based on its country. Click <strong>Import All</strong> to import win form data (and ticket data where you added it) to Mailchimp. Everything is logged.
                 </p>
+
+                <!-- Year used in SOURCE tag -->
+                <div class="mb-4 p-4 bg-amber-50 border border-amber-200 rounded-lg">
+                    <label class="block text-sm font-medium text-gray-800 mb-2">Year (for SOURCE tag)</label>
+                    <input
+                        v-model.number="importAllSourceYear"
+                        type="number"
+                        min="2020"
+                        max="2035"
+                        step="1"
+                        class="w-24 border border-gray-300 rounded px-3 py-2"
+                    />
+                    <p class="text-xs text-gray-600 mt-1">This year is used in SOURCE tags (e.g. <code>SOURCE - WM MELBOURNE COMP 2025</code>, <code>SOURCE - WM MELBOURNE TIX 2025</code>). Changing it updates the year in all per-location tags below.</p>
+                </div>
 
                 <!-- Default tags (applied to all locations) -->
                 <div class="mb-6 p-4 bg-blue-50 border border-blue-200 rounded-lg">
