@@ -134,6 +134,12 @@ const userRole = computed(() => user.value?.role);
                                             MC Logs
                                         </DropdownLink>
                                         <DropdownLink
+                                            v-if="userRole === 'admin' || userRole === 'host'"
+                                            :href="route('laravelLogs.index')"
+                                        >
+                                            Laravel Logs
+                                        </DropdownLink>
+                                        <DropdownLink
                                             :href="route('logout')"
                                             method="post"
                                             as="button"
@@ -273,6 +279,12 @@ const userRole = computed(() => user.value?.role);
                                 :href="route('mailchimpImportLogs.index')"
                             >
                                 MC Logs
+                            </ResponsiveNavLink>
+                            <ResponsiveNavLink
+                                v-if="userRole === 'admin' || userRole === 'host'"
+                                :href="route('laravelLogs.index')"
+                            >
+                                Laravel Logs
                             </ResponsiveNavLink>
                             <ResponsiveNavLink
                                 :href="route('logout')"

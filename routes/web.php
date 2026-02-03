@@ -9,6 +9,7 @@ use App\Http\Controllers\PickaWinnerController;
 use App\Http\Controllers\SignUpFormController;
 use App\Http\Controllers\PrizeController;
 use App\Http\Controllers\LocationController;
+use App\Http\Controllers\LaravelLogsController;
 use App\Http\Controllers\MailchimpImportLogsController;
 use App\Http\Controllers\MailchimpAutoSyncController;
 use App\Http\Controllers\FilmsController;
@@ -32,10 +33,6 @@ Route::post('/prize/multiple', [PrizeController::class, 'storeMultiple'])->name(
 Route::delete('/prize/{prize}', [PrizeController::class, 'destroy'])->name('prize.destroy');
 Route::post('/prize/winner/{prize}', [PrizeController::class, 'addWinner'])->name('prize.assignWinner');
 
-Route::get('/logs', function () {
-    return file_get_contents(storage_path('logs/laravel.log'));
-});
-
 Route::get('/', function () {
     return Inertia::render('Auth/Login');
 })->name('login');
@@ -50,6 +47,10 @@ Route::middleware(['auth', RoleMiddleware::class . ':admin,host'])->group(functi
     
     //films page
     Route::get('/films', [FilmsController::class, 'index'])->name('films.index');
+
+    //LARAVEL LOGS (view / clear app log)
+    Route::get('/laravel-logs', [LaravelLogsController::class, 'index'])->name('laravelLogs.index');
+    Route::post('/laravel-logs/clear', [LaravelLogsController::class, 'clear'])->name('laravelLogs.clear');
 
     //MAILCHIMP IMPORT LOGS (dedicated page + export)
     Route::get('/mailchimp-import-logs', [MailchimpImportLogsController::class, 'index'])->name('mailchimpImportLogs.index');
