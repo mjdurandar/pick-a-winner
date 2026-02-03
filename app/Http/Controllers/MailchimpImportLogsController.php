@@ -164,6 +164,44 @@ class MailchimpImportLogsController extends Controller
     }
 
     /**
+     * Delete multiple Mailchimp import logs and their stored CSV files by ID.
+     * Only allowed for mj@adventureentertainment.com.
+     */
+    public function destroyMultiple(Request $request)
+    {
+        if (strtolower(auth()->user()?->email ?? '') !== 'mj@adventureentertainment.com') {
+            abort(403, 'You are not allowed to delete import logs.');
+        }
+
+        $request->validate([
+            'ids' => 'required|array',
+            'ids.*' => 'integer|exists:mailchimp_import_logs,id',
+        ]);
+
+        $ids = array_values(array_unique($request->ids));
+        $deleted = 0;
+        foreach ($ids as $id) {
+            $log = MailchimpImportLog::find($id);
+            if (! $log) {
+                continue;
+            }
+            if ($log->has_import_file) {
+                $path = 'mailchimp_imports/' . $log->id . '.csv';
+                if (Storage::disk('local')->exists($path)) {
+                    Storage::disk('local')->delete($path);
+                }
+            }
+            $log->delete();
+            $deleted++;
+        }
+
+        if ($request->wantsJson()) {
+            return response()->json(['success' => true, 'deleted' => $deleted]);
+        }
+        return back()->with('message', "{$deleted} import log(s) deleted.");
+    }
+
+    /**
      * Re-import corrected failed rows: accept edited subscriber data, import to Mailchimp, create a new log.
      */
     public function reimportFailedRows(Request $request)

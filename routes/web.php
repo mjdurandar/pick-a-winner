@@ -60,6 +60,7 @@ Route::middleware(['auth', RoleMiddleware::class . ':admin,host'])->group(functi
     Route::get('/mailchimp-import-logs/{id}/download', [MailchimpImportLogsController::class, 'download'])->name('mailchimpImportLogs.download');
     Route::post('/mailchimp-import-logs/reimport-failed', [MailchimpImportLogsController::class, 'reimportFailedRows'])->name('mailchimpImportLogs.reimportFailed');
     Route::delete('/mailchimp-import-logs/all', [MailchimpImportLogsController::class, 'destroyAll'])->name('mailchimpImportLogs.destroyAll');
+    Route::post('/mailchimp-import-logs/destroy-multiple', [MailchimpImportLogsController::class, 'destroyMultiple'])->name('mailchimpImportLogs.destroyMultiple');
     Route::delete('/mailchimp-import-logs/{id}', [MailchimpImportLogsController::class, 'destroy'])->name('mailchimpImportLogs.destroy');
 
     //ATTENDEES ROUTES

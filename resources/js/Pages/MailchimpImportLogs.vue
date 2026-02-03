@@ -17,6 +17,28 @@ const loadingQueuedImports = ref(false);
 const cancellingJobId = ref(null);
 let queuedRefreshInterval = null;
 const canDeleteLogs = computed(() => (page.props.auth?.user?.email || '').toLowerCase() === 'mj@adventureentertainment.com');
+const selectedLogIds = ref([]);
+const allFilteredIds = computed(() => filteredLogs.value.map((log) => log.id));
+const allSelected = computed({
+    get() {
+        return allFilteredIds.value.length > 0 && selectedLogIds.value.length === allFilteredIds.value.length;
+    },
+    set(checked) {
+        if (checked) {
+            selectedLogIds.value = [...allFilteredIds.value];
+        } else {
+            selectedLogIds.value = [];
+        }
+    },
+});
+function toggleLogSelection(id) {
+    const idx = selectedLogIds.value.indexOf(id);
+    if (idx === -1) selectedLogIds.value = [...selectedLogIds.value, id];
+    else selectedLogIds.value = selectedLogIds.value.filter((x) => x !== id);
+}
+function isLogSelected(id) {
+    return selectedLogIds.value.includes(id);
+}
 
 const props = defineProps({
     mailchimpImportLogs: { type: Array, default: () => [] },
@@ -372,6 +394,35 @@ const deleteLog = (log) => {
 };
 
 const deletingAllLogs = ref(false);
+const deletingSelectedLogs = ref(false);
+const deleteSelectedLogs = () => {
+    if (selectedLogIds.value.length === 0) return;
+    Swal.fire({
+        title: 'Delete selected logs?',
+        html: `This will permanently delete <strong>${selectedLogIds.value.length}</strong> import log(s) and their stored CSV files. This cannot be undone.`,
+        icon: 'warning',
+        showCancelButton: true,
+        confirmButtonText: 'Yes, delete selected',
+        cancelButtonText: 'Cancel',
+        confirmButtonColor: '#dc2626',
+    }).then((result) => {
+        if (!result.isConfirmed) return;
+        deletingSelectedLogs.value = true;
+        axios.post(route('mailchimpImportLogs.destroyMultiple'), { ids: selectedLogIds.value })
+            .then(() => {
+                selectedLogIds.value = [];
+                router.reload();
+                Swal.fire('Deleted', 'Selected import logs have been removed.', 'success');
+            })
+            .catch((err) => {
+                const msg = err.response?.data?.message || err.response?.data?.error || err.message || 'Failed to delete.';
+                Swal.fire('Error', msg, 'error');
+            })
+            .finally(() => {
+                deletingSelectedLogs.value = false;
+            });
+    });
+};
 const deleteAllLogs = () => {
     Swal.fire({
         title: 'Delete all MC logs?',
@@ -499,6 +550,17 @@ const exportToCsv = () => {
                                 <i class="fa-solid fa-file-csv mr-2"></i> Export to CSV
                             </button>
                             <button
+                                v-if="canDeleteLogs && selectedLogIds.length > 0"
+                                type="button"
+                                @click="deleteSelectedLogs"
+                                :disabled="deletingSelectedLogs"
+                                class="bg-red-500 text-white px-4 py-2 rounded hover:bg-red-600 disabled:opacity-50 text-sm font-medium"
+                                title="Delete selected logs"
+                            >
+                                <span v-if="deletingSelectedLogs"><i class="fa-solid fa-spinner fa-spin mr-2"></i></span>
+                                <i v-else class="fa-solid fa-trash mr-2"></i> Delete selected ({{ selectedLogIds.length }})
+                            </button>
+                            <button
                                 v-if="canDeleteLogs"
                                 type="button"
                                 @click="deleteAllLogs"
@@ -536,6 +598,16 @@ const exportToCsv = () => {
                                         <th class="border border-gray-300 p-2 text-left whitespace-nowrap">Imported data</th>
                                         <th v-for="i in tagColumnIndices" :key="i" class="border border-gray-300 p-2 text-left whitespace-nowrap">Tag {{ i + 1 }}</th>
                                         <th class="border border-gray-300 p-2 text-center whitespace-nowrap">Actions</th>
+                                        <th v-if="canDeleteLogs" class="border border-gray-300 p-2 text-center whitespace-nowrap w-12">
+                                            <input
+                                                type="checkbox"
+                                                :checked="allSelected"
+                                                :indeterminate="selectedLogIds.length > 0 && selectedLogIds.length < allFilteredIds.length"
+                                                class="rounded border-gray-300"
+                                                title="Select all on this page"
+                                                @change="allSelected = $event.target.checked"
+                                            >
+                                        </th>
                                     </tr>
                                 </thead>
                                 <tbody>
@@ -595,6 +667,15 @@ const exportToCsv = () => {
                                                 <i class="fa-solid fa-trash"></i> Delete
                                             </button>
                                             <span v-else class="text-gray-400">—</span>
+                                        </td>
+                                        <td v-if="canDeleteLogs" class="border border-gray-300 p-2 text-center whitespace-nowrap">
+                                            <input
+                                                type="checkbox"
+                                                :checked="isLogSelected(log.id)"
+                                                class="rounded border-gray-300"
+                                                :value="log.id"
+                                                @change="toggleLogSelection(log.id)"
+                                            >
                                         </td>
                                     </tr>
                                 </tbody>
