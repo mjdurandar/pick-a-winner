@@ -2328,154 +2328,38 @@ const runImportAll = async () => {
     const totalLocations = locationsPayload.length;
     const totalContacts = totalToImport.value || 0;
     isImportAllLoading.value = true;
+    const listName = (importAllLists.value || []).find(l => l.id === listId)?.name || '';
     try {
-        // Progress UI: show total to import so user knows how long to wait
-        Swal.fire({
-            title: 'Importing to Mailchimp',
-            html: `
-                <div class="text-left">
-                    <div class="mb-3">
-                        <div class="flex justify-between mb-1">
-                            <span>Processing:</span>
-                            <span class="font-semibold">Up to <strong>${totalContacts}</strong> contacts across <strong>${totalLocations}</strong> locations</span>
-                        </div>
-                        <div class="w-full bg-gray-200 rounded-full h-2">
-                            <div id="import-all-progress-bar" class="bg-teal-600 h-2 rounded-full transition-all duration-300" style="width: 0%"></div>
-                        </div>
-                    </div>
-                    <div class="text-sm text-gray-600 mb-3">Importing win form data for every location${locationsPayload.some(l => l.attendees.length > 0) ? ' and ticket data where added...' : '...'} This may take a few minutes for large imports.</div>
-                    <div class="grid grid-cols-2 gap-2 text-sm mt-3">
-                        <div>✅ Success: <span id="import-all-success-count" class="font-semibold text-green-600">0</span></div>
-                        <div>❌ Failed: <span id="import-all-failed-count" class="font-semibold text-red-600">0</span></div>
-                        <div>🆕 New: <span id="import-all-new-count" class="font-semibold text-blue-600">0</span></div>
-                        <div>🔄 Updated: <span id="import-all-update-count" class="font-semibold text-orange-600">0</span></div>
-                    </div>
-                </div>
-            `,
-            allowOutsideClick: false,
-            allowEscapeKey: false,
-            showConfirmButton: false,
-            didOpen: () => {
-                Swal.showLoading();
-                // Animate progress bar while request is in flight (0 -> 70%)
-                const bar = document.getElementById('import-all-progress-bar');
-                if (bar) {
-                    let w = 0;
-                    const iv = setInterval(() => {
-                        if (w >= 70) { clearInterval(iv); return; }
-                        w += 4;
-                        bar.style.width = w + '%';
-                    }, 150);
-                }
-            }
-        });
+        const res = await axios.post(route('event.importAll'), {
+            event_id: props.event.id,
+            list_id: listId,
+            list_name: listName,
+            mailchimp_account: account,
+            locations: locationsPayload
+        }, { timeout: 30000 });
 
-        const listName = (importAllLists.value || []).find(l => l.id === listId)?.name || '';
-        // One request per location to avoid server/proxy timeout (e.g. 60s) on a single long request
-        const PER_REQUEST_TIMEOUT = 180000; // 3 minutes per location
-        let totalSuccess = 0;
-        let totalFailed = 0;
-        let totalNew = 0;
-        let totalUpdated = 0;
-        const allLocationResults = [];
-        const failedLocations = [];
-
-        for (let i = 0; i < locationsPayload.length; i++) {
-            const loc = locationsPayload[i];
-            const locationName = props.locations.find(l => l.id === loc.location_id)?.name || `Location ${loc.location_id}`;
-            const pct = totalLocations > 0 ? Math.round(((i + 0.5) / totalLocations) * 100) : 0;
-            await Swal.update({
+        const d = res.data;
+        if (d.queued === true) {
+            await Swal.fire({
+                title: 'Import started',
                 html: `
-                    <div class="text-left">
-                        <div class="mb-3">
-                            <div class="flex justify-between mb-1">
-                                <span>Processing:</span>
-                                <span class="font-semibold">Location ${i + 1} of ${totalLocations}: ${locationName}</span>
-                            </div>
-                            <div class="w-full bg-gray-200 rounded-full h-2">
-                                <div id="import-all-progress-bar" class="bg-teal-600 h-2 rounded-full transition-all duration-300" style="width: ${pct}%"></div>
-                            </div>
-                        </div>
-                        <div class="grid grid-cols-2 gap-2 text-sm mt-3">
-                            <div>✅ Success: <span id="import-all-success-count" class="font-semibold text-green-600">${totalSuccess}</span></div>
-                            <div>❌ Failed: <span id="import-all-failed-count" class="font-semibold text-red-600">${totalFailed}</span></div>
-                            <div>🆕 New: <span id="import-all-new-count" class="font-semibold text-blue-600">${totalNew}</span></div>
-                            <div>🔄 Updated: <span id="import-all-update-count" class="font-semibold text-orange-600">${totalUpdated}</span></div>
-                        </div>
-                    </div>
-                `
+                    <p class="text-left">${d.message || 'Import is running in the background.'}</p>
+                    <p class="text-left mt-2 text-sm text-gray-600">Up to <strong>${totalContacts}</strong> contacts across <strong>${totalLocations}</strong> locations. You can close this and keep using the app.</p>
+                    <p class="text-left mt-2 text-sm">Check <strong>Mailchimp Import Logs</strong> in the menu for results when it finishes.</p>
+                `,
+                icon: 'success'
             });
-
-            try {
-                const res = await axios.post(route('event.importAll'), {
-                    event_id: props.event.id,
-                    list_id: listId,
-                    list_name: listName,
-                    mailchimp_account: account,
-                    locations: [loc]
-                }, { timeout: PER_REQUEST_TIMEOUT });
-
-                const d = res.data;
-                totalSuccess += d.total_success ?? 0;
-                totalFailed += d.total_failed ?? 0;
-                totalNew += d.total_new ?? 0;
-                totalUpdated += d.total_updated ?? 0;
-                if (d.locations && Array.isArray(d.locations)) {
-                    allLocationResults.push(...d.locations);
-                }
-            } catch (err) {
-                const errMsg = err.response?.data?.message || err.response?.data?.error || err.message || 'Request failed';
-                failedLocations.push({ name: locationName, error: errMsg });
-                // Continue with next location so user gets partial success
-            }
-        }
-
-        // Update progress modal to 100% and final counts
-        await Swal.update({
-            html: `
-                <div class="text-left">
-                    <div class="mb-3">
-                        <div class="flex justify-between mb-1">
-                            <span>Processing:</span>
-                            <span class="font-semibold text-green-600">Complete</span>
-                        </div>
-                        <div class="w-full bg-gray-200 rounded-full h-2">
-                            <div id="import-all-progress-bar" class="bg-teal-600 h-2 rounded-full transition-all duration-300" style="width: 100%"></div>
-                        </div>
-                    </div>
-                    <div class="grid grid-cols-2 gap-2 text-sm mt-3">
-                        <div>✅ Success: <span class="font-semibold text-green-600">${totalSuccess}</span></div>
-                        <div>❌ Failed: <span class="font-semibold text-red-600">${totalFailed}</span></div>
-                        <div>🆕 New: <span class="font-semibold text-blue-600">${totalNew}</span></div>
-                        <div>🔄 Updated: <span class="font-semibold text-orange-600">${totalUpdated}</span></div>
-                    </div>
-                    ${allLocationResults.length ? `<div class="mt-3 text-xs text-gray-500 max-h-24 overflow-y-auto">${allLocationResults.map(l => `${l.location_name}${l.source ? ` (${l.source === 'signup_form' ? 'win form' : 'ticket'})` : ''}: ${l.success} ok, ${l.failed} failed`).join('<br>')}</div>` : ''}
-                    ${failedLocations.length ? `<div class="mt-2 text-xs text-red-600">Failed to import: ${failedLocations.map(f => f.name + ': ' + f.error).join('; ')}</div>` : ''}
-                </div>
-            `
-        });
-        const loader = document.querySelector('.swal2-loader');
-        if (loader) loader.style.display = 'none';
-        await new Promise(r => setTimeout(r, 1500));
-        await Swal.close();
-
-        if (failedLocations.length > 0 && totalSuccess === 0 && totalFailed === 0) {
-            Swal.fire('Error', 'Import failed for all locations. ' + failedLocations.map(f => f.name + ': ' + f.error).join(' '), 'error').then(() => {
-                closeImportAllModal();
-                router.reload();
-            });
+            closeImportAllModal();
+            router.reload();
         } else {
-            let msg = `Import completed. Success: ${totalSuccess}, Failed: ${totalFailed}, New: ${totalNew}, Updated: ${totalUpdated}.`;
-            if (allLocationResults.length) {
-                msg += '\n\n' + allLocationResults.map(l => `${l.location_name}${l.source ? ` (${l.source === 'signup_form' ? 'win form' : 'ticket'})` : ''}: ${l.success} success, ${l.failed} failed`).join('\n');
+            // Fallback if backend ever returns sync results
+            let msg = d.message || 'Import completed.';
+            if (d.locations && d.locations.length) {
+                msg += '\n\n' + d.locations.map(l => `${l.location_name}${l.source ? ` (${l.source === 'signup_form' ? 'win form' : 'ticket'})` : ''}: ${l.success} success, ${l.failed} failed`).join('\n');
             }
-            if (failedLocations.length) {
-                msg += '\n\nFailed locations: ' + failedLocations.map(f => f.name).join(', ');
-            }
-            Swal.fire('Done', msg, failedLocations.length ? 'warning' : 'success').then(() => {
-                closeImportAllModal();
-                router.reload();
-            });
+            await Swal.fire('Done', msg, 'success');
+            closeImportAllModal();
+            router.reload();
         }
     } catch (err) {
         await Swal.close();

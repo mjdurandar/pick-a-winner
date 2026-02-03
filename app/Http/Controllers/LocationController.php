@@ -20,6 +20,7 @@ use App\Models\TicketAttendee;
 use App\Models\Films;
 use App\Models\SignUpForm;
 use App\Models\MailchimpImportLog;
+use App\Jobs\EventImportAllToMailchimpJob;
 use Carbon\Carbon;
 
 class LocationController extends Controller
@@ -1525,12 +1526,11 @@ class LocationController extends Controller
     }
 
     /**
-     * Event-level "Import all": save ticket data and/or import win form (sign-up) data per location to Mailchimp.
-     * Request: event_id, list_id, mailchimp_account, locations: [{ location_id, attendees?, tags?, form_tags? }].
-     * Ticket data is optional per location (only locations with attendees get ticket import + ticket tags).
-     * Win form data is imported for each location that has form_tags (sign-up table rows → Mailchimp with form tags).
+     * Event-level "Import all": queue import to run in the background so the app stays responsive.
+     * Request: event_id, list_id, mailchimp_account, list_name?, locations: [{ location_id, attendees?, tags?, form_tags? }].
+     * Returns immediately with queued: true; results appear in Mailchimp Import Logs when the job finishes.
      */
-    public function eventImportAll(Request $request, MailchimpLogService $logService)
+    public function eventImportAll(Request $request)
     {
         $request->validate([
             'event_id' => 'required|integer|exists:events,id',
@@ -1544,353 +1544,38 @@ class LocationController extends Controller
             'locations.*.form_tags' => 'nullable|array',
         ]);
 
-        // Allow long-running import (many contacts × Mailchimp API calls can take minutes)
-        set_time_limit(600); // 10 minutes
-
         $eventId = (int) $request->event_id;
         $listId = $request->list_id;
         $mailchimpAccount = $request->mailchimp_account;
+        $listName = $request->input('list_name');
         $locationsPayload = $request->locations;
 
+        // Verify Mailchimp config before queuing
         try {
-            $mailchimpService = new MailchimpService($mailchimpAccount);
+            new MailchimpService($mailchimpAccount);
         } catch (\Exception $e) {
             Log::error('Event import all: MailchimpService init failed', ['error' => $e->getMessage()]);
             return response()->json(['error' => 'Mailchimp configuration error.', 'message' => $e->getMessage()], 500);
         }
 
-        $results = [
-            'message' => '',
-            'locations' => [],
-            'total_success' => 0,
-            'total_failed' => 0,
-            'total_new' => 0,
-            'total_updated' => 0,
-        ];
-
-        try {
-        foreach ($locationsPayload as $loc) {
-            $locationId = (int) $loc['location_id'];
-            $attendees = $loc['attendees'] ?? [];
-            $tags = $loc['tags'] ?? [];
-            $formTags = $loc['form_tags'] ?? [];
-
-            $location = Location::with('event')->findOrFail($locationId);
-            if ((int) $location->event_id !== $eventId) {
-                Log::warning('eventImportAll: location does not belong to event', [
-                    'location_id' => $locationId,
-                    'event_id' => $eventId
-                ]);
-                continue;
-            }
-
-            // --- Ticket data import (only when this location has attendees and tags) ---
-            if (!empty($attendees) && !empty($tags)) {
-            // 1. Save ticket attendees for this location (replace existing)
-            TicketAttendee::where('location_id', $locationId)->delete();
-            $seenEmails = [];
-            foreach ($attendees as $a) {
-                $email = strtolower(trim($a['email'] ?? ''));
-                if ($email === '' || isset($seenEmails[$email])) {
-                    continue;
-                }
-                $seenEmails[$email] = true;
-                TicketAttendee::create([
-                    'location_id' => $locationId,
-                    'event_id' => $location->event_id,
-                    'email' => $email,
-                    'first_name' => $a['first_name'] ?? '',
-                    'last_name' => $a['last_name'] ?? '',
-                    'phone' => $a['phone'] ?? $a['mobile_number'] ?? '',
-                    'city' => $a['city'] ?? '',
-                    'state' => $a['state'] ?? '',
-                    'country' => $a['country'] ?? '',
-                ]);
-            }
-
-            // 2. Convert to Mailchimp subscriber format and import
-            $subscribers = [];
-            foreach ($attendees as $a) {
-                $email = strtolower(trim($a['email'] ?? ''));
-                if ($email === '') {
-                    continue;
-                }
-                $subscribers[] = [
-                    'email_address' => $email,
-                    'first_name' => $a['first_name'] ?? '',
-                    'last_name' => $a['last_name'] ?? '',
-                    'mobile_number' => $a['phone'] ?? $a['mobile_number'] ?? '',
-                ];
-            }
-
-            $locSuccess = 0;
-            $locFailed = 0;
-            $locNew = 0;
-            $locUpdated = 0;
-            $locErrors = [];
-            $chunkSize = min(10, count($subscribers));
-            $totalChunks = (int) ceil(count($subscribers) / $chunkSize);
-
-            for ($i = 0; $i < $totalChunks; $i++) {
-                $chunk = array_slice($subscribers, $i * $chunkSize, $chunkSize);
-                foreach ($chunk as $subscriber) {
-                    try {
-                        if (empty($subscriber['email_address'])) {
-                            $locFailed++;
-                            $locErrors[] = 'Skipped: Missing email';
-                            continue;
-                        }
-                        $result = $mailchimpService->manualImportSubscriber(
-                            $listId,
-                            [
-                                'email_address' => $subscriber['email_address'],
-                                'first_name' => $subscriber['first_name'] ?? '',
-                                'last_name' => $subscriber['last_name'] ?? '',
-                                'mobile_number' => $subscriber['mobile_number'] ?? '',
-                            ],
-                            $tags
-                        );
-                        $locSuccess++;
-                        if (isset($result['import_type'])) {
-                            if ($result['import_type'] === 'new') {
-                                $locNew++;
-                            } elseif ($result['import_type'] === 'updated') {
-                                $locUpdated++;
-                            }
-                        }
-                        $logService->logImport($location->id, $location->name, [
-                            'success' => true,
-                            'email' => $subscriber['email_address'],
-                            'tags' => $tags,
-                            'source' => 'eventbrite'
-                        ]);
-                    } catch (\Exception $e) {
-                        $locFailed++;
-                        $locErrors[] = substr("{$subscriber['email_address']}: " . $e->getMessage(), 0, 200);
-                        $logService->logImport($location->id, $location->name, [
-                            'success' => false,
-                            'email' => $subscriber['email_address'] ?? 'unknown',
-                            'error' => $e->getMessage(),
-                            'tags' => $tags,
-                            'source' => 'eventbrite'
-                        ]);
-                    }
-                }
-            }
-
-            $ticketLog = MailchimpImportLog::create([
-                'location_id' => $locationId,
-                'imported_by' => auth()->id(),
-                'total_data' => count($subscribers),
-                'new_contacts' => $locNew,
-                'updated_data' => $locUpdated,
-                'data_with_error' => $locFailed,
-                'errors' => array_slice($locErrors, 0, 50),
-                'tags' => $tags,
-                'source' => 'ticket_data',
-                'mailchimp_account' => $mailchimpAccount,
-                'list_id' => $listId,
-                'list_name' => $request->input('list_name'),
-            ]);
-            // Save ticket import data as CSV so it can be downloaded from MC logs
-            $csvHeaders = ['email_address', 'first_name', 'last_name', 'mobile_number', 'street_address', 'street_address_2', 'city', 'state', 'zip_code', 'country', 'gender', 'age'];
-            $escapeCsv = function ($v) {
-                $s = $v === null || $v === '' ? '' : (string) $v;
-                return strpos($s, ',') !== false || strpos($s, '"') !== false || strpos($s, "\n") !== false
-                    ? '"' . str_replace('"', '""', $s) . '"' : $s;
-            };
-            $ticketRows = [];
-            foreach ($attendees as $a) {
-                $ticketRows[] = [
-                    'email_address' => $a['email'] ?? '',
-                    'first_name' => $a['first_name'] ?? '',
-                    'last_name' => $a['last_name'] ?? '',
-                    'mobile_number' => $a['phone'] ?? $a['mobile_number'] ?? '',
-                    'street_address' => $a['street_address'] ?? '',
-                    'street_address_2' => $a['street_address_2'] ?? '',
-                    'city' => $a['city'] ?? '',
-                    'state' => $a['state'] ?? '',
-                    'zip_code' => $a['zip_code'] ?? $a['postal_code'] ?? '',
-                    'country' => $a['country'] ?? '',
-                    'gender' => $a['gender'] ?? '',
-                    'age' => $a['age'] ?? '',
-                ];
-            }
-            if (!empty($ticketRows)) {
-                $lines = [implode(',', $csvHeaders)];
-                foreach ($ticketRows as $row) {
-                    $lines[] = implode(',', array_map(function ($key) use ($row, $escapeCsv) {
-                        return $escapeCsv($row[$key] ?? '');
-                    }, $csvHeaders));
-                }
-                $csv = "\xEF\xBB\xBF" . implode("\r\n", $lines);
-                Storage::disk('local')->put('mailchimp_imports/' . $ticketLog->id . '.csv', $csv);
-                $ticketLog->update(['has_import_file' => true]);
-            }
-
-            $results['locations'][] = [
-                'location_id' => $locationId,
-                'location_name' => $location->name,
-                'success' => $locSuccess,
-                'failed' => $locFailed,
-                'new' => $locNew,
-                'updated' => $locUpdated,
-                'errors' => array_slice($locErrors, 0, 10),
-                'source' => 'ticket_data',
-            ];
-            $results['total_success'] += $locSuccess;
-            $results['total_failed'] += $locFailed;
-            $results['total_new'] += $locNew;
-            $results['total_updated'] += $locUpdated;
-            } // end ticket import block
-
-            // --- Win form (sign-up) data import (when this location has form_tags) ---
-            if (!empty($formTags)) {
-                $signUpForm = SignUpForm::where('event_id', $eventId)->first();
-                if ($signUpForm && $signUpForm->table_name && Schema::hasTable($signUpForm->table_name)) {
-                    $signUpRows = DB::table($signUpForm->table_name)
-                        ->where('location_id', $locationId)
-                        ->where('event_id', $eventId)
-                        ->get();
-                    $locFormSuccess = 0;
-                    $locFormFailed = 0;
-                    $locFormNew = 0;
-                    $locFormUpdated = 0;
-                    $locFormErrors = [];
-                    foreach ($signUpRows as $row) {
-                        $email = trim((string) ($row->email_address ?? ''));
-                        if ($email === '') {
-                            continue;
-                        }
-                        $subscriber = [
-                            'email_address' => $email,
-                            'first_name' => $row->first_name ?? '',
-                            'last_name' => $row->last_name ?? '',
-                            'mobile_number' => $row->mobile_number ?? $row->phone ?? '',
-                            'street_address' => $row->street_address ?? '',
-                            'street_address_2' => $row->street_address_2 ?? '',
-                            'city' => $row->city ?? '',
-                            'state' => $row->state ?? '',
-                            'zip_code' => $row->zip_code ?? $row->postal_code ?? '',
-                            'country' => $row->country ?? '',
-                            'gender' => $row->gender ?? '',
-                            'age' => $row->age ?? '',
-                        ];
-                        try {
-                            $result = $mailchimpService->manualImportSubscriber($listId, $subscriber, $formTags);
-                            $locFormSuccess++;
-                            if (isset($result['import_type'])) {
-                                if ($result['import_type'] === 'new') {
-                                    $locFormNew++;
-                                } elseif ($result['import_type'] === 'updated') {
-                                    $locFormUpdated++;
-                                }
-                            }
-                            $logService->logImport($location->id, $location->name, [
-                                'success' => true,
-                                'email' => $subscriber['email_address'],
-                                'tags' => $formTags,
-                                'source' => 'signup_form',
-                            ]);
-                        } catch (\Exception $e) {
-                            $locFormFailed++;
-                            $locFormErrors[] = substr("{$subscriber['email_address']}: " . $e->getMessage(), 0, 200);
-                            $logService->logImport($location->id, $location->name, [
-                                'success' => false,
-                                'email' => $subscriber['email_address'],
-                                'error' => $e->getMessage(),
-                                'tags' => $formTags,
-                                'source' => 'signup_form',
-                            ]);
-                        }
-                    }
-                    $formLog = MailchimpImportLog::create([
-                        'location_id' => $locationId,
-                        'imported_by' => auth()->id(),
-                        'total_data' => count($signUpRows),
-                        'new_contacts' => $locFormNew,
-                        'updated_data' => $locFormUpdated,
-                        'data_with_error' => $locFormFailed,
-                        'errors' => array_slice($locFormErrors, 0, 50),
-                        'tags' => $formTags,
-                        'source' => 'signup_form',
-                        'mailchimp_account' => $mailchimpAccount,
-                        'list_id' => $listId,
-                        'list_name' => $request->input('list_name'),
-                    ]);
-                    // Save win form import data as CSV so it can be downloaded from MC logs
-                    $csvHeadersForm = ['email_address', 'first_name', 'last_name', 'mobile_number', 'street_address', 'street_address_2', 'city', 'state', 'zip_code', 'country', 'gender', 'age'];
-                    $escapeCsvForm = function ($v) {
-                        $s = $v === null || $v === '' ? '' : (string) $v;
-                        return strpos($s, ',') !== false || strpos($s, '"') !== false || strpos($s, "\n") !== false
-                            ? '"' . str_replace('"', '""', $s) . '"' : $s;
-                    };
-                    if (!empty($signUpRows)) {
-                        $linesForm = [implode(',', $csvHeadersForm)];
-                        foreach ($signUpRows as $row) {
-                            $r = [
-                                'email_address' => $row->email_address ?? '',
-                                'first_name' => $row->first_name ?? '',
-                                'last_name' => $row->last_name ?? '',
-                                'mobile_number' => $row->mobile_number ?? $row->phone ?? '',
-                                'street_address' => $row->street_address ?? '',
-                                'street_address_2' => $row->street_address_2 ?? '',
-                                'city' => $row->city ?? '',
-                                'state' => $row->state ?? '',
-                                'zip_code' => $row->zip_code ?? $row->postal_code ?? '',
-                                'country' => $row->country ?? '',
-                                'gender' => $row->gender ?? '',
-                                'age' => $row->age ?? '',
-                            ];
-                            $linesForm[] = implode(',', array_map(function ($key) use ($r, $escapeCsvForm) {
-                                return $escapeCsvForm($r[$key] ?? '');
-                            }, $csvHeadersForm));
-                        }
-                        $csvForm = "\xEF\xBB\xBF" . implode("\r\n", $linesForm);
-                        Storage::disk('local')->put('mailchimp_imports/' . $formLog->id . '.csv', $csvForm);
-                        $formLog->update(['has_import_file' => true]);
-                    }
-                    $results['locations'][] = [
-                        'location_id' => $locationId,
-                        'location_name' => $location->name,
-                        'success' => $locFormSuccess,
-                        'failed' => $locFormFailed,
-                        'new' => $locFormNew,
-                        'updated' => $locFormUpdated,
-                        'errors' => array_slice($locFormErrors, 0, 10),
-                        'source' => 'signup_form',
-                    ];
-                    $results['total_success'] += $locFormSuccess;
-                    $results['total_failed'] += $locFormFailed;
-                    $results['total_new'] += $locFormNew;
-                    $results['total_updated'] += $locFormUpdated;
-                }
-            }
-        }
-
-        $results['message'] = sprintf(
-            'Import completed. Success: %d, Failed: %d, New: %d, Updated: %d',
-            $results['total_success'],
-            $results['total_failed'],
-            $results['total_new'],
-            $results['total_updated']
+        EventImportAllToMailchimpJob::dispatch(
+            $eventId,
+            $listId,
+            $mailchimpAccount,
+            $listName,
+            $locationsPayload,
+            auth()->id()
         );
 
-        Log::info('Event import all completed', [
+        Log::info('Event import all queued', [
             'event_id' => $eventId,
-            'locations_count' => count($results['locations']),
-            'total_success' => $results['total_success'],
-            'total_failed' => $results['total_failed']
+            'locations_count' => count($locationsPayload),
         ]);
 
-        return response()->json($results);
-        } catch (\Exception $e) {
-            Log::error('Event import all failed', ['error' => $e->getMessage(), 'trace' => $e->getTraceAsString()]);
-            return response()->json([
-                'error' => 'Import failed.',
-                'message' => $e->getMessage(),
-            ], 500);
-        }
+        return response()->json([
+            'queued' => true,
+            'message' => 'Import started in the background. You can close this and keep using the app. Check Mailchimp Import Logs for results when it finishes.',
+        ]);
     }
 
     /**
