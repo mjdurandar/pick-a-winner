@@ -11,6 +11,7 @@ use App\Services\MailchimpService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Inertia\Inertia;
@@ -635,6 +636,7 @@ class MailchimpImportLogsController extends Controller
 
         if ($isManualImport) {
             $this->jobsTable()->where('id', $jobId)->delete();
+            Log::info('Import cancelled by user: manual import job removed from queue', ['job_id' => $jobId]);
             return response()->json(['success' => true, 'message' => 'Manual import removed from queue.']);
         }
 
@@ -646,6 +648,14 @@ class MailchimpImportLogsController extends Controller
                     $job = unserialize($command);
                     if ($job instanceof EventImportAllToMailchimpJob && $job->importBatchId) {
                         Cache::put('cancel_import_batch_' . $job->importBatchId, true, 600);
+                        Log::info('Import cancelled by user: stop requested for in-progress Event import', [
+                            'job_id' => $jobId,
+                            'import_batch_id' => $job->importBatchId,
+                            'event_id' => $job->eventId,
+                            'list_id' => $job->listId,
+                            'locations_in_payload' => count($job->locationsPayload ?? []),
+                            'reason' => 'User clicked Stop. Job will exit after current location, then the queue entry will be removed.',
+                        ]);
                         return response()->json([
                             'success' => true,
                             'message' => 'Import will stop after the current location finishes.',
@@ -658,6 +668,27 @@ class MailchimpImportLogsController extends Controller
             return response()->json(['error' => 'Cannot cancel: this import could not be stopped (no batch id).'], 422);
         }
 
+        // Queued (not yet running): delete job and log what was removed
+        $payload = json_decode($row->payload, true);
+        $command = $payload['data']['command'] ?? null;
+        $logContext = ['job_id' => $jobId, 'reason' => 'User cancelled queued import; job deleted from queue.'];
+        if ($command !== null) {
+            try {
+                $job = unserialize($command);
+                if ($job instanceof EventImportAllToMailchimpJob) {
+                    $logContext['import_batch_id'] = $job->importBatchId;
+                    $logContext['event_id'] = $job->eventId;
+                    $logContext['list_id'] = $job->listId;
+                    $logContext['locations_queued'] = count($job->locationsPayload ?? []);
+                    $logContext['subscribers_estimate'] = array_reduce($job->locationsPayload ?? [], function ($sum, $loc) {
+                        return $sum + count($loc['attendees'] ?? []);
+                    }, 0);
+                }
+            } catch (\Throwable $e) {
+                $logContext['payload_parse'] = 'could not unserialize job';
+            }
+        }
+        Log::info('Import cancelled by user: queued Event import job removed from queue', $logContext);
         $this->jobsTable()->where('id', $jobId)->delete();
 
         return response()->json(['success' => true, 'message' => 'Queued import cancelled.']);

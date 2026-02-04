@@ -29,6 +29,9 @@ class EventImportAllToMailchimpJob implements ShouldQueue
     /** Fail after one attempt so one failing job does not block the queue with retries. */
     public $tries = 1;
 
+    /** Progress for failure logging (set during run; not serialized in original payload so failed() uses cache). */
+    public array $progressForLogging = [];
+
     public function __construct(
         public int $eventId,
         public string $listId,
@@ -52,13 +55,71 @@ class EventImportAllToMailchimpJob implements ShouldQueue
         try {
             $this->runImport($logService);
         } catch (\Throwable $e) {
-            Log::error('Event import all (job): uncaught error – job will exit so the queue keeps moving', [
+            $progress = $this->getProgressForLogging();
+            Log::error('Event import all (job): import failed with error – job removed from queue (not user cancel)', [
                 'event_id' => $this->eventId,
+                'list_id' => $this->listId,
+                'import_batch_id' => $this->importBatchId,
                 'error' => $e->getMessage(),
                 'trace' => $e->getTraceAsString(),
+                'reason' => 'An error occurred during import. The queued job is gone because the job failed.',
+                'progress' => $progress,
             ]);
             // Do not rethrow: allow the job to complete so Laravel does not retry and the queue keeps processing other jobs.
         }
+    }
+
+    /**
+     * Called when the job is moved to failed_jobs (e.g. timeout, max attempts, worker killed).
+     * Log so we can see why the import disappeared from the queue and how much was left.
+     */
+    public function failed(?\Throwable $e = null): void
+    {
+        $progress = $this->getProgressForLogging();
+        Log::error('Event import all (job): job moved to failed_jobs – import did not complete (not user cancel)', [
+            'event_id' => $this->eventId,
+            'list_id' => $this->listId,
+            'import_batch_id' => $this->importBatchId,
+            'exception' => $e ? $e->getMessage() : 'unknown (e.g. timeout or max attempts exceeded)',
+            'reason' => 'The queued import is gone because the job failed or was killed. Remaining locations were not imported.',
+            'progress' => $progress,
+        ]);
+    }
+
+    /**
+     * Progress for logging on failure. Uses in-memory progress if set this run, else cache (for failed() after timeout/kill).
+     */
+    private function getProgressForLogging(): array
+    {
+        if (! empty($this->progressForLogging)) {
+            $p = $this->progressForLogging;
+            $remaining = max(0, ($p['locations_queued'] ?? 0) - ($p['last_index'] ?? 0));
+            return array_merge($p, ['locations_remaining_not_imported' => $remaining]);
+        }
+        $key = $this->importBatchId
+            ? 'event_import_progress_' . $this->importBatchId
+            : 'event_import_progress_' . $this->eventId . '_' . $this->listId;
+        $p = Cache::get($key, []);
+        $locationsQueued = $p['locations_queued'] ?? count($this->locationsPayload);
+        $lastIndex = $p['last_index'] ?? 0;
+        $remaining = max(0, $locationsQueued - $lastIndex);
+        return array_merge($p, [
+            'locations_queued' => $locationsQueued,
+            'locations_remaining_not_imported' => $remaining,
+        ]);
+    }
+
+    private function writeProgressToCache(int $locationsQueued, int $lastIndex, int $imported, int $failed): void
+    {
+        $key = $this->importBatchId
+            ? 'event_import_progress_' . $this->importBatchId
+            : 'event_import_progress_' . $this->eventId . '_' . $this->listId;
+        Cache::put($key, [
+            'locations_queued' => $locationsQueued,
+            'last_index' => $lastIndex,
+            'locations_imported' => $imported,
+            'locations_failed' => $failed,
+        ], 7200);
     }
 
     private function runImport(MailchimpLogService $logService): void
@@ -89,6 +150,14 @@ class EventImportAllToMailchimpJob implements ShouldQueue
         $failureReasons = [];
         $locationIndex = 0;
 
+        $this->progressForLogging = [
+            'locations_queued' => $locationsQueued,
+            'last_index' => 0,
+            'locations_imported' => 0,
+            'locations_failed' => 0,
+        ];
+        $this->writeProgressToCache($locationsQueued, 0, 0, 0);
+
         Log::info('Event import all (job) started', [
             'event_id' => $this->eventId,
             'locations_queued' => $locationsQueued,
@@ -100,7 +169,23 @@ class EventImportAllToMailchimpJob implements ShouldQueue
             $locationIndex++;
 
             if ($this->importBatchId && Cache::get('cancel_import_batch_' . $this->importBatchId)) {
-                Log::info('Event import all (job): cancelled by user', ['import_batch_id' => $this->importBatchId]);
+                $locationsRemaining = $locationsQueued - $locationIndex + 1;
+                $remainingLocationsSlice = array_slice($locationsToProcess, $locationIndex - 1);
+                $subscribersRemainingEstimate = array_reduce($remainingLocationsSlice, function ($sum, $loc) {
+                    $attendees = $loc['attendees'] ?? [];
+                    return $sum + count($attendees);
+                }, 0);
+                Log::info('Event import all (job): stopped by user – remaining work not imported', [
+                    'import_batch_id' => $this->importBatchId,
+                    'event_id' => $this->eventId,
+                    'reason' => 'User requested stop (stop all imports). Job exited so the queue entry is removed.',
+                    'locations_queued_total' => $locationsQueued,
+                    'locations_already_imported' => $locationsImported,
+                    'locations_failed_so_far' => $locationsFailed,
+                    'locations_skipped_so_far' => $locationsSkipped,
+                    'locations_remaining_not_imported' => $locationsRemaining,
+                    'subscribers_remaining_estimate' => $subscribersRemainingEstimate,
+                ]);
                 break;
             }
 
@@ -160,8 +245,15 @@ class EventImportAllToMailchimpJob implements ShouldQueue
                 // One error must not stop the rest: continue to next location (no rethrow).
             }
 
-            // Progress log every 5 locations so you can see the job is still running
+            // Progress log and cache every 5 locations so we can log progress if job fails or is killed
             if ($locationIndex % 5 === 0 || $locationIndex === $locationsQueued) {
+                $this->progressForLogging = [
+                    'locations_queued' => $locationsQueued,
+                    'last_index' => $locationIndex,
+                    'locations_imported' => $locationsImported,
+                    'locations_failed' => $locationsFailed,
+                ];
+                $this->writeProgressToCache($locationsQueued, $locationIndex, $locationsImported, $locationsFailed);
                 Log::info('Event import all (job) progress', [
                     'event_id' => $this->eventId,
                     'processed' => $locationIndex,
