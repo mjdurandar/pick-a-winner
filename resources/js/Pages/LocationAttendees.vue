@@ -53,6 +53,10 @@ const mailchimpAccount = computed(() => {
     return 'anz'; // default
 });
 const availableMergeFields = ref([]);
+const mergeFieldsWithValidation = ref([]); // for manual column mapping (same as Import All)
+const sourceColumns = ref([]);
+const fieldMapping = ref({}); // { FNAME: 'first_name', ADDRESSWIN: 'address_full', ... }
+const showMappingSection = ref(false);
 const isLoadingMergeFields = ref(false);
 const missingFields = ref([]);
 const fieldSuggestions = ref({});
@@ -267,15 +271,41 @@ const fetchMergeFields = async (listId) => {
     
     isLoadingMergeFields.value = true;
     try {
-        const response = await axios.get('/api/location/mailchimp/merge-fields', {
-            params: { list_id: listId, account: mailchimpAccount.value }
+        const [mergeRes, sourceRes] = await Promise.all([
+            axios.get(route('location.mailchimpMergeFields'), {
+                params: { list_id: listId, account: mailchimpAccount.value }
+            }),
+            axios.get(route('event.importSourceColumns', props.event.id))
+        ]);
+        availableMergeFields.value = mergeRes.data.merge_fields || [];
+        mergeFieldsWithValidation.value = mergeRes.data.merge_fields_with_validation ?? mergeRes.data.merge_fields ?? [];
+        sourceColumns.value = sourceRes.data?.source_columns ?? [];
+        missingFields.value = mergeRes.data.missing_required_fields || [];
+        fieldSuggestions.value = mergeRes.data.field_mapping || {};
+        // Default mapping (same as Import All)
+        const tagToDefault = {
+            FNAME: 'first_name', LNAME: 'last_name',
+            PHONE: 'mobile_number', SMSPHONE: 'mobile_number', MERGE4: 'mobile_number', MERGE30: 'mobile_number',
+            ADDRESSWIN: 'address_full', MMERGE10: 'address_full', MERGE10: 'address_full', MERGE11: 'address_full',
+            SHOWCITY: 'city', CITY: 'city', MERGE3: 'city', MERGE5: 'city',
+            STATEWIN: 'state', STATE: 'state', MERGE6: 'state',
+            ZIPCODEWIN: 'zip_code', ZIPCODE: 'zip_code', MERGE7: 'zip_code',
+            COUNTRYWIN: 'country', COUNTRY: 'country', MERGE8: 'country',
+            GENDER: 'gender', MERGE17: 'gender',
+            AGEWIN: 'age', MERGE14: 'age', MMERGE14: 'age'
+        };
+        const mapping = {};
+        (mergeRes.data.merge_fields || []).forEach((f) => {
+            const tag = f.tag || f;
+            if (tag === 'EMAIL') return;
+            mapping[tag] = tagToDefault[tag] ?? '';
         });
-        availableMergeFields.value = response.data.merge_fields;
-        missingFields.value = response.data.missing_required_fields || [];
-        fieldSuggestions.value = response.data.field_mapping || {};
+        fieldMapping.value = mapping;
     } catch (error) {
         console.error('Failed to fetch merge fields:', error);
         availableMergeFields.value = [];
+        mergeFieldsWithValidation.value = [];
+        sourceColumns.value = [];
     } finally {
         isLoadingMergeFields.value = false;
     }
@@ -715,6 +745,10 @@ const closeEditPrizeModal = () => {
 const closeMailchimpModal = () => {
     showMailchimpModal.value = false;
     mailchimpImportSubscribers.value = null;
+    mergeFieldsWithValidation.value = [];
+    sourceColumns.value = [];
+    fieldMapping.value = {};
+    showMappingSection.value = false;
 };
 
 const loadMailchimpListsForAccount = async (account) => {
@@ -722,6 +756,9 @@ const loadMailchimpListsForAccount = async (account) => {
     mailchimpLists.value = [];
     selectedList.value = '';
     availableMergeFields.value = [];
+    mergeFieldsWithValidation.value = [];
+    sourceColumns.value = [];
+    fieldMapping.value = {};
     missingFields.value = [];
     try {
         const response = await axios.get(route('location.mailchimpLists'), {
@@ -849,12 +886,15 @@ const handleMailchimpImport = async () => {
             
             try {
                 console.log('Posting chunk to Mailchimp with tags:', allTags);
-                const response = await axios.post('/location/manual-import-to-mailchimp', {
+                const fm = { ...fieldMapping.value };
+                Object.keys(fm).forEach((k) => { if (fm[k] === '') delete fm[k]; });
+                const response = await axios.post(route('location.manualImportToMailchimp'), {
                     subscribers: chunk,
                     list_id: selectedList.value,
                     mailchimp_account: mailchimpAccount.value,
                     tags: allTags,
-                    location_id: props.location.id
+                    location_id: props.location.id,
+                    field_mapping: Object.keys(fm).length ? fm : null
                 });
                 
                 console.log('Mailchimp response', response);
@@ -1854,22 +1894,58 @@ const downloadLogFile = (content, filename) => {
                         </div>
                     </div>
 
-                    <!-- Field Mapping Information -->
-                    <div class="mb-4 p-4 bg-gray-50 rounded-lg">
-                        <h4 class="font-semibold mb-2">Field Mappings:</h4>
-                        <div class="grid grid-cols-1 md:grid-cols-2 gap-2 text-sm">
-                            <div><strong>First Name:</strong> FNAME | MERGE1</div>
-                            <div><strong>Last Name:</strong> LNAME | MERGE2</div>
-                            <div><strong>Email Address:</strong> EMAIL | MERGE0</div>
-                            <div><strong>Street Address:</strong> MMERGE10 | MERGE10</div>
-                            <div><strong>City:</strong> CITY | MERGE3</div>
-                            <div><strong>State:</strong> STATE | MERGE6</div>
-                            <div><strong>Zip Code:</strong> ZIPCODE | MERGE7</div>
-                            <div><strong>Country:</strong> COUNTRY | MERGE8</div>
-                            <div><strong>Mobile Number:</strong> PHONE | MERGE4</div>
-                            <div><strong>SMS Phone:</strong> SMSPHONE | MERGE30</div>
-                            <div><strong>Age:</strong> MMERGE14 | MERGE14</div>
-                            <div><strong>Gender:</strong> GENDER | MERGE17</div>
+                    <!-- Field mapping: map our data to Mailchimp audience columns (same as Import All) -->
+                    <div class="mb-4 p-4 bg-purple-50 border border-purple-200 rounded-lg">
+                        <button
+                            type="button"
+                            @click="showMappingSection = !showMappingSection"
+                            class="flex items-center gap-2 w-full text-left text-sm font-medium text-gray-800"
+                        >
+                            <i :class="showMappingSection ? 'fa-solid fa-chevron-down' : 'fa-solid fa-chevron-right'" class="text-purple-600"></i>
+                            Field mapping: map our data to Mailchimp audience columns
+                        </button>
+                        <p v-if="!showMappingSection" class="text-xs text-gray-600 mt-1 ml-6">Select which column in our data maps to each Mailchimp field. Use <strong>Address (concatenated)</strong> for full address.</p>
+                        <div v-else class="mt-4">
+                            <p class="text-xs text-gray-600 mb-3">Map each Mailchimp audience column to our sign-up/ticket data. <strong>Address (concatenated)</strong> combines street, city, state, zip, country.</p>
+                            <div v-if="!selectedList" class="text-sm text-gray-500 py-2">Select an audience above to load columns.</div>
+                            <div v-else class="overflow-x-auto max-h-64 overflow-y-auto border rounded">
+                                <table class="w-full text-sm border-collapse">
+                                    <thead class="bg-purple-100 sticky top-0">
+                                        <tr>
+                                            <th class="border border-purple-200 p-2 text-left">Mailchimp field (label)</th>
+                                            <th class="border border-purple-200 p-2 text-left">Map from our column</th>
+                                            <th class="border border-purple-200 p-2 text-left">Validation</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        <tr>
+                                            <td class="border border-purple-200 p-2 font-medium">Email Address</td>
+                                            <td class="border border-purple-200 p-2 text-gray-600">email_address (built-in)</td>
+                                            <td class="border border-purple-200 p-2 text-xs text-gray-600">Required, valid email</td>
+                                        </tr>
+                                        <tr v-for="mf in mergeFieldsWithValidation" :key="mf.tag" class="bg-white">
+                                            <td class="border border-purple-200 p-2 font-medium">{{ mf.name || mf.tag }}</td>
+                                            <td class="border border-purple-200 p-2">
+                                                <select
+                                                    :value="fieldMapping[mf.tag]"
+                                                    @change="fieldMapping = { ...fieldMapping, [mf.tag]: $event.target.value }"
+                                                    class="w-full border rounded px-2 py-1 text-sm"
+                                                >
+                                                    <option value="">— Don't map</option>
+                                                    <option v-for="sc in sourceColumns" :key="sc.key" :value="sc.key">{{ sc.label }}</option>
+                                                </select>
+                                            </td>
+                                            <td class="border border-purple-200 p-2 text-xs text-gray-600">
+                                                <span v-if="mf.validation">{{ mf.validation.type }}{{ mf.validation.required ? ', required' : '' }}</span>
+                                                <span v-if="mf.validation?.choices" class="block mt-1">Allowed: {{ mf.validation.choices.slice(0, 5).join(', ') }}{{ mf.validation.choices.length > 5 ? '…' : '' }}</span>
+                                            </td>
+                                        </tr>
+                                        <tr v-if="mergeFieldsWithValidation.length === 0 && selectedList">
+                                            <td colspan="3" class="border border-purple-200 p-4 text-gray-500 text-center">Loading audience fields...</td>
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
                         </div>
                     </div>
 

@@ -710,7 +710,9 @@ class LocationController extends Controller
             'list_id' => 'required|string',
             'mailchimp_account' => 'required|string|in:anz,usa',
             'tags' => 'required|array',
-            'location_id' => 'sometimes|exists:locations,id'
+            'location_id' => 'sometimes|exists:locations,id',
+            'field_mapping' => 'nullable|array',
+            'field_mapping.*' => 'nullable|string|max:100',
         ]);
 
         $mailchimpAccount = $request->mailchimp_account;
@@ -742,17 +744,32 @@ class LocationController extends Controller
                         continue;
                     }
 
+                    // Build address_full for field mapping (same as Import All job)
+                    $addrParts = array_filter([
+                        trim($subscriber['street_address'] ?? ''),
+                        trim($subscriber['street_address_2'] ?? ''),
+                        trim($subscriber['city'] ?? ''),
+                        trim($subscriber['state'] ?? ''),
+                        trim($subscriber['zip_code'] ?? $subscriber['postal_code'] ?? ''),
+                        trim($subscriber['country'] ?? ''),
+                    ]);
+                    $subscriber['address_full'] = implode(', ', $addrParts);
+
                     Log::info('Manual import - Mailchimp add start', [
                         'email' => $subscriber['email_address'],
                         'tags' => $tags,
                         'available_fields' => array_keys($subscriber)
                     ]);
                     
+                    $fieldMapping = $request->input('field_mapping');
+                    $fieldMapping = is_array($fieldMapping) ? array_filter($fieldMapping, fn ($v) => $v !== null && $v !== '') : null;
+
                     // Use the selected account (USA or ANZ)
                     $result = $mailchimpService->manualImportSubscriber(
                         $request->list_id,
                         $subscriber,
-                        $tags
+                        $tags,
+                        $fieldMapping
                     );
                     
                     Log::info('Manual import - Mailchimp add end', [
