@@ -34,7 +34,8 @@ class EventImportAllToMailchimpJob implements ShouldQueue
         public array $locationsPayload,
         public ?int $userId,
         public bool $skipAlreadyImported = false,
-        public ?string $importBatchId = null
+        public ?string $importBatchId = null,
+        public ?array $fieldMapping = null
     ) {
         // Allow production to run until all locations are imported (default 2 hours).
         $this->timeout = config('queue.mailchimp_import_job_timeout', 7200);
@@ -98,13 +99,32 @@ class EventImportAllToMailchimpJob implements ShouldQueue
                     continue;
                 }
 
+                // Skip locations with no data: no Mailchimp API calls, no MC logs (optimization)
+                $hasTicketData = ! empty($attendees) && ! empty($tags);
+                $hasFormData = false;
+                if (! empty($formTags)) {
+                    $signUpForm = SignUpForm::where('event_id', $this->eventId)->first();
+                    if ($signUpForm && $signUpForm->table_name && Schema::hasTable($signUpForm->table_name)) {
+                        $hasFormData = DB::table($signUpForm->table_name)
+                            ->where('location_id', $locationId)
+                            ->where('event_id', $this->eventId)
+                            ->whereNotNull('email_address')
+                            ->where('email_address', '!=', '')
+                            ->exists();
+                    }
+                }
+                if (! $hasTicketData && ! $hasFormData) {
+                    $locationsSkipped++;
+                    continue;
+                }
+
                 // --- Ticket data import ---
-                if (!empty($attendees) && !empty($tags)) {
+                if ($hasTicketData) {
                     $this->importTicketData($mailchimpService, $logService, $location, $attendees, $tags);
                 }
 
                 // --- Win form (sign-up) data import ---
-                if (!empty($formTags)) {
+                if ($hasFormData) {
                     $this->importFormData($mailchimpService, $logService, $location, $formTags);
                 }
 
@@ -186,11 +206,20 @@ class EventImportAllToMailchimpJob implements ShouldQueue
             if ($email === '') {
                 continue;
             }
+            $city = trim($a['city'] ?? '');
+            $state = trim($a['state'] ?? '');
+            $country = trim($a['country'] ?? '');
+            $addrParts = array_filter([$city, $state, $country]);
             $subscribers[] = [
                 'email_address' => $email,
                 'first_name' => $a['first_name'] ?? '',
                 'last_name' => $a['last_name'] ?? '',
                 'mobile_number' => $a['phone'] ?? $a['mobile_number'] ?? '',
+                'phone' => $a['phone'] ?? $a['mobile_number'] ?? '',
+                'city' => $city,
+                'state' => $state,
+                'country' => $country,
+                'address_full' => implode(', ', $addrParts),
             ];
         }
 
@@ -221,13 +250,9 @@ class EventImportAllToMailchimpJob implements ShouldQueue
                 }
                 $result = $mailchimpService->manualImportSubscriber(
                     $listId,
-                    [
-                        'email_address' => $subscriber['email_address'],
-                        'first_name' => $subscriber['first_name'] ?? '',
-                        'last_name' => $subscriber['last_name'] ?? '',
-                        'mobile_number' => $subscriber['mobile_number'] ?? '',
-                    ],
-                    $tags
+                    $subscriber,
+                    $tags,
+                    $this->fieldMapping
                 );
                 $locSuccess++;
                 if (isset($result['import_type'])) {
@@ -365,61 +390,72 @@ class EventImportAllToMailchimpJob implements ShouldQueue
             if ($email === '') {
                 continue;
             }
-            $subscriber = [
-                'email_address' => $email,
-                'first_name' => $row->first_name ?? '',
-                'last_name' => $row->last_name ?? '',
-                'mobile_number' => $row->mobile_number ?? $row->phone ?? '',
-                'street_address' => $row->street_address ?? '',
-                'street_address_2' => $row->street_address_2 ?? '',
-                'city' => $row->city ?? '',
-                'state' => $row->state ?? '',
-                'zip_code' => $row->zip_code ?? $row->postal_code ?? '',
-                'country' => $row->country ?? '',
-                'gender' => $row->gender ?? '',
-                'age' => $row->age ?? '',
-            ];
-                try {
-                    $result = $mailchimpService->manualImportSubscriber($listId, $subscriber, $formTags);
-                    $locFormSuccess++;
-                    if (isset($result['import_type'])) {
-                        if ($result['import_type'] === 'new') {
-                            $locFormNew++;
-                        } elseif ($result['import_type'] === 'updated') {
-                            $locFormUpdated++;
-                        }
-                    }
-                    try {
-                        $logService->logImport($location->id, $location->name, [
-                            'success' => true,
-                            'email' => $subscriber['email_address'],
-                            'tags' => $formTags,
-                            'source' => 'signup_form',
-                        ]);
-                    } catch (\Throwable $e2) {
-                        // Do not let logging failure abort the import.
-                    }
-                } catch (\Throwable $e) {
-                    $locFormFailed++;
-                    $locFormErrors[] = substr("{$subscriber['email_address']}: " . $e->getMessage(), 0, 200);
-                    if (count($failedRowsData) < $maxFailedRowsStored) {
-                        $failedRowsData[] = array_merge(
-                            array_intersect_key($subscriber, array_flip(['email_address', 'first_name', 'last_name', 'mobile_number', 'street_address', 'street_address_2', 'city', 'state', 'zip_code', 'country', 'gender', 'age'])),
-                            ['error_message' => $e->getMessage()]
-                        );
-                    }
-                    try {
-                        $logService->logImport($location->id, $location->name, [
-                            'success' => false,
-                            'email' => $subscriber['email_address'],
-                            'error' => $e->getMessage(),
-                            'tags' => $formTags,
-                            'source' => 'signup_form',
-                        ]);
-                    } catch (\Throwable $e2) {
-                        // Do not let logging failure abort the import.
+            $street = trim($row->street_address ?? '');
+            $street2 = trim($row->street_address_2 ?? '');
+            $city = trim($row->city ?? '');
+            $state = trim($row->state ?? '');
+            $zip = trim($row->zip_code ?? $row->postal_code ?? '');
+            $country = trim($row->country ?? '');
+            $addrParts = array_filter([$street, $street2, $city, $state, $zip, $country]);
+            $subscriber = array_merge(
+                (array) $row,
+                [
+                    'email_address' => $email,
+                    'first_name' => $row->first_name ?? '',
+                    'last_name' => $row->last_name ?? '',
+                    'mobile_number' => $row->mobile_number ?? $row->phone ?? '',
+                    'street_address' => $street,
+                    'street_address_2' => $street2,
+                    'city' => $city,
+                    'state' => $state,
+                    'zip_code' => $zip,
+                    'country' => $country,
+                    'gender' => $row->gender ?? '',
+                    'age' => $row->age ?? '',
+                    'address_full' => implode(', ', $addrParts),
+                ]
+            );
+            try {
+                $result = $mailchimpService->manualImportSubscriber($listId, $subscriber, $formTags, $this->fieldMapping);
+                $locFormSuccess++;
+                if (isset($result['import_type'])) {
+                    if ($result['import_type'] === 'new') {
+                        $locFormNew++;
+                    } elseif ($result['import_type'] === 'updated') {
+                        $locFormUpdated++;
                     }
                 }
+                try {
+                    $logService->logImport($location->id, $location->name, [
+                        'success' => true,
+                        'email' => $subscriber['email_address'],
+                        'tags' => $formTags,
+                        'source' => 'signup_form',
+                    ]);
+                } catch (\Throwable $e2) {
+                    // Do not let logging failure abort the import.
+                }
+            } catch (\Throwable $e) {
+                $locFormFailed++;
+                $locFormErrors[] = substr("{$subscriber['email_address']}: " . $e->getMessage(), 0, 200);
+                if (count($failedRowsData) < $maxFailedRowsStored) {
+                    $failedRowsData[] = array_merge(
+                        array_intersect_key($subscriber, array_flip(['email_address', 'first_name', 'last_name', 'mobile_number', 'street_address', 'street_address_2', 'city', 'state', 'zip_code', 'country', 'gender', 'age'])),
+                        ['error_message' => $e->getMessage()]
+                    );
+                }
+                try {
+                    $logService->logImport($location->id, $location->name, [
+                        'success' => false,
+                        'email' => $subscriber['email_address'],
+                        'error' => $e->getMessage(),
+                        'tags' => $formTags,
+                        'source' => 'signup_form',
+                    ]);
+                } catch (\Throwable $e2) {
+                    // Do not let logging failure abort the import.
+                }
+            }
         }
 
         $hadPreviousImport = MailchimpImportLog::where('location_id', $locationId)

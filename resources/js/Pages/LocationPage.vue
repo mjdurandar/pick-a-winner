@@ -120,6 +120,11 @@ const importAllEventbriteLinkByLocation = ref({}); // { [locationId]: '' }
 const isFetchingPreviewByLocation = ref({}); // { [locationId]: true/false }
 const importAllCsvFileInputByLocation = ref({}); // keep file input ref per location if needed
 const importAllSkipAlreadyImported = ref(false); // when true, skip locations already imported to this audience
+const importAllMergeFieldsWithValidation = ref([]); // audience columns + validation
+const importAllSourceColumns = ref([]); // our data columns for mapping
+const importAllFieldMapping = ref({}); // { FNAME: 'first_name', ADDRESS: 'address_full', ... }
+const showMappingSection = ref(false);
+const isLoadingMergeFields = ref(false);
 
 // Add computed property for tag preview
 const tagPreview = computed(() => {
@@ -2058,9 +2063,13 @@ const openImportAllModal = async () => {
     importAllTagsByLocation.value = {};
     importAllFormTagsByLocation.value = {};
     isFetchingPreviewByLocation.value = {};
-    importAllListId.value = '';
-    importAllAccount.value = '';
-    importAllLists.value = [];
+        importAllListId.value = '';
+        importAllAccount.value = '';
+        importAllLists.value = [];
+        importAllMergeFieldsWithValidation.value = [];
+        importAllSourceColumns.value = [];
+        importAllFieldMapping.value = {};
+        showMappingSection.value = false;
     try {
         const settingsRes = await axios.get(route('mailchimp.autosync.settings'), { params: { event_id: props.event.id } });
         const settings = settingsRes.data.settings || {};
@@ -2147,6 +2156,52 @@ const loadImportAllLists = async (account) => {
 watch(
     () => importAllAccount.value,
     (acc) => { if (acc && showImportAllModal.value) loadImportAllLists(acc); }
+);
+
+watch(
+    () => importAllListId.value,
+    async (listId) => {
+        if (!listId || !importAllAccount.value || !showImportAllModal.value) {
+            importAllMergeFieldsWithValidation.value = [];
+            importAllSourceColumns.value = [];
+            importAllFieldMapping.value = {};
+            return;
+        }
+        isLoadingMergeFields.value = true;
+        try {
+            const [mergeRes, sourceRes] = await Promise.all([
+                axios.get(route('location.mailchimpMergeFields'), { params: { list_id: listId, account: importAllAccount.value } }),
+                axios.get(route('event.importSourceColumns', props.event.id))
+            ]);
+            const mf = mergeRes.data?.merge_fields_with_validation ?? mergeRes.data?.merge_fields ?? [];
+            importAllMergeFieldsWithValidation.value = mf;
+            importAllSourceColumns.value = sourceRes.data?.source_columns ?? [];
+            const mapping = {};
+            // Adventure Entertainment Newsletter (ANZ) - strict field mapping defaults
+            const tagToDefault = {
+                FNAME: 'first_name', LNAME: 'last_name',
+                PHONE: 'mobile_number', SMSPHONE: 'mobile_number', MERGE4: 'mobile_number', MERGE30: 'mobile_number',
+                ADDRESSWIN: 'address_full', MMERGE10: 'address_full', MERGE10: 'address_full', MERGE11: 'address_full',
+                SHOWCITY: 'city', CITY: 'city', MERGE3: 'city', MERGE5: 'city',
+                STATEWIN: 'state', STATE: 'state', MERGE6: 'state',
+                ZIPCODEWIN: 'zip_code', ZIPCODE: 'zip_code', MERGE7: 'zip_code',
+                COUNTRYWIN: 'country', COUNTRY: 'country', MERGE8: 'country',
+                GENDER: 'gender', MERGE17: 'gender',
+                AGEWIN: 'age', MERGE14: 'age', MMERGE14: 'age'
+            };
+            (mergeRes.data?.merge_fields ?? []).forEach((f) => {
+                const tag = f.tag || f;
+                if (tag === 'EMAIL') return;
+                mapping[tag] = tagToDefault[tag] ?? '';
+            });
+            importAllFieldMapping.value = mapping;
+        } catch (e) {
+            importAllMergeFieldsWithValidation.value = [];
+            importAllSourceColumns.value = [];
+        } finally {
+            isLoadingMergeFields.value = false;
+        }
+    }
 );
 
 watch(
@@ -2332,13 +2387,16 @@ const runImportAll = async () => {
     isImportAllLoading.value = true;
     const listName = (importAllLists.value || []).find(l => l.id === listId)?.name || '';
     try {
+        const fieldMapping = { ...importAllFieldMapping.value };
+        Object.keys(fieldMapping).forEach((k) => { if (fieldMapping[k] === '') delete fieldMapping[k]; });
         const res = await axios.post(route('event.importAll'), {
             event_id: props.event.id,
             list_id: listId,
             list_name: listName,
             mailchimp_account: account,
             locations: locationsPayload,
-            skip_already_imported: !!importAllSkipAlreadyImported.value
+            skip_already_imported: !!importAllSkipAlreadyImported.value,
+            field_mapping: Object.keys(fieldMapping).length ? fieldMapping : null
         }, { timeout: 30000 });
 
         const d = res.data;
@@ -3514,6 +3572,62 @@ const runImportAll = async () => {
                                 {{ list.name }} ({{ list.stats?.member_count ?? 0 }} members)
                             </option>
                         </select>
+                    </div>
+                </div>
+
+                <!-- Field mapping: audience columns -> our data -->
+                <div class="mb-4 p-4 bg-purple-50 border border-purple-200 rounded-lg">
+                    <button
+                        type="button"
+                        @click="showMappingSection = !showMappingSection"
+                        class="flex items-center gap-2 w-full text-left text-sm font-medium text-gray-800"
+                    >
+                        <i :class="showMappingSection ? 'fa-solid fa-chevron-down' : 'fa-solid fa-chevron-right'" class="text-purple-600"></i>
+                        Field mapping: map our data to Mailchimp audience columns
+                    </button>
+                    <p v-if="!showMappingSection" class="text-xs text-gray-600 mt-1 ml-6">Map our sign-up/ticket columns to each Mailchimp field. For <strong>Adventure Entertainment Newsletter (ANZ)</strong>, use <strong>Address (concatenated)</strong> for ADDRESSWIN or MMERGE10.</p>
+                    <div v-else class="mt-4">
+                        <p class="text-xs text-gray-600 mb-3">Map each Mailchimp audience column to our sign-up/ticket data. <strong>Address (concatenated)</strong> combines street, city, state, zip, country. Validation info shows type and allowed values.</p>
+                        <div v-if="isLoadingMergeFields" class="text-sm text-gray-500 py-4"><i class="fa-solid fa-spinner fa-spin mr-2"></i> Loading audience fields...</div>
+                        <div v-else-if="!importAllListId" class="text-sm text-gray-500 py-2">Select a Mailchimp audience above to load columns.</div>
+                        <div v-else class="overflow-x-auto max-h-64 overflow-y-auto border rounded">
+                            <table class="w-full text-sm border-collapse">
+                                <thead class="bg-purple-100 sticky top-0">
+                                    <tr>
+                                        <th class="border border-purple-200 p-2 text-left">Mailchimp field (label)</th>
+                                        <th class="border border-purple-200 p-2 text-left">Map from our column</th>
+                                        <th class="border border-purple-200 p-2 text-left">Validation</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <tr>
+                                        <td class="border border-purple-200 p-2 font-medium">Email Address</td>
+                                        <td class="border border-purple-200 p-2 text-gray-600">email_address (built-in)</td>
+                                        <td class="border border-purple-200 p-2 text-xs text-gray-600">Required, valid email</td>
+                                    </tr>
+                                    <tr v-for="mf in importAllMergeFieldsWithValidation" :key="mf.tag" class="bg-white">
+                                        <td class="border border-purple-200 p-2 font-medium">{{ mf.name || mf.tag }}</td>
+                                        <td class="border border-purple-200 p-2">
+                                            <select
+                                                :value="importAllFieldMapping[mf.tag]"
+                                                @change="importAllFieldMapping = { ...importAllFieldMapping, [mf.tag]: $event.target.value }"
+                                                class="w-full border rounded px-2 py-1 text-sm"
+                                            >
+                                                <option value="">— Don't map</option>
+                                                <option v-for="sc in importAllSourceColumns" :key="sc.key" :value="sc.key">{{ sc.label }}</option>
+                                            </select>
+                                        </td>
+                                        <td class="border border-purple-200 p-2 text-xs text-gray-600">
+                                            <span v-if="mf.validation">{{ mf.validation.type }}{{ mf.validation.required ? ', required' : '' }}</span>
+                                            <span v-if="mf.validation?.choices" class="block mt-1">Allowed: {{ mf.validation.choices.slice(0, 5).join(', ') }}{{ mf.validation.choices.length > 5 ? '…' : '' }}</span>
+                                        </td>
+                                    </tr>
+                                    <tr v-if="importAllMergeFieldsWithValidation.length === 0">
+                                        <td colspan="3" class="border border-purple-200 p-4 text-gray-500 text-center">No merge fields loaded. Select an audience and try again.</td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
                     </div>
                 </div>
 

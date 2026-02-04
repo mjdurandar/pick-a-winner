@@ -454,7 +454,8 @@ class MailchimpImportLogsController extends Controller
                 $remaining,
                 $job->userId,
                 $job->skipAlreadyImported,
-                Str::uuid()->toString()
+                Str::uuid()->toString(),
+                $job->fieldMapping ?? null
             );
         }
 

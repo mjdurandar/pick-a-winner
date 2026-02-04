@@ -252,15 +252,40 @@ class LocationController extends Controller
                 'PHONE', 'SMSPHONE' // Now available based on your latest screenshot
             ];
             $existingTags = array_column($mergeFields, 'tag');
-            
+
             // No missing ideal fields anymore since you added phone fields
             $missingIdealFields = [];
-            
+
             // Fields that don't exist in your audience
             $missingFields = array_diff($availableFields, $existingTags);
-            
+
+            // Build merge fields with validation metadata for mapping UI
+            $mergeFieldsWithValidation = array_map(function ($f) {
+                $validation = [
+                    'type' => $f['type'] ?? 'text',
+                    'required' => ! empty($f['required'] ?? false),
+                ];
+                if (in_array($f['type'] ?? '', ['dropdown', 'radio']) && ! empty($f['options']['choices'])) {
+                    $choices = $f['options']['choices'];
+                    $validation['choices'] = array_map(fn ($c) => is_string($c) ? $c : ($c['value'] ?? (string) $c), $choices);
+                }
+                if (! empty($f['help_text'])) {
+                    $validation['help_text'] = $f['help_text'];
+                }
+
+                return [
+                    'merge_id' => $f['merge_id'] ?? null,
+                    'tag' => $f['tag'],
+                    'name' => $f['name'] ?? $f['tag'],
+                    'type' => $f['type'] ?? 'text',
+                    'required' => ! empty($f['required'] ?? false),
+                    'validation' => $validation,
+                ];
+            }, $mergeFields);
+
             return response()->json([
                 'merge_fields' => $mergeFields,
+                'merge_fields_with_validation' => $mergeFieldsWithValidation,
                 'missing_required_fields' => $missingFields,
                 'missing_ideal_fields' => $missingIdealFields,
                 'field_mapping' => [
@@ -1554,6 +1579,45 @@ class LocationController extends Controller
     }
 
     /**
+     * GET source columns for Mailchimp import mapping (sign-up form + ticket + concatenated address).
+     */
+    public function getImportSourceColumns($eventId)
+    {
+        $signUpForm = SignUpForm::where('event_id', $eventId)->first();
+        $formColumns = [];
+        if ($signUpForm && $signUpForm->table_name && Schema::hasTable($signUpForm->table_name)) {
+            $formColumns = Schema::getColumnListing($signUpForm->table_name);
+            $formColumns = array_diff($formColumns, ['id', 'created_at', 'updated_at']);
+        }
+        $fixedColumns = [
+            ['key' => 'email_address', 'label' => 'Email address'],
+            ['key' => 'email', 'label' => 'Email (ticket)'],
+            ['key' => 'first_name', 'label' => 'First name'],
+            ['key' => 'last_name', 'label' => 'Last name'],
+            ['key' => 'mobile_number', 'label' => 'Mobile number'],
+            ['key' => 'phone', 'label' => 'Phone'],
+            ['key' => 'street_address', 'label' => 'Street address'],
+            ['key' => 'street_address_2', 'label' => 'Street address 2'],
+            ['key' => 'city', 'label' => 'City'],
+            ['key' => 'state', 'label' => 'State'],
+            ['key' => 'zip_code', 'label' => 'Zip code'],
+            ['key' => 'postal_code', 'label' => 'Postal code'],
+            ['key' => 'country', 'label' => 'Country'],
+            ['key' => 'gender', 'label' => 'Gender'],
+            ['key' => 'age', 'label' => 'Age'],
+            ['key' => 'address_full', 'label' => 'Address (concatenated: street + city + state + zip + country)'],
+        ];
+        $existingKeys = array_column($fixedColumns, 'key');
+        foreach ($formColumns as $col) {
+            if (! in_array($col, $existingKeys, true)) {
+                $fixedColumns[] = ['key' => $col, 'label' => ucfirst(str_replace('_', ' ', $col))];
+            }
+        }
+
+        return response()->json(['source_columns' => $fixedColumns]);
+    }
+
+    /**
      * Event-level "Import all": queue import to run in the background so the app stays responsive.
      * Request: event_id, list_id, mailchimp_account, list_name?, locations: [{ location_id, attendees?, tags?, form_tags? }].
      * Returns immediately with queued: true; results appear in Mailchimp Import Logs when the job finishes.
@@ -1571,6 +1635,8 @@ class LocationController extends Controller
             'locations.*.tags' => 'nullable|array',
             'locations.*.form_tags' => 'nullable|array',
             'skip_already_imported' => 'nullable|boolean',
+            'field_mapping' => 'nullable|array',
+            'field_mapping.*' => 'nullable|string|max:100',
         ]);
 
         $eventId = (int) $request->event_id;
@@ -1579,6 +1645,8 @@ class LocationController extends Controller
         $listName = $request->input('list_name');
         $locationsPayload = $request->locations;
         $skipAlreadyImported = $request->boolean('skip_already_imported', false);
+        $fieldMapping = $request->input('field_mapping');
+        $fieldMapping = is_array($fieldMapping) ? array_filter($fieldMapping, fn ($v) => $v !== null && $v !== '') : null;
 
         // Verify Mailchimp config before queuing
         try {
@@ -1597,7 +1665,8 @@ class LocationController extends Controller
             $locationsPayload,
             auth()->id(),
             $skipAlreadyImported,
-            $importBatchId
+            $importBatchId,
+            $fieldMapping
         );
 
         Log::info('Event import all queued', [
