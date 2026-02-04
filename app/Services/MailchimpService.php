@@ -76,18 +76,50 @@ class MailchimpService
         throw new \Exception('Failed to fetch Mailchimp merge fields: ' . $response->body());
     }
 
-    // Helper function to format Australian mobile numbers to E.164
-    private function formatPhone($number) {
-        $number = preg_replace('/\D+/', '', $number); // Remove non-digits
-        if (empty($number)) {
+    /**
+     * Format phone number to E.164 (international standard) for Mailchimp PHONE/SMSPHONE.
+     * Mailchimp requires "SMS number in the international standard format" (e.g. +61412345678).
+     *
+     * @param  string|null  $number
+     * @param  string|null  $country  Optional country name/code to choose +61 (AU) vs +64 (NZ) for leading-0 numbers
+     */
+    private function formatPhoneE164($number, $country = null)
+    {
+        if ($number === null || $number === '') {
             return '';
         }
-        if (strpos($number, '0') === 0) {
-            // Australian mobile, replace leading 0 with +61
-            return '+61' . substr($number, 1);
+        $digits = preg_replace('/\D+/', '', (string) $number);
+        if ($digits === '') {
+            return '';
         }
-        // If already in international format or another format, return as is
-        return $number;
+        // US/Canada: 10 or 11 digits starting with 1
+        if (strlen($digits) >= 10 && substr($digits, 0, 1) === '1') {
+            return '+1' . substr($digits, -10);
+        }
+        // Already has country code: ensure + prefix
+        if (strlen($digits) >= 9 && substr($digits, 0, 2) === '61') {
+            return '+' . $digits;
+        }
+        if (strlen($digits) >= 9 && substr($digits, 0, 2) === '64') {
+            return '+' . $digits;
+        }
+        // Leading 0: use country hint for AU vs NZ
+        if (substr($digits, 0, 1) === '0' && strlen($digits) >= 9) {
+            $countryUpper = strtoupper((string) $country);
+            if (strpos($countryUpper, 'NEW ZEALAND') !== false || $countryUpper === 'NZ') {
+                return '+64' . substr($digits, 1);
+            }
+            return '+61' . substr($digits, 1); // Australia default for ANZ
+        }
+        // US/Canada: 10 digits, no leading 0
+        if (strlen($digits) === 10 && substr($digits, 0, 1) !== '0') {
+            return '+1' . $digits;
+        }
+        // Fallback: 10–15 digits, prepend +
+        if (strlen($digits) >= 10 && strlen($digits) <= 15) {
+            return '+' . ltrim($digits, '0');
+        }
+        return '';
     }
 
     public function addSubscriberToList($listId, $subscriber, $tags = [])
@@ -428,6 +460,14 @@ class MailchimpService
                     } else {
                         $mergeFieldMap[$mailchimpField] = ($fieldType === 'number') ? (int) $zipValue : (string) $zipValue;
                     }
+                }
+            } elseif (in_array($mailchimpField, ['PHONE', 'SMSPHONE', 'MERGE4', 'MERGE30'])) {
+                // Mailchimp requires phone/SMS in international standard format (E.164)
+                $rawPhone = $getSubscriberValueForTag($mailchimpField, $sourceFields);
+                $country = $this->getSubscriberField($subscriber, ['country', 'Country']);
+                $formatted = $this->formatPhoneE164($rawPhone, $country);
+                if ($formatted !== '') {
+                    $mergeFieldMap[$mailchimpField] = $formatted;
                 }
             } else {
                 $value = $getSubscriberValueForTag($mailchimpField, $sourceFields);
