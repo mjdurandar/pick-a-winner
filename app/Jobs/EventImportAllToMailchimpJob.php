@@ -50,6 +50,20 @@ class EventImportAllToMailchimpJob implements ShouldQueue
     public function handle(MailchimpLogService $logService): void
     {
         try {
+            $this->runImport($logService);
+        } catch (\Throwable $e) {
+            Log::error('Event import all (job): uncaught error – job will exit so the queue keeps moving', [
+                'event_id' => $this->eventId,
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
+            ]);
+            // Do not rethrow: allow the job to complete so Laravel does not retry and the queue keeps processing other jobs.
+        }
+    }
+
+    private function runImport(MailchimpLogService $logService): void
+    {
+        try {
             $mailchimpService = new MailchimpService($this->mailchimpAccount);
         } catch (\Exception $e) {
             Log::error('Event import all (job): MailchimpService init failed', ['error' => $e->getMessage()]);
