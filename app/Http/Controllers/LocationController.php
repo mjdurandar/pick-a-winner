@@ -736,24 +736,39 @@ class LocationController extends Controller
             $updatedSubscribers = [];
             Log::info('Manual import using tags:', ['tags' => $tags, 'account' => $mailchimpAccount]);
 
+            $fieldMapping = $request->input('field_mapping');
+            $fieldMapping = is_array($fieldMapping) ? array_filter($fieldMapping, fn ($v) => $v !== null && $v !== '') : null;
+
             foreach ($request->subscribers as $subscriber) {
                 try {
+                    // When field_mapping is used (e.g. CSV columns), set email_address from mapped EMAIL column
+                    if ($fieldMapping && isset($fieldMapping['EMAIL']) && $fieldMapping['EMAIL'] !== '') {
+                        $emailKey = $fieldMapping['EMAIL'];
+                        $subscriber['email_address'] = trim($subscriber[$emailKey] ?? $subscriber['email_address'] ?? '');
+                    }
                     if (empty($subscriber['email_address'])) {
                         $results['failed']++;
                         $results['errors'][] = "Skipped subscriber: Missing email address";
                         continue;
                     }
 
-                    // Build address_full for field mapping (same as Import All job)
-                    $addrParts = array_filter([
-                        trim($subscriber['street_address'] ?? ''),
-                        trim($subscriber['street_address_2'] ?? ''),
-                        trim($subscriber['city'] ?? ''),
-                        trim($subscriber['state'] ?? ''),
-                        trim($subscriber['zip_code'] ?? $subscriber['postal_code'] ?? ''),
-                        trim($subscriber['country'] ?? ''),
-                    ]);
-                    $subscriber['address_full'] = implode(', ', $addrParts);
+                    // Build address_full for field mapping (same as Import All job). If CSV has a single "Address" column mapped to ADDRESSWIN, use it.
+                    if ($fieldMapping && isset($fieldMapping['ADDRESSWIN']) && $fieldMapping['ADDRESSWIN'] !== '') {
+                        $addrKey = $fieldMapping['ADDRESSWIN'];
+                        $singleAddr = trim($subscriber[$addrKey] ?? '');
+                        $subscriber['address_full'] = $singleAddr !== '' ? $singleAddr : null;
+                    }
+                    if (empty($subscriber['address_full'])) {
+                        $addrParts = array_filter([
+                            trim($subscriber['street_address'] ?? ''),
+                            trim($subscriber['street_address_2'] ?? ''),
+                            trim($subscriber['city'] ?? ''),
+                            trim($subscriber['state'] ?? ''),
+                            trim($subscriber['zip_code'] ?? $subscriber['postal_code'] ?? ''),
+                            trim($subscriber['country'] ?? ''),
+                        ]);
+                        $subscriber['address_full'] = implode(', ', $addrParts);
+                    }
 
                     Log::info('Manual import - Mailchimp add start', [
                         'email' => $subscriber['email_address'],
@@ -761,9 +776,6 @@ class LocationController extends Controller
                         'available_fields' => array_keys($subscriber)
                     ]);
                     
-                    $fieldMapping = $request->input('field_mapping');
-                    $fieldMapping = is_array($fieldMapping) ? array_filter($fieldMapping, fn ($v) => $v !== null && $v !== '') : null;
-
                     // Use the selected account (USA or ANZ)
                     $result = $mailchimpService->manualImportSubscriber(
                         $request->list_id,

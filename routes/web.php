@@ -54,6 +54,8 @@ Route::middleware(['auth', RoleMiddleware::class . ':admin,host'])->group(functi
 
     //MAILCHIMP IMPORT LOGS (dedicated page + export)
     Route::get('/mailchimp-import-logs', [MailchimpImportLogsController::class, 'index'])->name('mailchimpImportLogs.index');
+    Route::post('/mailchimp-import-logs/log-manual-import', [MailchimpImportLogsController::class, 'logManualImport'])->name('mailchimpImportLogs.logManualImport');
+    Route::post('/mailchimp-import-logs/queue-manual-import', [MailchimpImportLogsController::class, 'queueManualImport'])->name('mailchimpImportLogs.queueManualImport');
     Route::get('/mailchimp-import-logs/queued-imports', [MailchimpImportLogsController::class, 'queuedImports'])->name('mailchimpImportLogs.queuedImports');
     Route::post('/mailchimp-import-logs/queued-imports/cancel-location', [MailchimpImportLogsController::class, 'cancelQueuedLocation'])->name('mailchimpImportLogs.cancelQueuedLocation');
     Route::delete('/mailchimp-import-logs/queued-imports/{jobId}', [MailchimpImportLogsController::class, 'cancelQueuedImport'])->name('mailchimpImportLogs.cancelQueuedImport');

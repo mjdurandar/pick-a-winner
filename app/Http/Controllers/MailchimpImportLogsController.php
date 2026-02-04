@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Jobs\EventImportAllToMailchimpJob;
+use App\Jobs\ManualImportToMailchimpJob;
 use App\Models\Events;
 use App\Models\Location;
 use App\Models\MailchimpImportLog;
@@ -31,7 +32,8 @@ class MailchimpImportLogsController extends Controller
     }
 
     /**
-     * Display the Mailchimp import logs page. Optional filter by event_id.
+     * Display the Mailchimp import logs page. Optional filter by event_id and source.
+     * Logs with null location_id (manual CSV import from this page) show location_name as "Manual import".
      */
     public function index(Request $request)
     {
@@ -53,20 +55,24 @@ class MailchimpImportLogsController extends Controller
                 'mailchimp_import_logs.mailchimp_account',
                 'mailchimp_import_logs.list_id',
                 'mailchimp_import_logs.list_name',
+                'mailchimp_import_logs.custom_event_name',
+                'mailchimp_import_logs.custom_source',
                 'mailchimp_import_logs.status',
                 'mailchimp_import_logs.has_import_file',
                 'mailchimp_import_logs.failed_rows',
                 'mailchimp_import_logs.created_at',
-                'locations.name as location_name',
+                DB::raw("COALESCE(locations.name, 'Manual import') as location_name"),
                 'events.id as event_id',
-                'events.event_name as event_name',
+                DB::raw("COALESCE(mailchimp_import_logs.custom_event_name, events.event_name, '-') as event_name"),
                 'users.name as imported_by_name'
             )
-            ->join('locations', 'locations.id', '=', 'mailchimp_import_logs.location_id')
-            ->join('events', 'events.id', '=', 'locations.event_id')
+            ->leftJoin('locations', 'locations.id', '=', 'mailchimp_import_logs.location_id')
+            ->leftJoin('events', 'events.id', '=', 'locations.event_id')
             ->leftJoin('users', 'users.id', '=', 'mailchimp_import_logs.imported_by')
-            ->when($eventId, fn ($q) => $q->where('locations.event_id', $eventId))
-            ->when($source && in_array($source, ['signup_form', 'ticket_data']), fn ($q) => $q->where('mailchimp_import_logs.source', $source))
+            ->when($eventId, fn ($q) => $q->where(function ($q) use ($eventId) {
+                $q->where('locations.event_id', $eventId)->orWhereNull('mailchimp_import_logs.location_id');
+            }))
+            ->when($source && in_array($source, ['signup_form', 'ticket_data', 'manual_csv']), fn ($q) => $q->where('mailchimp_import_logs.source', $source))
             ->orderByDesc('mailchimp_import_logs.created_at')
             ->get();
 
@@ -88,8 +94,116 @@ class MailchimpImportLogsController extends Controller
             'mailchimpImportLogs' => $logs,
             'events' => $events,
             'filterEventId' => $eventId ? (int) $eventId : null,
-            'filterSource' => $source && in_array($source, ['signup_form', 'ticket_data']) ? $source : null,
+            'filterSource' => $source && in_array($source, ['signup_form', 'ticket_data', 'manual_csv']) ? $source : null,
         ]);
+    }
+
+    /**
+     * Queue a manual CSV import to run in the background. Returns immediately so the user can keep using the app.
+     */
+    public function queueManualImport(Request $request)
+    {
+        $request->validate([
+            'subscribers' => 'required|array',
+            'subscribers.*' => 'array',
+            'list_id' => 'required|string|max:64',
+            'list_name' => 'nullable|string|max:255',
+            'mailchimp_account' => 'required|string|max:32|in:anz,usa',
+            'tags' => 'required|array',
+            'tags.*' => 'nullable|string|max:255',
+            'field_mapping' => 'nullable|array',
+            'field_mapping.*' => 'nullable|string|max:100',
+            'custom_event_name' => 'nullable|string|max:255',
+            'custom_source' => 'nullable|string|max:255',
+        ]);
+
+        ManualImportToMailchimpJob::dispatch(
+            $request->subscribers,
+            $request->list_id,
+            $request->mailchimp_account,
+            $request->tags,
+            $request->input('field_mapping'),
+            $request->input('list_name'),
+            $request->filled('custom_event_name') ? trim($request->custom_event_name) : null,
+            $request->filled('custom_source') ? trim($request->custom_source) : null,
+            auth()->id()
+        );
+
+        return response()->json([
+            'queued' => true,
+            'message' => 'Import queued. You can continue using the app. The log will appear when the import finishes.',
+            'subscribers_count' => count($request->subscribers),
+        ]);
+    }
+
+    /**
+     * Create a Mailchimp import log for a manual CSV import (from this page).
+     * No location_id; source = manual_csv. Optionally stores the imported rows as a CSV file.
+     */
+    public function logManualImport(Request $request)
+    {
+        $request->validate([
+            'total_data' => 'required|integer|min:0',
+            'new_contacts' => 'required|integer|min:0',
+            'updated_data' => 'required|integer|min:0',
+            'data_with_error' => 'required|integer|min:0',
+            'tags' => 'required|array',
+            'tags.*' => 'nullable|string|max:255',
+            'errors' => 'nullable|array',
+            'errors.*' => 'string',
+            'failed_rows' => 'nullable|array',
+            'list_id' => 'required|string|max:64',
+            'list_name' => 'nullable|string|max:255',
+            'custom_event_name' => 'nullable|string|max:255',
+            'custom_source' => 'nullable|string|max:255',
+            'mailchimp_account' => 'required|string|max:32|in:anz,usa',
+            'subscribers' => 'nullable|array',
+            'subscribers.*' => 'array',
+        ]);
+
+        $tags = array_values(array_filter(array_map(function ($t) {
+            return is_string($t) ? trim($t) : (string) $t;
+        }, $request->tags ?: []), fn ($t) => $t !== ''));
+
+        $log = MailchimpImportLog::create([
+            'location_id' => null,
+            'imported_by' => auth()->id(),
+            'total_data' => $request->total_data,
+            'new_contacts' => $request->new_contacts,
+            'updated_data' => $request->updated_data,
+            'data_with_error' => $request->data_with_error,
+            'errors' => $request->input('errors', []),
+            'failed_rows' => $request->input('failed_rows', []),
+            'tags' => $tags,
+            'source' => 'manual_csv',
+            'mailchimp_account' => $request->mailchimp_account,
+            'list_id' => $request->list_id,
+            'list_name' => $request->input('list_name'),
+            'custom_event_name' => $request->filled('custom_event_name') ? trim($request->custom_event_name) : null,
+            'custom_source' => $request->filled('custom_source') ? trim($request->custom_source) : null,
+            'status' => 'import',
+        ]);
+
+        $subscribers = $request->input('subscribers', []);
+        if (! empty($subscribers)) {
+            $headers = ['email_address', 'first_name', 'last_name', 'mobile_number', 'street_address', 'street_address_2', 'city', 'state', 'zip_code', 'country', 'gender', 'age'];
+            $escape = function ($v) {
+                $s = $v === null || $v === '' ? '' : (string) $v;
+                return strpos($s, ',') !== false || strpos($s, '"') !== false || strpos($s, "\n") !== false
+                    ? '"' . str_replace('"', '""', $s) . '"' : $s;
+            };
+            $lines = [implode(',', $headers)];
+            foreach ($subscribers as $row) {
+                $lines[] = implode(',', array_map(function ($key) use ($row, $escape) {
+                    return $escape($row[$key] ?? '');
+                }, $headers));
+            }
+            $csv = "\xEF\xBB\xBF" . implode("\r\n", $lines);
+            Storage::disk('local')->put('mailchimp_imports/' . $log->id . '.csv', $csv);
+            $log->update(['has_import_file' => true]);
+        }
+
+        return response()->json(['ok' => true, 'log_id' => $log->id]);
     }
 
     /**
@@ -105,7 +219,9 @@ class MailchimpImportLogsController extends Controller
         if (!Storage::disk('local')->exists($path)) {
             abort(404, 'Import file not found.');
         }
-        $locationName = $log->location ? preg_replace('/[^a-z0-9_-]/i', '_', $log->location->name) : 'import';
+        $locationName = $log->location
+            ? preg_replace('/[^a-z0-9_-]/i', '_', $log->location->name)
+            : ($log->source === 'manual_csv' ? 'manual-import' : 'import');
         $date = $log->created_at->format('Y-m-d');
         $filename = "mailchimp-import-{$locationName}-{$date}.csv";
         return response()->download(Storage::disk('local')->path($path), $filename, [
@@ -288,6 +404,8 @@ class MailchimpImportLogsController extends Controller
             'mailchimp_account' => $account,
             'list_id' => $listId,
             'list_name' => $log->list_name,
+            'custom_event_name' => $log->custom_event_name,
+            'custom_source' => $log->custom_source,
             'status' => 'reimport',
         ]);
 
@@ -302,13 +420,17 @@ class MailchimpImportLogsController extends Controller
     }
 
     /**
-     * Get queued / in-progress Mailchimp Import All jobs for the "locations still importing" modal.
+     * Get queued / in-progress Mailchimp import jobs (Import All + Manual CSV) for the "View queued imports" modal.
      */
     public function queuedImports(Request $request)
     {
+        $queueName = config('queue.connections.database.queue', 'default');
         $jobs = $this->jobsTable()
-            ->where('queue', config('queue.connections.database.queue', 'default'))
-            ->where('payload', 'like', '%EventImportAllToMailchimpJob%')
+            ->where('queue', $queueName)
+            ->where(function ($q) {
+                $q->where('payload', 'like', '%EventImportAllToMailchimpJob%')
+                    ->orWhere('payload', 'like', '%ManualImportToMailchimpJob%');
+            })
             ->orderBy('id')
             ->get(['id', 'payload', 'attempts', 'reserved_at', 'created_at']);
 
@@ -326,6 +448,7 @@ class MailchimpImportLogsController extends Controller
                     'event_name' => null,
                     'event_id' => null,
                     'locations' => [],
+                    'job_type' => null,
                     'created_at' => $row->created_at ? date('Y-m-d H:i:s', $row->created_at) : null,
                 ];
                 continue;
@@ -340,6 +463,25 @@ class MailchimpImportLogsController extends Controller
                     'event_name' => null,
                     'event_id' => null,
                     'locations' => [],
+                    'job_type' => null,
+                    'created_at' => $row->created_at ? date('Y-m-d H:i:s', $row->created_at) : null,
+                ];
+                continue;
+            }
+
+            if ($job instanceof ManualImportToMailchimpJob) {
+                $subscribersCount = count($job->subscribers);
+                $result[] = [
+                    'job_id' => $row->id,
+                    'status' => $row->reserved_at ? 'in_progress' : 'queued',
+                    'event_name' => 'Manual CSV import',
+                    'event_id' => null,
+                    'locations_count' => 1,
+                    'location_ids' => [],
+                    'locations' => [
+                        ['location_id' => null, 'location_name' => "Manual import ({$subscribersCount} rows)"],
+                    ],
+                    'job_type' => 'manual_import',
                     'created_at' => $row->created_at ? date('Y-m-d H:i:s', $row->created_at) : null,
                 ];
                 continue;
@@ -365,6 +507,7 @@ class MailchimpImportLogsController extends Controller
                 'event_id' => $eventId,
                 'locations_count' => count($locationIdsFromPayload),
                 'location_ids' => array_values($locationIdsFromPayload),
+                'job_type' => 'import_all',
                 'created_at' => $row->created_at ? date('Y-m-d H:i:s', $row->created_at) : null,
             ];
         }
@@ -377,8 +520,10 @@ class MailchimpImportLogsController extends Controller
             if (isset($item['event_id'])) {
                 $item['event_name'] = $events->get($item['event_id'])?->event_name ?? '—';
             }
-            $item['locations'] = [];
-            if (! empty($item['location_ids'])) {
+            if (! isset($item['locations'])) {
+                $item['locations'] = [];
+            }
+            if (! empty($item['location_ids'] ?? null)) {
                 foreach ($item['location_ids'] as $lid) {
                     $name = $locations->get($lid)?->name ?? "Location #{$lid}";
                     $item['locations'][] = ['location_id' => $lid, 'location_name' => $name];
@@ -468,7 +613,7 @@ class MailchimpImportLogsController extends Controller
     }
 
     /**
-     * Cancel a queued Import All job: if queued, deletes the job. If in progress, sets a flag so the job stops after the current location.
+     * Cancel a queued job: Import All (if queued, delete; if in progress, set flag to stop). Manual import: delete from queue.
      */
     public function cancelQueuedImport(Request $request, $jobId)
     {
@@ -476,11 +621,21 @@ class MailchimpImportLogsController extends Controller
         $row = $this->jobsTable()
             ->where('id', $jobId)
             ->where('queue', config('queue.connections.database.queue', 'default'))
-            ->where('payload', 'like', '%EventImportAllToMailchimpJob%')
+            ->where(function ($q) {
+                $q->where('payload', 'like', '%EventImportAllToMailchimpJob%')
+                    ->orWhere('payload', 'like', '%ManualImportToMailchimpJob%');
+            })
             ->first(['id', 'payload', 'reserved_at']);
 
         if (! $row) {
             return response()->json(['error' => 'Job not found or already processed.'], 404);
+        }
+
+        $isManualImport = str_contains($row->payload, 'ManualImportToMailchimpJob');
+
+        if ($isManualImport) {
+            $this->jobsTable()->where('id', $jobId)->delete();
+            return response()->json(['success' => true, 'message' => 'Manual import removed from queue.']);
         }
 
         if ($row->reserved_at !== null) {

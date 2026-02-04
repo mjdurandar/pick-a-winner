@@ -119,26 +119,34 @@ const parseErrorsToRows = (errors) => {
     }).filter((row) => row.email_address || row.error_message);
 };
 
+// Normalize a failed row to the shape expected by the errors modal (manual import stores { email, error, subscriber_data })
+const normalizeFailedRow = (row) => {
+    const data = row.subscriber_data && typeof row.subscriber_data === 'object'
+        ? { ...row.subscriber_data, error_message: row.error ?? row.error_message }
+        : { ...row };
+    return {
+        email_address: data.email_address ?? data.email ?? '',
+        first_name: data.first_name ?? '',
+        last_name: data.last_name ?? '',
+        mobile_number: data.mobile_number ?? '',
+        street_address: data.street_address ?? '',
+        street_address_2: data.street_address_2 ?? '',
+        city: data.city ?? '',
+        state: data.state ?? '',
+        zip_code: data.zip_code ?? '',
+        country: data.country ?? '',
+        gender: data.gender ?? '',
+        age: data.age ?? '',
+        error_message: data.error_message ?? data.error ?? '',
+    };
+};
+
 const showFullErrors = (log) => {
     if (hasFailedRows(log)) {
         errorsModalLog.value = log;
         const rows = getFailedRows(log);
         // Pre-fill every field from the failed row data so you can fix and re-import
-        editableFailedRows.value = rows.map((row) => ({
-            email_address: row.email_address ?? '',
-            first_name: row.first_name ?? '',
-            last_name: row.last_name ?? '',
-            mobile_number: row.mobile_number ?? '',
-            street_address: row.street_address ?? '',
-            street_address_2: row.street_address_2 ?? '',
-            city: row.city ?? '',
-            state: row.state ?? '',
-            zip_code: row.zip_code ?? '',
-            country: row.country ?? '',
-            gender: row.gender ?? '',
-            age: row.age ?? '',
-            error_message: row.error_message ?? '',
-        }));
+        editableFailedRows.value = rows.map((row) => normalizeFailedRow(row));
         showErrorsModal.value = true;
     } else if (hasErrors(log.errors)) {
         // Fallback: no failed_rows (e.g. old log) – parse error strings so user can still fix & re-import
@@ -298,6 +306,21 @@ const cancelQueuedImportInProgress = async (row) => {
     }
 };
 
+const cancelQueuedImportByJobId = async (row) => {
+    if (row.status !== 'queued' || !row.job_id) return;
+    cancellingJobId.value = 'job-' + row.job_id;
+    try {
+        await axios.delete(route('mailchimpImportLogs.cancelQueuedImport', row.job_id));
+        await fetchQueuedImports();
+        Swal.fire('Removed', 'The import was removed from the queue.', 'success');
+    } catch (err) {
+        const msg = err.response?.data?.error || err.response?.data?.message || err.message || 'Failed to remove.';
+        Swal.fire('Error', msg, 'error');
+    } finally {
+        cancellingJobId.value = null;
+    }
+};
+
 const cancelQueuedLocation = async (row) => {
     if (row.status !== 'queued' || !row.job_id || row.location_id == null) return;
     const ok = await Swal.fire({
@@ -325,15 +348,28 @@ const cancelQueuedLocation = async (row) => {
 
 const filteredLogs = computed(() => props.mailchimpImportLogs);
 
-// Max number of tag columns to show (one column per tag)
+// Fixed 6 tag columns; if a log has more than 6 tags, extras are merged into the last column with commas
+const MAX_TAG_COLUMNS = 6;
 const maxTagColumns = computed(() => {
     const logs = filteredLogs.value;
     if (!logs.length) return 0;
-    const max = Math.max(...logs.map((log) => (log.tags && Array.isArray(log.tags) ? log.tags.length : 0)));
-    return Math.min(max, 20);
+    return MAX_TAG_COLUMNS;
 });
 
 const tagColumnIndices = computed(() => Array.from({ length: maxTagColumns.value }, (_, i) => i));
+
+/** Value for tag column i (0-based). Column 5 (last) shows tag[5], tag[6], ... joined by comma when there are more than 6 tags. */
+function tagCellDisplay(log, columnIndex) {
+    const tags = log.tags && Array.isArray(log.tags) ? log.tags : [];
+    if (columnIndex < MAX_TAG_COLUMNS - 1) {
+        return tags[columnIndex] ?? '—';
+    }
+    // Last column: merge extras into it with comma
+    if (tags.length <= MAX_TAG_COLUMNS) {
+        return tags[MAX_TAG_COLUMNS - 1] ?? '—';
+    }
+    return tags.slice(MAX_TAG_COLUMNS - 1).join(', ');
+}
 
 const buildLogsUrl = (eventId, source) => {
     const params = new URLSearchParams();
@@ -355,7 +391,9 @@ const applySourceFilter = (value) => {
 
 const sourceLabel = (source) => {
     if (!source) return '—';
-    return source === 'ticket_data' ? 'Ticket data' : 'Signup form';
+    if (source === 'ticket_data') return 'Ticket data';
+    if (source === 'manual_csv') return 'Manual CSV';
+    return 'Signup form';
 };
 
 // Totals for filtered logs (breakdown at bottom)
@@ -395,6 +433,232 @@ const deleteLog = (log) => {
 
 const deletingAllLogs = ref(false);
 const deletingSelectedLogs = ref(false);
+
+// Manual import from CSV (same logic as per-location import: account, audience, map columns)
+const showManualImportModal = ref(false);
+const manualImportAccount = ref('anz');
+const manualImportListId = ref('');
+const manualImportLists = ref([]);
+const manualImportListsLoading = ref(false);
+const manualImportCsvFile = ref(null);
+const manualImportCsvHeaders = ref([]);
+const manualImportCsvRows = ref([]);
+const manualImportMergeFields = ref([]);
+const manualImportSourceColumns = ref([]); // from CSV headers
+const manualImportFieldMapping = ref({});
+const manualImportShowMapping = ref(false);
+const manualImportMergeFieldsLoading = ref(false);
+const manualImportTags = ref('');
+const manualImportEventName = ref('');
+const manualImportSourceName = ref('');
+const manualImportImporting = ref(false);
+
+const openManualImportModal = () => {
+    showManualImportModal.value = true;
+    manualImportListId.value = '';
+    manualImportLists.value = [];
+    manualImportCsvFile.value = null;
+    manualImportCsvHeaders.value = [];
+    manualImportCsvRows.value = [];
+    manualImportMergeFields.value = [];
+    manualImportSourceColumns.value = [];
+    manualImportFieldMapping.value = {};
+    manualImportShowMapping.value = false;
+    manualImportTags.value = '';
+    manualImportEventName.value = '';
+    manualImportSourceName.value = '';
+    if (manualImportAccount.value) loadManualImportLists(manualImportAccount.value);
+};
+
+const loadManualImportLists = async (account) => {
+    manualImportListsLoading.value = true;
+    manualImportListId.value = '';
+    manualImportLists.value = [];
+    try {
+        const res = await axios.get(route('location.mailchimpLists'), { params: { account: account || manualImportAccount.value } });
+        manualImportLists.value = res.data.lists || [];
+    } catch (e) {
+        manualImportLists.value = [];
+    } finally {
+        manualImportListsLoading.value = false;
+    }
+};
+
+const onManualImportAudienceChange = async (listId) => {
+    if (!listId) {
+        manualImportMergeFields.value = [];
+        manualImportFieldMapping.value = {};
+        return;
+    }
+    manualImportMergeFieldsLoading.value = true;
+    try {
+        const res = await axios.get(route('location.mailchimpMergeFields'), {
+            params: { list_id: listId, account: manualImportAccount.value }
+        });
+        const mf = res.data.merge_fields_with_validation ?? res.data.merge_fields ?? [];
+        manualImportMergeFields.value = mf;
+        const tagToDefault = {
+            FNAME: 'first_name', LNAME: 'last_name',
+            PHONE: 'mobile_number', SMSPHONE: 'mobile_number', MERGE4: 'mobile_number', MERGE30: 'mobile_number',
+            ADDRESSWIN: 'address_full', MMERGE10: 'address_full', MERGE10: 'address_full', MERGE11: 'address_full',
+            SHOWCITY: 'city', CITY: 'city', MERGE3: 'city', MERGE5: 'city',
+            STATEWIN: 'state', STATE: 'state', MERGE6: 'state',
+            ZIPCODEWIN: 'zip_code', ZIPCODE: 'zip_code', MERGE7: 'zip_code',
+            COUNTRYWIN: 'country', COUNTRY: 'country', MERGE8: 'country',
+            GENDER: 'gender', MERGE17: 'gender',
+            AGEWIN: 'age', MERGE14: 'age', MMERGE14: 'age'
+        };
+        const mapping = {};
+        const emailCol = manualImportSourceColumns.value.find((sc) => /email/i.test(sc.key))?.key || manualImportSourceColumns.value[0]?.key || '';
+        mapping.EMAIL = manualImportFieldMapping.value.EMAIL || emailCol;
+        (res.data.merge_fields || []).forEach((f) => {
+            const tag = f.tag || f;
+            if (tag === 'EMAIL') return;
+            mapping[tag] = manualImportFieldMapping.value[tag] ?? tagToDefault[tag] ?? '';
+        });
+        manualImportFieldMapping.value = mapping;
+    } catch (e) {
+        manualImportMergeFields.value = [];
+    } finally {
+        manualImportMergeFieldsLoading.value = false;
+    }
+};
+
+const parseCsvManualImport = (file) => {
+    return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = (e) => {
+            const text = (e.target?.result || '').trim();
+            const lines = text.split(/\r?\n/).filter(Boolean);
+            if (lines.length === 0) {
+                resolve({ headers: [], rows: [] });
+                return;
+            }
+            const parseRow = (line) => {
+                const out = [];
+                let cur = '';
+                let inQuotes = false;
+                for (let i = 0; i < line.length; i++) {
+                    const c = line[i];
+                    if (c === '"') {
+                        if (inQuotes && line[i + 1] === '"') {
+                            cur += '"';
+                            i++;
+                        } else {
+                            inQuotes = !inQuotes;
+                        }
+                    } else if (c === ',' && !inQuotes) {
+                        out.push(cur.trim());
+                        cur = '';
+                    } else {
+                        cur += c;
+                    }
+                }
+                out.push(cur.trim());
+                return out;
+            };
+            const headers = parseRow(lines[0]).map((h) => h.replace(/^"|"$/g, '').replace(/""/g, '"').trim());
+            const rows = [];
+            for (let i = 1; i < lines.length; i++) {
+                const cells = parseRow(lines[i]).map((c) => c.replace(/^"|"$/g, '').replace(/""/g, '"').trim());
+                const row = {};
+                headers.forEach((h, j) => { row[h] = cells[j] ?? ''; });
+                rows.push(row);
+            }
+            resolve({ headers, rows });
+        };
+        reader.onerror = () => reject(new Error('Failed to read file'));
+        reader.readAsText(file, 'UTF-8');
+    });
+};
+
+const onManualImportCsvSelected = async (event) => {
+    const file = event.target?.files?.[0];
+    if (!file) return;
+    manualImportCsvFile.value = file.name;
+    try {
+        const { headers, rows } = await parseCsvManualImport(file);
+        manualImportCsvHeaders.value = headers;
+        manualImportCsvRows.value = rows;
+        manualImportSourceColumns.value = headers.map((h) => ({ key: h, label: h }));
+        const emailCol = headers.find((h) => /email/i.test(h)) || headers[0] || '';
+        manualImportFieldMapping.value = { EMAIL: emailCol };
+    } catch (e) {
+        Swal.fire('Error', 'Could not parse CSV. Use UTF-8 and comma-separated columns.', 'error');
+    }
+    event.target.value = '';
+};
+
+// Map Mailchimp merge tags to storage CSV headers for manual import log file
+const MANUAL_IMPORT_TAG_TO_KEY = {
+    EMAIL: 'email_address', FNAME: 'first_name', LNAME: 'last_name',
+    PHONE: 'mobile_number', SMSPHONE: 'mobile_number', MERGE4: 'mobile_number', MERGE30: 'mobile_number',
+    ADDRESSWIN: 'street_address', MMERGE10: 'street_address', MERGE10: 'street_address', MERGE11: 'street_address',
+    SHOWCITY: 'city', CITY: 'city', MERGE3: 'city', MERGE5: 'city',
+    STATEWIN: 'state', STATE: 'state', MERGE6: 'state',
+    ZIPCODEWIN: 'zip_code', ZIPCODE: 'zip_code', MERGE7: 'zip_code',
+    COUNTRYWIN: 'country', COUNTRY: 'country', MERGE8: 'country',
+    GENDER: 'gender', MERGE17: 'gender',
+    AGEWIN: 'age', MERGE14: 'age', MMERGE14: 'age'
+};
+const MANUAL_IMPORT_HEADERS = ['email_address', 'first_name', 'last_name', 'mobile_number', 'street_address', 'street_address_2', 'city', 'state', 'zip_code', 'country', 'gender', 'age'];
+
+function buildNormalizedSubscribers(rows, fieldMapping) {
+    const fm = fieldMapping || {};
+    return rows.map((row) => {
+        const norm = {};
+        MANUAL_IMPORT_HEADERS.forEach((h) => { norm[h] = ''; });
+        for (const [tag, col] of Object.entries(fm)) {
+            if (!col) continue;
+            const key = MANUAL_IMPORT_TAG_TO_KEY[tag];
+            if (key) norm[key] = (row[col] ?? '').toString().trim();
+        }
+        if (!norm.email_address && fm.EMAIL) norm.email_address = (row[fm.EMAIL] ?? '').toString().trim();
+        return norm;
+    });
+}
+
+const manualImportRun = async () => {
+    if (!manualImportListId.value || manualImportCsvRows.value.length === 0) {
+        Swal.fire('Error', 'Select an audience and upload a CSV with at least one data row.', 'error');
+        return;
+    }
+    const emailKey = manualImportFieldMapping.value.EMAIL || manualImportCsvHeaders.value.find((h) => /email/i.test(h)) || manualImportCsvHeaders.value[0];
+    const hasEmail = manualImportCsvRows.value.some((row) => (row[emailKey] || '').toString().trim());
+    if (!hasEmail) {
+        Swal.fire('Error', 'Map the Email column and ensure at least one row has an email.', 'error');
+        return;
+    }
+    manualImportImporting.value = true;
+    const tags = (manualImportTags.value || '').split(/[;\n]/).map((t) => t.trim()).filter(Boolean);
+    const fm = { ...manualImportFieldMapping.value };
+    Object.keys(fm).forEach((k) => { if (fm[k] === '') delete fm[k]; });
+    const listName = (manualImportLists.value.find((l) => l.id === manualImportListId.value)?.name ?? null) || '';
+    try {
+        await axios.post(route('mailchimpImportLogs.queueManualImport'), {
+            subscribers: manualImportCsvRows.value,
+            list_id: manualImportListId.value,
+            list_name: listName,
+            mailchimp_account: manualImportAccount.value,
+            tags,
+            field_mapping: Object.keys(fm).length ? fm : null,
+            custom_event_name: manualImportEventName.value?.trim() || null,
+            custom_source: manualImportSourceName.value?.trim() || null
+        });
+        Swal.fire(
+            'Import queued',
+            `Your import of ${manualImportCsvRows.value.length} rows has been queued. You can continue using the app. The log will appear when the import finishes.`,
+            'success'
+        );
+        showManualImportModal.value = false;
+        router.reload();
+    } catch (err) {
+        const msg = err.response?.data?.message || err.response?.data?.errors?.subscribers?.[0] || err.message || 'Import failed.';
+        Swal.fire('Error', msg, 'error');
+    } finally {
+        manualImportImporting.value = false;
+    }
+};
 const deleteSelectedLogs = () => {
     if (selectedLogIds.value.length === 0) return;
     Swal.fire({
@@ -462,13 +726,12 @@ const exportToCsv = () => {
         return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
     };
     const rows = filteredLogs.value.map((log) => {
-        const tags = log.tags && Array.isArray(log.tags) ? log.tags : [];
         const base = [
             log.event_name ?? '—',
             log.location_name ?? '—',
             formatImportDate(log.created_at),
             log.imported_by_name ?? '—',
-            sourceLabel(log.source),
+            log.custom_source || sourceLabel(log.source),
             statusLabel(log.status),
             log.total_data ?? 0,
             log.new_contacts ?? 0,
@@ -477,7 +740,7 @@ const exportToCsv = () => {
             formatErrors(log.errors),
             log.has_import_file ? 'Yes' : 'No'
         ];
-        const tagCells = Array.from({ length: n }, (_, i) => tags[i] ?? '');
+        const tagCells = Array.from({ length: n }, (_, i) => tagCellDisplay(log, i));
         return [...base, ...tagCells];
     });
     const csv = [headers.map(escape).join(','), ...rows.map((r) => r.map(escape).join(','))].join('\r\n');
@@ -501,76 +764,93 @@ const exportToCsv = () => {
         </template>
 
         <div class="p-2 pb-5 pt-4">
-            <div class="mx-auto max-w-7xl sm:px-6 lg:px-8">
+            <div class="mx-auto max-w-12xl sm:px-6 lg:px-8">
                 <div class="overflow-hidden bg-white shadow-sm sm:rounded-lg">
                     <div class="p-6 text-gray-900">
                         <p class="text-gray-600 mb-4">
                             All Mailchimp imports recorded when you import attendees to Mailchimp from a location page.
                         </p>
 
-                        <div class="flex flex-wrap items-center gap-4 mb-4">
-                            <div class="flex items-center gap-2">
-                                <label for="event-filter" class="text-sm font-medium text-gray-700">Filter by event</label>
-                                <select
-                                    id="event-filter"
-                                    :value="filterEventId ?? ''"
-                                    class="border rounded px-3 py-2 text-sm"
-                                    @change="applyEventFilter($event.target.value)"
-                                >
-                                    <option value="">All events</option>
-                                    <option v-for="e in events" :key="e.id" :value="e.id">{{ e.event_name }}</option>
-                                </select>
+                        <div class="flex flex-wrap items-center justify-between gap-4 mb-4">
+                            <div class="flex items-center gap-4">
+                                <div class="flex items-center gap-2">
+                                    <label for="event-filter" class="text-sm font-medium text-gray-700">Filter by event</label>
+                                    <select
+                                        id="event-filter"
+                                        :value="filterEventId ?? ''"
+                                        class="border rounded px-3 py-2 text-sm"
+                                        @change="applyEventFilter($event.target.value)"
+                                    >
+                                        <option value="">Any event</option>
+                                        <option v-for="e in events" :key="e.id" :value="e.id">{{ e.event_name }}</option>
+                                    </select>
+                                </div>
+                                <div class="flex items-center gap-2">
+                                    <label for="source-filter" class="text-sm font-medium text-gray-700">Filter by source</label>
+                                    <select
+                                        id="source-filter"
+                                        :value="filterSource ?? ''"
+                                        class="border rounded px-3 py-2 text-sm"
+                                        @change="applySourceFilter($event.target.value)"
+                                    >
+                                        <option value="">Any source</option>
+                                        <option value="signup_form">Signup form</option>
+                                        <option value="ticket_data">Ticket data</option>
+                                        <option value="manual_csv">Manual CSV</option>
+                                    </select>
+                                </div>
                             </div>
                             <div class="flex items-center gap-2">
-                                <label for="source-filter" class="text-sm font-medium text-gray-700">Filter by source</label>
-                                <select
-                                    id="source-filter"
-                                    :value="filterSource ?? ''"
-                                    class="border rounded px-3 py-2 text-sm"
-                                    @change="applySourceFilter($event.target.value)"
+                                <button
+                                    type="button"
+                                    @click="exportToCsv"
+                                    class="bg-green-600 text-white px-3 py-2.5 rounded hover:bg-green-700 text-sm font-medium"
+                                    title="Export to CSV"
                                 >
-                                    <option value="">All sources</option>
-                                    <option value="signup_form">Signup form</option>
-                                    <option value="ticket_data">Ticket data</option>
-                                </select>
+                                    <i class="fa-solid fa-file-csv"></i>
+                                </button>
+                                <button
+                                    type="button"
+                                    @click="openManualImportModal"
+                                    class="bg-teal-600 text-white px-3 py-2.5 rounded hover:bg-teal-700 text-sm font-medium"
+                                    title="Import CSV to Mailchimp"
+                                >
+                                    <i class="fa-solid fa-upload"></i>
+                                </button>
+                                <button
+                                    type="button"
+                                    @click="openQueuedImportsModal"
+                                    class="bg-amber-600 text-white px-3 py-2.5 rounded hover:bg-amber-700 text-sm font-medium"
+                                    title="Queued imports"
+                                >
+                                    <i class="fa-solid fa-clock-rotate-left"></i>
+                                </button>
+                                <button
+                                    v-if="canDeleteLogs && selectedLogIds.length > 0"
+                                    type="button"
+                                    @click="deleteSelectedLogs"
+                                    :disabled="deletingSelectedLogs"
+                                    class="bg-red-500 text-white px-3 py-2.5 rounded hover:bg-red-600 disabled:opacity-50 text-sm font-medium inline-flex items-center gap-1.5"
+                                    :title="'Delete ' + selectedLogIds.length + ' selected'"
+                                >
+                                    <span v-if="deletingSelectedLogs"><i class="fa-solid fa-spinner fa-spin"></i></span>
+                                    <template v-else>
+                                        <i class="fa-solid fa-trash"></i>
+                                        <span class="text-xs font-semibold">{{ selectedLogIds.length }}</span>
+                                    </template>
+                                </button>
+                                <button
+                                    v-if="canDeleteLogs"
+                                    type="button"
+                                    @click="deleteAllLogs"
+                                    :disabled="deletingAllLogs || filteredLogs.length === 0"
+                                    class="bg-red-600 text-white px-3 py-2.5 rounded hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed text-sm font-medium"
+                                    title="Delete every MC log and stored CSV (mj only)"
+                                >
+                                    <span v-if="deletingAllLogs"><i class="fa-solid fa-spinner fa-spin"></i></span>
+                                    <i v-else class="fa-solid fa-trash-can"></i>
+                                </button>
                             </div>
-                            <button
-                                type="button"
-                                @click="openQueuedImportsModal"
-                                class="bg-amber-600 text-white px-4 py-2 rounded hover:bg-amber-700 text-sm font-medium"
-                                title="See locations still importing (queued or in progress)"
-                            >
-                                <i class="fa-solid fa-clock-rotate-left mr-2"></i> View queued imports
-                            </button>
-                            <button
-                                type="button"
-                                @click="exportToCsv"
-                                class="bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700 text-sm font-medium"
-                            >
-                                <i class="fa-solid fa-file-csv mr-2"></i> Export to CSV
-                            </button>
-                            <button
-                                v-if="canDeleteLogs && selectedLogIds.length > 0"
-                                type="button"
-                                @click="deleteSelectedLogs"
-                                :disabled="deletingSelectedLogs"
-                                class="bg-red-500 text-white px-4 py-2 rounded hover:bg-red-600 disabled:opacity-50 text-sm font-medium"
-                                title="Delete selected logs"
-                            >
-                                <span v-if="deletingSelectedLogs"><i class="fa-solid fa-spinner fa-spin mr-2"></i></span>
-                                <i v-else class="fa-solid fa-trash mr-2"></i> Delete selected ({{ selectedLogIds.length }})
-                            </button>
-                            <button
-                                v-if="canDeleteLogs"
-                                type="button"
-                                @click="deleteAllLogs"
-                                :disabled="deletingAllLogs || filteredLogs.length === 0"
-                                class="bg-red-600 text-white px-4 py-2 rounded hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed text-sm font-medium"
-                                title="Delete all MC logs and their stored CSV files (mj only)"
-                            >
-                                <span v-if="deletingAllLogs"><i class="fa-solid fa-spinner fa-spin mr-2"></i></span>
-                                <i v-else class="fa-solid fa-trash-can mr-2"></i> Delete all logs
-                            </button>
                         </div>
 
                         <div v-if="filteredLogs.length === 0" class="text-gray-600 py-8 text-center">
@@ -622,7 +902,7 @@ const exportToCsv = () => {
                                         <td class="border border-gray-300 p-2 whitespace-nowrap">{{ log.imported_by_name || '—' }}</td>
                                         <td class="border border-gray-300 p-2 whitespace-nowrap">{{ log.mailchimp_account ? (log.mailchimp_account === 'usa' ? 'USA' : log.mailchimp_account === 'anz' ? 'ANZ' : log.mailchimp_account) : '—' }}</td>
                                         <td class="border border-gray-300 p-2 whitespace-nowrap max-w-xs truncate" :title="log.list_name || log.list_id">{{ log.list_name || log.list_id || '—' }}</td>
-                                        <td class="border border-gray-300 p-2 whitespace-nowrap">{{ sourceLabel(log.source) }}</td>
+                                        <td class="border border-gray-300 p-2 whitespace-nowrap">{{ log.custom_source || sourceLabel(log.source) }}</td>
                                         <td class="border border-gray-300 p-2 whitespace-nowrap">
                                             <span :class="log.status === 'reimport' ? 'text-amber-600 font-medium' : 'text-gray-700'">{{ statusLabel(log.status) }}</span>
                                         </td>
@@ -655,7 +935,7 @@ const exportToCsv = () => {
                                             </a>
                                             <span v-else class="text-gray-400">—</span>
                                         </td>
-                                        <td v-for="i in tagColumnIndices" :key="i" class="border border-gray-300 p-2 text-gray-600 whitespace-nowrap">{{ (log.tags && log.tags[i]) || '—' }}</td>
+                                        <td v-for="i in tagColumnIndices" :key="i" class="border border-gray-300 p-2 text-gray-600 whitespace-nowrap">{{ tagCellDisplay(log, i) }}</td>
                                         <td class="border border-gray-300 p-2 text-center whitespace-nowrap">
                                             <button
                                                 v-if="canDeleteLogs"
@@ -778,6 +1058,17 @@ const exportToCsv = () => {
                                             <i v-else class="fa-solid fa-times-circle mr-1"></i> Cancel
                                         </button>
                                         <button
+                                            v-else-if="row.status === 'queued' && row.location_id == null"
+                                            type="button"
+                                            @click="cancelQueuedImportByJobId(row)"
+                                            :disabled="cancellingJobId === 'job-' + row.job_id"
+                                            class="text-red-600 hover:text-red-800 hover:underline text-xs font-medium disabled:opacity-50"
+                                            title="Remove this import from the queue"
+                                        >
+                                            <span v-if="cancellingJobId === 'job-' + row.job_id"><i class="fa-solid fa-spinner fa-spin mr-1"></i></span>
+                                            <i v-else class="fa-solid fa-times-circle mr-1"></i> Remove from queue
+                                        </button>
+                                        <button
                                             v-else-if="row.status === 'in_progress'"
                                             type="button"
                                             @click="cancelQueuedImportInProgress(row)"
@@ -841,6 +1132,138 @@ const exportToCsv = () => {
                     <button type="button" @click="reimportCorrectedData" :disabled="isReimporting" class="px-4 py-2 bg-teal-600 text-white rounded hover:bg-teal-700 disabled:opacity-50">
                         <span v-if="isReimporting"><i class="fa-solid fa-spinner fa-spin mr-2"></i> Re-importing...</span>
                         <span v-else><i class="fa-solid fa-upload mr-2"></i> Re-import corrected data</span>
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Manual import modal: CSV upload, account, audience, map columns -->
+        <div v-if="showManualImportModal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+            <div class="bg-white p-6 rounded-lg shadow-xl max-w-4xl w-full mx-4 max-h-[90vh] overflow-y-auto">
+                <div class="flex justify-between items-center mb-4">
+                    <h3 class="text-lg font-semibold">Manual import to Mailchimp</h3>
+                    <button type="button" @click="showManualImportModal = false" class="text-gray-500 hover:text-gray-700">
+                        <i class="fa-solid fa-times"></i>
+                    </button>
+                </div>
+                <p class="text-gray-600 mb-4">Upload a CSV, select account and audience, then map your CSV columns to Mailchimp audience fields.</p>
+
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Mailchimp account</label>
+                        <select v-model="manualImportAccount" class="w-full border rounded px-3 py-2" @change="loadManualImportLists(manualImportAccount)">
+                            <option value="anz">ANZ</option>
+                            <option value="usa">USA</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Mailchimp audience</label>
+                        <select
+                            v-model="manualImportListId"
+                            class="w-full border rounded px-3 py-2"
+                            :disabled="manualImportListsLoading"
+                            @change="onManualImportAudienceChange(manualImportListId)"
+                        >
+                            <option value="">{{ manualImportListsLoading ? 'Loading...' : 'Select audience...' }}</option>
+                            <option v-for="list in manualImportLists" :key="list.id" :value="list.id">
+                                {{ list.name }} ({{ list.stats?.member_count ?? 0 }})
+                            </option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="mb-4">
+                    <label class="block text-sm font-medium text-gray-700 mb-1">CSV file</label>
+                    <div class="flex items-center gap-2">
+                        <input type="file" accept=".csv,.txt" class="text-sm" @change="onManualImportCsvSelected" />
+                        <span v-if="manualImportCsvFile" class="text-sm text-gray-600">{{ manualImportCsvFile }} — {{ manualImportCsvRows.length }} rows</span>
+                    </div>
+                </div>
+
+                <div v-if="manualImportSourceColumns.length > 0" class="mb-4 p-4 bg-purple-50 border border-purple-200 rounded-lg">
+                    <button type="button" @click="manualImportShowMapping = !manualImportShowMapping" class="flex items-center gap-2 w-full text-left text-sm font-medium text-gray-800">
+                        <i :class="manualImportShowMapping ? 'fa-solid fa-chevron-down' : 'fa-solid fa-chevron-right'" class="text-purple-600"></i>
+                        Field mapping: map CSV columns to Mailchimp audience columns
+                    </button>
+                    <div v-show="manualImportShowMapping" class="mt-4">
+                        <p class="text-xs text-gray-600 mb-3">Map each Mailchimp field to a column from your CSV. Email is required.</p>
+                        <div v-if="manualImportMergeFieldsLoading" class="text-sm text-gray-500 py-2"><i class="fa-solid fa-spinner fa-spin mr-2"></i> Loading audience fields...</div>
+                        <div v-else class="overflow-x-auto max-h-64 overflow-y-auto border rounded">
+                            <table class="w-full text-sm border-collapse">
+                                <thead class="bg-purple-100 sticky top-0">
+                                    <tr>
+                                        <th class="border border-purple-200 p-2 text-left">Mailchimp field (label)</th>
+                                        <th class="border border-purple-200 p-2 text-left">Map from CSV column</th>
+                                        <th class="border border-purple-200 p-2 text-left">Validation</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <tr>
+                                        <td class="border border-purple-200 p-2 font-medium">Email Address</td>
+                                        <td class="border border-purple-200 p-2">
+                                            <select
+                                                :value="manualImportFieldMapping.EMAIL"
+                                                @change="manualImportFieldMapping = { ...manualImportFieldMapping, EMAIL: $event.target.value }"
+                                                class="w-full border rounded px-2 py-1 text-sm"
+                                            >
+                                                <option value="">— Select column</option>
+                                                <option v-for="sc in manualImportSourceColumns" :key="sc.key" :value="sc.key">{{ sc.label }}</option>
+                                            </select>
+                                        </td>
+                                        <td class="border border-purple-200 p-2 text-xs text-gray-600">Required, valid email</td>
+                                    </tr>
+                                    <tr v-for="mf in manualImportMergeFields" :key="mf.tag" class="bg-white">
+                                        <td class="border border-purple-200 p-2 font-medium">{{ mf.name || mf.tag }}</td>
+                                        <td class="border border-purple-200 p-2">
+                                            <select
+                                                :value="manualImportFieldMapping[mf.tag]"
+                                                @change="manualImportFieldMapping = { ...manualImportFieldMapping, [mf.tag]: $event.target.value }"
+                                                class="w-full border rounded px-2 py-1 text-sm"
+                                            >
+                                                <option value="">— Don't map</option>
+                                                <option v-for="sc in manualImportSourceColumns" :key="sc.key" :value="sc.key">{{ sc.label }}</option>
+                                            </select>
+                                        </td>
+                                        <td class="border border-purple-200 p-2 text-xs text-gray-600">
+                                            <span v-if="mf.validation">{{ mf.validation.type }}{{ mf.validation.required ? ', required' : '' }}</span>
+                                            <span v-if="mf.validation?.choices" class="block mt-1">Allowed: {{ mf.validation.choices.slice(0, 5).join(', ') }}{{ mf.validation.choices.length > 5 ? '…' : '' }}</span>
+                                        </td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Event name (for this log)</label>
+                        <input v-model="manualImportEventName" type="text" class="w-full border rounded px-3 py-2" placeholder="e.g. Newsletter Feb 2026" />
+                        <p class="text-xs text-gray-500 mt-1">Shown in the import logs table.</p>
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Source name (for this log)</label>
+                        <input v-model="manualImportSourceName" type="text" class="w-full border rounded px-3 py-2" placeholder="e.g. CSV upload, Partner list" />
+                        <p class="text-xs text-gray-500 mt-1">Shown in the import logs table.</p>
+                    </div>
+                </div>
+
+                <div class="mb-4">
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Tags (optional)</label>
+                    <input v-model="manualImportTags" type="text" class="w-full border rounded px-3 py-2" placeholder="TAG1; TAG2" />
+                    <p class="text-xs text-gray-500 mt-1">Separate with semicolons.</p>
+                </div>
+
+                <div class="flex justify-end gap-3 pt-4 border-t">
+                    <button type="button" @click="showManualImportModal = false" class="px-4 py-2 border rounded text-gray-600 hover:bg-gray-50">Cancel</button>
+                    <button
+                        type="button"
+                        @click="manualImportRun"
+                        :disabled="manualImportImporting || !manualImportListId || manualImportCsvRows.length === 0"
+                        class="px-4 py-2 bg-teal-600 text-white rounded hover:bg-teal-700 disabled:opacity-50"
+                    >
+                        <span v-if="manualImportImporting"><i class="fa-solid fa-spinner fa-spin mr-2"></i> Importing...</span>
+                        <span v-else><i class="fa-solid fa-upload mr-2"></i> Import {{ manualImportCsvRows.length }} rows</span>
                     </button>
                 </div>
             </div>

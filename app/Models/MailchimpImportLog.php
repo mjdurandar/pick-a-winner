@@ -21,6 +21,8 @@ class MailchimpImportLog extends Model
         'mailchimp_account',
         'list_id',
         'list_name',
+        'custom_event_name',
+        'custom_source',
         'status',
         'has_import_file',
     ];
