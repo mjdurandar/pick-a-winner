@@ -26,6 +26,9 @@ class EventImportAllToMailchimpJob implements ShouldQueue
     /** @var int Job timeout in seconds; large imports need time to finish all locations. */
     public $timeout;
 
+    /** Fail after one attempt so one failing job does not block the queue with retries. */
+    public $tries = 1;
+
     public function __construct(
         public int $eventId,
         public string $listId,

@@ -252,26 +252,25 @@ class MailchimpService
             $isExisting = false;
         }
 
-        // Try PATCH first for existing subscribers to avoid validation of all existing fields
-        // This approach only updates the fields we're sending, without validating other existing fields
-        $response = Http::withBasicAuth('anystring', $this->apiKey)
-            ->patch("{$this->baseUrl}/lists/{$listId}/members/{$emailHash}", [
-                'merge_fields' => $mergeFields,
-                'tags' => $tagsData
-            ]);
-            
-        // If PATCH fails (subscriber doesn't exist), try POST to create new subscriber
-        if (!$response->successful() && $response->status() === 404) {
+        $doRequest = function ($mergeFieldsToSend) use ($emailHash, $listId, $subscriber, $tagsData) {
             $response = Http::withBasicAuth('anystring', $this->apiKey)
-                ->post("{$this->baseUrl}/lists/{$listId}/members", [
-                    'email_address' => $subscriber['email_address'],
-                    'status' => 'subscribed',
-                    'merge_fields' => $mergeFields,
+                ->patch("{$this->baseUrl}/lists/{$listId}/members/{$emailHash}", [
+                    'merge_fields' => $mergeFieldsToSend,
                     'tags' => $tagsData
                 ]);
-            $isExisting = false; // This is a new subscriber
-        }
+            if (! $response->successful() && $response->status() === 404) {
+                $response = Http::withBasicAuth('anystring', $this->apiKey)
+                    ->post("{$this->baseUrl}/lists/{$listId}/members", [
+                        'email_address' => $subscriber['email_address'],
+                        'status' => 'subscribed',
+                        'merge_fields' => $mergeFieldsToSend,
+                        'tags' => $tagsData
+                    ]);
+            }
+            return $response;
+        };
 
+        $response = $doRequest($mergeFields);
         if ($response->successful()) {
             $result = $response->json();
             $result['was_existing'] = $isExisting;
@@ -281,31 +280,23 @@ class MailchimpService
             return $result;
         }
 
-        // Check if this is a MMERGE18 validation error from existing data (not our import data)
         $responseBody = $response->body();
-        $responseData = json_decode($responseBody, true);
-        
-        if ($response->status() === 400 && 
-            isset($responseData['errors']) && 
-            is_array($responseData['errors'])) {
-            
-            // Check if all errors are MMERGE18 related (household income field we're not importing)
+        $responseData = json_decode($responseBody, true) ?? [];
+
+        if ($response->status() === 400 && isset($responseData['errors']) && is_array($responseData['errors'])) {
             $allErrorsAreMerge18 = true;
             foreach ($responseData['errors'] as $error) {
-                if (!isset($error['field']) || $error['field'] !== 'MMERGE18') {
+                if (! isset($error['field']) || $error['field'] !== 'MMERGE18') {
                     $allErrorsAreMerge18 = false;
                     break;
                 }
             }
-            
-            // If all errors are MMERGE18 related, treat as successful update
             if ($allErrorsAreMerge18) {
-                // Return a successful result structure
                 return [
-                    'id' => 'unknown', // We don't have the member ID but that's ok
+                    'id' => 'unknown',
                     'email_address' => $subscriber['email_address'],
                     'status' => 'subscribed',
-                    'was_existing' => true, // These are existing subscribers with bad data
+                    'was_existing' => true,
                     'import_type' => 'updated',
                     'rejected_fields' => $rejectedFields,
                     'note' => 'MMERGE18 validation errors ignored - not from our import data'
@@ -313,8 +304,42 @@ class MailchimpService
             }
         }
 
+        $detail = $responseData['detail'] ?? '';
+        $errors = $responseData['errors'] ?? [];
+        $isPhoneRelatedError = false;
+        if ($response->status() === 400) {
+            foreach ($errors as $err) {
+                $field = $err['field'] ?? '';
+                if (in_array($field, ['PHONE', 'SMSPHONE', 'MERGE4', 'MERGE30'], true)) {
+                    $isPhoneRelatedError = true;
+                    break;
+                }
+            }
+            if (! $isPhoneRelatedError && (stripos($detail, 'SMSPHONE') !== false || stripos($detail, 'SMS number') !== false || stripos($detail, 'international standard') !== false)) {
+                $isPhoneRelatedError = true;
+            }
+        }
+
+        if ($isPhoneRelatedError) {
+            $mergeFieldsWithoutPhone = array_diff_key($mergeFields, array_flip(['PHONE', 'SMSPHONE', 'MERGE4', 'MERGE30']));
+            \Illuminate\Support\Facades\Log::info('Manual import - retrying without phone/SMS fields after invalid format', [
+                'email' => $subscriber['email_address'] ?? '',
+            ]);
+            $response = $doRequest($mergeFieldsWithoutPhone);
+            if ($response->successful()) {
+                $result = $response->json();
+                $result['was_existing'] = $isExisting;
+                $result['import_type'] = $isExisting ? 'updated' : 'new';
+                $result['rejected_fields'] = array_merge($rejectedFields, ['PHONE/SMS omitted (invalid format)']);
+
+                return $result;
+            }
+            $responseBody = $response->body();
+            $responseData = json_decode($responseBody, true) ?? [];
+        }
+
         $detail = $responseData['detail'] ?? 'Your merge fields were invalid.';
-        if (!empty($responseData['errors']) && is_array($responseData['errors'])) {
+        if (! empty($responseData['errors']) && is_array($responseData['errors'])) {
             $first = $responseData['errors'][0];
             $field = $first['field'] ?? '';
             $message = $first['message'] ?? '';
