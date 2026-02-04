@@ -257,6 +257,10 @@ const queuedImportRows = computed(() => {
     const rows = [];
     for (const job of queuedImports.value) {
         const locations = job.locations || [];
+        const totalToImport = job.total_locations_to_import ?? job.locations_count ?? locations.length;
+        const importedSoFar = job.locations_imported_so_far ?? null;
+        const failedSoFar = job.locations_failed_so_far ?? null;
+        const jobType = job.job_type || null;
         for (const loc of locations) {
             rows.push({
                 job_id: job.job_id,
@@ -265,6 +269,9 @@ const queuedImportRows = computed(() => {
                 event_name: job.event_name || '—',
                 status: job.status,
                 created_at: job.created_at,
+                total_locations_to_import: jobType === 'import_all' ? totalToImport : null,
+                locations_imported_so_far: jobType === 'import_all' ? importedSoFar : null,
+                locations_failed_so_far: jobType === 'import_all' ? failedSoFar : null,
             });
         }
         if (locations.length === 0 && (job.job_id || job.event_name)) {
@@ -275,6 +282,9 @@ const queuedImportRows = computed(() => {
                 event_name: job.event_name || '—',
                 status: job.status,
                 created_at: job.created_at,
+                total_locations_to_import: jobType === 'import_all' ? totalToImport : null,
+                locations_imported_so_far: jobType === 'import_all' ? importedSoFar : null,
+                locations_failed_so_far: jobType === 'import_all' ? failedSoFar : null,
             });
         }
     }
@@ -1034,7 +1044,20 @@ const exportToCsv = () => {
                                     :key="(row.job_id || '') + '-' + (row.location_id ?? idx)"
                                     class="hover:bg-gray-50"
                                 >
-                                    <td class="border border-gray-300 p-2 font-medium text-gray-900">{{ row.event_name }}</td>
+                                    <td class="border border-gray-300 p-2">
+                                        <div class="font-medium text-gray-900">{{ row.event_name }}</div>
+                                        <div class="text-xs text-gray-500 mt-0.5">
+                                            <template v-if="row.total_locations_to_import != null">
+                                                <template v-if="row.status === 'in_progress' && row.locations_imported_so_far != null">
+                                                    {{ row.locations_imported_so_far }} of {{ row.total_locations_to_import }} locations finished
+                                                    <span v-if="row.locations_failed_so_far > 0" class="text-amber-600"> ({{ row.locations_failed_so_far }} failed)</span>
+                                                </template>
+                                                <template v-else>
+                                                    {{ row.total_locations_to_import }} location{{ row.total_locations_to_import !== 1 ? 's' : '' }} to import
+                                                </template>
+                                            </template>
+                                        </div>
+                                    </td>
                                     <td class="border border-gray-300 p-2 text-gray-700">{{ row.location_name }}</td>
                                     <td class="border border-gray-300 p-2">
                                         <span

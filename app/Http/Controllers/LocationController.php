@@ -1698,9 +1698,14 @@ class LocationController extends Controller
             $fieldMapping
         );
 
-        Log::info('Event import all queued', [
+        $totalLocations = count($locationsPayload);
+        $subscribersEstimate = array_reduce($locationsPayload, fn ($sum, $loc) => $sum + count($loc['attendees'] ?? []), 0);
+        Log::info('Event import all queued – total locations to import', [
             'event_id' => $eventId,
-            'locations_count' => count($locationsPayload),
+            'list_id' => $listId,
+            'import_batch_id' => $importBatchId,
+            'total_locations_to_import' => $totalLocations,
+            'subscribers_estimate' => $subscribersEstimate,
         ]);
 
         return response()->json([

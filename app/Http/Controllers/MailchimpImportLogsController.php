@@ -496,21 +496,29 @@ class MailchimpImportLogsController extends Controller
             $locationsPayload = $job->locationsPayload ?? [];
             $locationIdsFromPayload = array_map(fn ($loc) => (int) ($loc['location_id'] ?? 0), $locationsPayload);
             $locationIdsFromPayload = array_filter($locationIdsFromPayload);
+            $totalLocations = count($locationIdsFromPayload);
 
             $eventIds[] = $eventId;
             foreach ($locationIdsFromPayload as $lid) {
                 $locationIds[$lid] = true;
             }
 
-            $result[] = [
+            $item = [
                 'job_id' => $row->id,
                 'status' => $row->reserved_at ? 'in_progress' : 'queued',
                 'event_id' => $eventId,
-                'locations_count' => count($locationIdsFromPayload),
+                'locations_count' => $totalLocations,
+                'total_locations_to_import' => $totalLocations,
                 'location_ids' => array_values($locationIdsFromPayload),
                 'job_type' => 'import_all',
                 'created_at' => $row->created_at ? date('Y-m-d H:i:s', $row->created_at) : null,
             ];
+            if ($row->reserved_at && $job->importBatchId) {
+                $progress = Cache::get('event_import_progress_' . $job->importBatchId, []);
+                $item['locations_imported_so_far'] = (int) ($progress['locations_imported'] ?? 0);
+                $item['locations_failed_so_far'] = (int) ($progress['locations_failed'] ?? 0);
+            }
+            $result[] = $item;
         }
 
         $locationIds = array_keys($locationIds);
@@ -592,6 +600,7 @@ class MailchimpImportLogsController extends Controller
         $this->jobsTable()->where('id', $jobId)->delete();
 
         if (count($remaining) > 0) {
+            $newBatchId = Str::uuid()->toString();
             EventImportAllToMailchimpJob::dispatch(
                 $job->eventId,
                 $job->listId,
@@ -600,9 +609,17 @@ class MailchimpImportLogsController extends Controller
                 $remaining,
                 $job->userId,
                 $job->skipAlreadyImported,
-                Str::uuid()->toString(),
+                $newBatchId,
                 $job->fieldMapping ?? null
             );
+            $subscribersEstimate = array_reduce($remaining, fn ($sum, $loc) => $sum + count($loc['attendees'] ?? []), 0);
+            Log::info('Event import all queued – total locations to import (after removing one location)', [
+                'event_id' => $job->eventId,
+                'list_id' => $job->listId,
+                'import_batch_id' => $newBatchId,
+                'total_locations_to_import' => count($remaining),
+                'subscribers_estimate' => $subscribersEstimate,
+            ]);
         }
 
         return response()->json([
