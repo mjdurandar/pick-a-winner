@@ -357,6 +357,310 @@ class WeeklyReportController extends Controller
             'Content-Disposition' => 'attachment; filename="' . $filename . '"',
         ]);
     }
+
+    /**
+     * Export demographics spreadsheet: one row per event with BRAND, DATA SOURCE, SIZE OF DATA CAPTURE,
+     * then one column per question (Age, Gender, Where did you hear..., etc.) with breakdown (value = count) or N/A.
+     * Optional date filter; without dates, all events with signup forms are included.
+     */
+    public function exportDemographicsSpreadsheet(Request $request)
+    {
+        $eventIds = $request->input('event_ids', []);
+        if (!is_array($eventIds)) {
+            $eventIds = array_filter([$eventIds]);
+        }
+        $eventIds = array_map('intval', array_filter($eventIds));
+
+        $query = Events::with(['signUpForm', 'locations'])
+            ->whereHas('signUpForm', fn ($q) => $q->whereNotNull('table_name'));
+
+        if (count($eventIds) > 0) {
+            $query->whereIn('id', $eventIds);
+        }
+
+        $events = $query->get();
+
+        $startDate = $request->filled('start_date') ? Carbon::parse($request->start_date)->startOfDay() : null;
+        $endDate = $request->filled('end_date') ? Carbon::parse($request->end_date)->endOfDay() : null;
+
+        if ($startDate && $endDate && count($eventIds) === 0) {
+            $events = $events->filter(function ($event) use ($startDate, $endDate) {
+                $hasLocationInRange = $event->locations->contains(function ($loc) use ($startDate, $endDate) {
+                    if (!$loc->date || $loc->date === 'TBA') {
+                        return false;
+                    }
+                    try {
+                        return Carbon::parse($loc->date)->between($startDate, $endDate);
+                    } catch (\Exception $e) {
+                        return false;
+                    }
+                });
+                return $hasLocationInRange || Carbon::parse($event->created_at)->between($startDate, $endDate);
+            });
+        }
+
+        $allQuestionKeys = [];
+        $eventRows = [];
+
+        foreach ($events as $event) {
+            $data = $this->buildEventBreakdownData($event);
+            if (!$data) {
+                continue;
+            }
+            $totalSignups = $data['total_signups'];
+            $breakdown = $data['breakdown'];
+
+            $brand = $event->event_name ?? '—';
+            $dataSource = $event->event_name ?? '—';
+
+            $row = [
+                'BRAND' => $brand,
+                'DEMOGRAPHICS DATA SOURCE' => $dataSource,
+                'SIZE OF DATA CAPTURE' => (string) $totalSignups,
+            ];
+
+            foreach ($breakdown as $q) {
+                $key = $q['question_text'] ?? $q['column_name'] ?? null;
+                if (!$key) {
+                    continue;
+                }
+                $allQuestionKeys[$key] = true;
+                $parts = [];
+                foreach ($q['responses'] ?? [] as $r) {
+                    $parts[] = ($r['value'] ?? '') . ' = ' . (int) ($r['count'] ?? 0);
+                }
+                $row[$key] = count($parts) > 0 ? implode("\n", $parts) : 'N/A';
+            }
+
+            $eventRows[] = $row;
+        }
+
+        $questionOrder = $this->orderDemographicsQuestionColumns(array_keys($allQuestionKeys));
+        $headers = array_merge(['BRAND', 'DEMOGRAPHICS DATA SOURCE', 'SIZE OF DATA CAPTURE'], $questionOrder);
+
+        foreach ($eventRows as &$eventRow) {
+            foreach ($questionOrder as $col) {
+                if (!array_key_exists($col, $eventRow)) {
+                    $eventRow[$col] = 'N/A';
+                }
+            }
+        }
+        unset($eventRow);
+
+        $filename = 'demographics_report_'
+            . (count($eventIds) > 0 ? count($eventIds) . '_events_' : ($startDate && $endDate ? $startDate->format('Y-m-d') . '_to_' . $endDate->format('Y-m-d') . '_' : 'all_events_'))
+            . date('Y-m-d') . '.csv';
+
+        $callback = function () use ($headers, $eventRows) {
+            $file = fopen('php://output', 'w');
+            fprintf($file, "\xEF\xBB\xBF");
+            fputcsv($file, $headers);
+            foreach ($eventRows as $row) {
+                $ordered = [];
+                foreach ($headers as $h) {
+                    $ordered[] = $row[$h] ?? 'N/A';
+                }
+                fputcsv($file, $ordered);
+            }
+            fclose($file);
+        };
+
+        return response()->stream($callback, 200, [
+            'Content-Type' => 'text/csv; charset=UTF-8',
+            'Content-Disposition' => 'attachment; filename="' . $filename . '"',
+        ]);
+    }
+
+    /**
+     * Order question columns: Age, Gender, Where did you hear... first, then rest alphabetically.
+     */
+    private function orderDemographicsQuestionColumns(array $keys): array
+    {
+        $age = $gender = $hear = null;
+        $rest = [];
+        foreach ($keys as $k) {
+            $lower = mb_strtolower($k);
+            if (str_contains($lower, 'age') && $age === null) {
+                $age = $k;
+            } elseif (str_contains($lower, 'gender') && $gender === null) {
+                $gender = $k;
+            } elseif ((str_contains($lower, 'hear') || str_contains($lower, 'how did you') || str_contains($lower, 'where did you')) && $hear === null) {
+                $hear = $k;
+            } else {
+                $rest[] = $k;
+            }
+        }
+        sort($rest);
+        return array_filter(array_merge([$age, $gender, $hear], $rest));
+    }
+
+    /**
+     * Build breakdown data for one event (total signups + per-question responses). Returns null if no signup form.
+     */
+    private function buildEventBreakdownData(Events $event): ?array
+    {
+        if (!$event->signUpForm || !$event->signUpForm->table_name) {
+            return null;
+        }
+        $tableName = $event->signUpForm->table_name;
+        $questions = json_decode($event->signUpForm->questions, true) ?? [];
+
+        $totalSignups = DB::table($tableName)->where('event_id', $event->id)->count();
+        $breakdown = [];
+
+        $detectPhoneCountry = function ($phoneNumber) {
+            if (empty($phoneNumber)) {
+                return 'Other';
+            }
+            $cleaned = preg_replace('/\D+/', '', $phoneNumber);
+            if (empty($cleaned)) {
+                return 'Other';
+            }
+            if (preg_match('/^(\+61|61)/', $phoneNumber)) {
+                $withoutCountry = preg_replace('/^(\+61|61)/', '', $cleaned);
+                if (strlen($withoutCountry) >= 9 && strlen($withoutCountry) <= 10) {
+                    return 'Australian';
+                }
+            }
+            if (preg_match('/^(\+64|64)/', $phoneNumber)) {
+                $withoutCountry = preg_replace('/^(\+64|64)/', '', $cleaned);
+                if (strlen($withoutCountry) >= 8 && strlen($withoutCountry) <= 9) {
+                    return 'New Zealand';
+                }
+            }
+            if (preg_match('/^(04|02|03|07|08)/', $cleaned) && strlen($cleaned) === 10) {
+                return 'Australian';
+            }
+            if (preg_match('/^(02|03|04|06|07|09)/', $cleaned) && strlen($cleaned) >= 8 && strlen($cleaned) <= 9) {
+                return 'New Zealand';
+            }
+            return 'Other';
+        };
+
+        foreach ($questions as $question) {
+            $columnName = $question['column_name'] ?? null;
+            if (!$columnName) {
+                continue;
+            }
+            if ($question['type'] === 'email' || $columnName === 'email_address' ||
+                $columnName === 'first_name' || $columnName === 'last_name' ||
+                stripos($columnName, 'date_of_birth') !== false ||
+                stripos($columnName, 'dateofbirth') !== false ||
+                stripos($columnName, 'dob') !== false ||
+                (strtolower($question['text'] ?? '') === 'date of birth') ||
+                $question['type'] === 'text') {
+                continue;
+            }
+
+            $questionBreakdown = [
+                'question_text' => $question['text'] ?? $columnName,
+                'column_name' => $columnName,
+                'responses' => [],
+            ];
+
+            if ($columnName === 'mobile_number') {
+                $allPhones = DB::table($tableName)
+                    ->where('event_id', $event->id)
+                    ->whereNotNull($columnName)
+                    ->where($columnName, '!=', '')
+                    ->pluck($columnName);
+                $phoneBreakdown = ['Australian' => 0, 'New Zealand' => 0, 'Other' => 0];
+                foreach ($allPhones as $phone) {
+                    $country = $detectPhoneCountry($phone);
+                    $phoneBreakdown[$country]++;
+                }
+                foreach ($phoneBreakdown as $country => $count) {
+                    if ($count > 0) {
+                        $questionBreakdown['responses'][] = ['value' => $country, 'count' => $count];
+                    }
+                }
+            } else {
+                $responses = DB::table($tableName)
+                    ->where('event_id', $event->id)
+                    ->whereNotNull($columnName)
+                    ->where($columnName, '!=', '')
+                    ->select($columnName, DB::raw('count(*) as count'))
+                    ->groupBy($columnName)
+                    ->orderByDesc('count')
+                    ->get();
+                $questionOptions = isset($question['options']) && is_array($question['options']) ? $question['options'] : [];
+                $hasOtherOption = isset($question['hasOtherOption']) && $question['hasOtherOption'];
+
+                if ($question['type'] === 'dropdown' && isset($question['allowMultiple']) && $question['allowMultiple']) {
+                    $individualCounts = [];
+                    $otherCount = 0;
+                    foreach ($responses as $response) {
+                        $value = $response->{$columnName};
+                        $count = $response->count;
+                        $decoded = json_decode($value, true);
+                        if (is_array($decoded) && count($decoded) > 0) {
+                            foreach ($decoded as $item) {
+                                $item = trim($item);
+                                if (!empty($item)) {
+                                    if (!empty($questionOptions) && !in_array($item, $questionOptions) && $item !== 'Other') {
+                                        $otherCount += $count;
+                                    } else {
+                                        $individualCounts[$item] = ($individualCounts[$item] ?? 0) + $count;
+                                    }
+                                }
+                            }
+                        } elseif (!empty($value)) {
+                            if (!empty($questionOptions)) {
+                                $matchedOptions = [];
+                                $remainingValue = $value;
+                                $sortedOptions = $questionOptions;
+                                usort($sortedOptions, fn ($a, $b) => strlen($b) - strlen($a));
+                                foreach ($sortedOptions as $option) {
+                                    if (strpos($remainingValue, $option) !== false) {
+                                        $matchedOptions[] = $option;
+                                        $remainingValue = str_replace($option, '', $remainingValue);
+                                    }
+                                }
+                                foreach ($matchedOptions as $option) {
+                                    $individualCounts[$option] = ($individualCounts[$option] ?? 0) + $count;
+                                }
+                                if (empty($matchedOptions)) {
+                                    $otherCount += $count;
+                                }
+                            } else {
+                                if ($hasOtherOption && $value !== 'Other' && !in_array($value, $questionOptions)) {
+                                    $otherCount += $count;
+                                } else {
+                                    $individualCounts[$value] = ($individualCounts[$value] ?? 0) + $count;
+                                }
+                            }
+                        }
+                    }
+                    if ($otherCount > 0) {
+                        $individualCounts['Other'] = $otherCount;
+                    }
+                    arsort($individualCounts);
+                    foreach ($individualCounts as $item => $count) {
+                        $questionBreakdown['responses'][] = ['value' => $item, 'count' => $count];
+                    }
+                } else {
+                    $otherCount = 0;
+                    foreach ($responses as $response) {
+                        $value = $response->{$columnName};
+                        $count = $response->count;
+                        if ($hasOtherOption && !empty($questionOptions) && !in_array($value, $questionOptions) && $value !== 'Other') {
+                            $otherCount += $count;
+                        } else {
+                            $questionBreakdown['responses'][] = ['value' => $value, 'count' => $count];
+                        }
+                    }
+                    if ($otherCount > 0) {
+                        $questionBreakdown['responses'][] = ['value' => 'Other', 'count' => $otherCount];
+                    }
+                }
+            }
+
+            usort($questionBreakdown['responses'], fn ($a, $b) => ($b['count'] ?? 0) - ($a['count'] ?? 0));
+            $breakdown[] = $questionBreakdown;
+        }
+
+        return ['total_signups' => $totalSignups, 'breakdown' => $breakdown];
+    }
     
     public function exportPdf(Request $request)
     {

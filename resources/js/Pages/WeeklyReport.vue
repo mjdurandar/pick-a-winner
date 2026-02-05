@@ -40,9 +40,16 @@ const activeTab = ref('weekly-report');
 const selectedEventId = ref(null);
 const eventBreakdown = ref(null);
 const isLoadingBreakdown = ref(false);
+const selectedEventIdsForSpreadsheet = ref([]);
 const availableEvents = computed(() => {
     return props.allEventsSummary.filter(e => e.has_signup_form);
 });
+const selectAllEventsForSpreadsheet = () => {
+    selectedEventIdsForSpreadsheet.value = availableEvents.value.map(e => e.event_id);
+};
+const clearEventsForSpreadsheet = () => {
+    selectedEventIdsForSpreadsheet.value = [];
+};
 
 // Set default dates if not provided
 onMounted(() => {
@@ -112,6 +119,19 @@ const generateReport = async () => {
     } finally {
         isLoading.value = false;
     }
+};
+
+const exportDemographicsSpreadsheet = () => {
+    if (!selectedEventIdsForSpreadsheet.value || selectedEventIdsForSpreadsheet.value.length === 0) {
+        Swal.fire('Error', 'Please select at least one event to include in the spreadsheet', 'error');
+        return;
+    }
+    let url = route('weekly-report.export-demographics-spreadsheet');
+    const params = new URLSearchParams();
+    selectedEventIdsForSpreadsheet.value.forEach(id => params.append('event_ids[]', id));
+    url += '?' + params.toString();
+    window.open(url, '_blank');
+    Swal.fire('Success', 'Demographics spreadsheet download started. Open the new tab if it was blocked.', 'success');
 };
 
 const exportReport = () => {
@@ -932,6 +952,51 @@ watch(() => eventBreakdown.value, async () => {
                                     >
                                         Export PDF
                                     </button>
+                                </div>
+                            </div>
+
+                            <!-- Export demographics spreadsheet: multi-select events -->
+                            <div class="mt-6 pt-6 border-t border-gray-200">
+                                <h4 class="text-sm font-semibold text-gray-700 mb-2">Export demographics spreadsheet</h4>
+                                <p class="text-sm text-gray-500 mb-3">Select the events to include (one row per event: BRAND, data source, size, then question breakdowns; N/A where a question does not apply).</p>
+                                <div class="flex flex-wrap gap-2 mb-3">
+                                    <button
+                                        type="button"
+                                        @click="selectAllEventsForSpreadsheet"
+                                        class="px-3 py-1.5 text-sm bg-gray-100 hover:bg-gray-200 rounded-md"
+                                    >
+                                        Select all
+                                    </button>
+                                    <button
+                                        type="button"
+                                        @click="clearEventsForSpreadsheet"
+                                        class="px-3 py-1.5 text-sm bg-gray-100 hover:bg-gray-200 rounded-md"
+                                    >
+                                        Clear
+                                    </button>
+                                    <button
+                                        type="button"
+                                        @click="exportDemographicsSpreadsheet"
+                                        :disabled="!selectedEventIdsForSpreadsheet.length"
+                                        class="px-4 py-2 bg-teal-600 text-white rounded-md hover:bg-teal-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                                    >
+                                        Export demographics spreadsheet ({{ selectedEventIdsForSpreadsheet.length }} selected)
+                                    </button>
+                                </div>
+                                <div class="flex flex-wrap gap-x-4 gap-y-2 max-h-40 overflow-y-auto border border-gray-200 rounded p-3 bg-gray-50">
+                                    <label
+                                        v-for="event in availableEvents"
+                                        :key="event.event_id"
+                                        class="inline-flex items-center gap-2 text-sm cursor-pointer"
+                                    >
+                                        <input
+                                            type="checkbox"
+                                            :value="event.event_id"
+                                            v-model="selectedEventIdsForSpreadsheet"
+                                            class="rounded border-gray-300 text-teal-600 focus:ring-teal-500"
+                                        />
+                                        <span class="text-gray-700">{{ event.event_name }} ({{ event.total_signups }})</span>
+                                    </label>
                                 </div>
                             </div>
                         </div>
