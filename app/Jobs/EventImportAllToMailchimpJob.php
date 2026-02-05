@@ -29,6 +29,15 @@ class EventImportAllToMailchimpJob implements ShouldQueue
     /** Fail after one attempt so one failing job does not block the queue with retries. */
     public $tries = 1;
 
+    /** Mailchimp batch API: max operations per batch (Mailchimp recommends up to 500). */
+    private const BATCH_CHUNK_SIZE = 500;
+
+    /** Poll interval when waiting for a batch to finish (seconds). */
+    private const BATCH_POLL_INTERVAL_SECONDS = 15;
+
+    /** Max time to wait for a single batch to complete (seconds). */
+    private const BATCH_MAX_WAIT_SECONDS = 600;
+
     /** Progress for failure logging (set during run; not serialized in original payload so failed() uses cache). */
     public array $progressForLogging = [];
 
@@ -332,6 +341,142 @@ class EventImportAllToMailchimpJob implements ShouldQueue
         ]);
     }
 
+    /**
+     * Import subscribers to Mailchimp via the Batch API (submit batch, then poll until finished).
+     * When operations error, fetches the batch response URL to get per-operation error messages.
+     *
+     * @return array{success: int, failed: int, errors: array<int, string>, failed_operations: array<int, array{email_address: string, first_name: string, last_name: string, mobile_number: string, error_message: string}>}
+     */
+    private function runBatchImport(
+        MailchimpService $mailchimpService,
+        string $listId,
+        array $subscribers,
+        array $tags,
+        ?array $fieldMapping
+    ): array {
+        $totalSuccess = 0;
+        $totalFailed = 0;
+        $errors = [];
+        $failedOperations = [];
+        if (empty($subscribers)) {
+            return ['success' => 0, 'failed' => 0, 'errors' => [], 'failed_operations' => []];
+        }
+
+        $availableMergeFields = $mailchimpService->getListMergeFields($listId);
+        $chunks = array_chunk($subscribers, self::BATCH_CHUNK_SIZE);
+        $batchIndex = 0;
+
+        foreach ($chunks as $chunk) {
+            $batchIndex++;
+            $operations = [];
+            $subscribersInOrder = []; // same order as operations, for mapping response index -> subscriber
+            foreach ($chunk as $i => $subscriber) {
+                $email = strtolower(trim($subscriber['email_address'] ?? ''));
+                if ($email === '') {
+                    continue;
+                }
+                $emailHash = md5($email);
+                $path = "/lists/{$listId}/members/{$emailHash}";
+                $body = $mailchimpService->buildMemberPayloadForBatch($listId, $subscriber, $tags, $fieldMapping, $availableMergeFields);
+                $operations[] = [
+                    'method' => 'PUT',
+                    'path' => $path,
+                    'body' => json_encode($body),
+                    'operation_id' => (string) ($batchIndex * self::BATCH_CHUNK_SIZE + $i),
+                ];
+                $subscribersInOrder[] = $subscriber;
+            }
+            if (empty($operations)) {
+                continue;
+            }
+
+            try {
+                $batchResponse = $mailchimpService->submitBatch($operations);
+                $batchId = $batchResponse['id'] ?? null;
+                if (! $batchId) {
+                    $totalFailed += count($operations);
+                    $errors[] = "Batch {$batchIndex}: no batch id in response.";
+                    continue;
+                }
+
+                $deadline = time() + self::BATCH_MAX_WAIT_SECONDS;
+                while (true) {
+                    $statusResponse = $mailchimpService->getBatchStatus($batchId);
+                    $status = $statusResponse['status'] ?? 'pending';
+                    if ($status === 'finished') {
+                        $finished = (int) ($statusResponse['finished_operations'] ?? 0);
+                        $errored = (int) ($statusResponse['errored_operations'] ?? 0);
+                        // finished_operations = all completed (success + error); success = finished - errored
+                        $totalSuccess += max(0, $finished - $errored);
+                        $totalFailed += $errored;
+                        if ($errored > 0) {
+                            $responseBodyUrl = $statusResponse['response_body_url'] ?? null;
+                            if ($responseBodyUrl && is_string($responseBodyUrl)) {
+                                try {
+                                    $responses = $mailchimpService->getBatchResponseBody($responseBodyUrl);
+                                    foreach ($responses as $i => $item) {
+                                        $statusCode = (int) ($item['status_code'] ?? 0);
+                                        if ($statusCode >= 400 && isset($subscribersInOrder[$i])) {
+                                            $sub = $subscribersInOrder[$i];
+                                            $bodyStr = $item['response'] ?? '';
+                                            $body = is_string($bodyStr) ? json_decode($bodyStr, true) : null;
+                                            $detail = $body['detail'] ?? '';
+                                            if (is_array($body['errors'] ?? null)) {
+                                                $parts = [];
+                                                foreach (array_slice($body['errors'], 0, 3) as $err) {
+                                                    $field = $err['field'] ?? '';
+                                                    $msg = $err['message'] ?? '';
+                                                    $parts[] = $field ? "{$field}: {$msg}" : $msg;
+                                                }
+                                                if ($parts) {
+                                                    $detail = ($detail ? $detail . ' ' : '') . implode('; ', $parts);
+                                                }
+                                            }
+                                            $failedOperations[] = [
+                                                'email_address' => $sub['email_address'] ?? '',
+                                                'first_name' => $sub['first_name'] ?? '',
+                                                'last_name' => $sub['last_name'] ?? '',
+                                                'mobile_number' => $sub['mobile_number'] ?? $sub['phone'] ?? '',
+                                                'error_message' => $detail ?: ("HTTP {$statusCode}"),
+                                            ];
+                                        }
+                                    }
+                                } catch (\Throwable $e) {
+                                    Log::warning('Event import all (job): could not fetch batch response body for errors', [
+                                        'batch_id' => $batchId,
+                                        'error' => $e->getMessage(),
+                                    ]);
+                                }
+                            }
+                        }
+                        break;
+                    }
+                    if (in_array($status, ['pending', 'preprocessing', 'started', 'finalizing'], true)) {
+                        if (time() >= $deadline) {
+                            $totalFailed += count($operations);
+                            $errors[] = "Batch {$batchIndex}: timed out waiting for batch (status: {$status}).";
+                            break;
+                        }
+                        sleep(self::BATCH_POLL_INTERVAL_SECONDS);
+                        continue;
+                    }
+                    $totalFailed += count($operations);
+                    $errors[] = "Batch {$batchIndex}: unexpected status '{$status}'.";
+                    break;
+                }
+            } catch (\Throwable $e) {
+                $totalFailed += count($operations);
+                $errors[] = "Batch {$batchIndex}: " . substr($e->getMessage(), 0, 150);
+                Log::warning('Event import all (job): batch submit or poll failed', [
+                    'batch_index' => $batchIndex,
+                    'error' => $e->getMessage(),
+                ]);
+            }
+        }
+
+        return ['success' => $totalSuccess, 'failed' => $totalFailed, 'errors' => $errors, 'failed_operations' => $failedOperations];
+    }
+
     private function importTicketData(
         MailchimpService $mailchimpService,
         MailchimpLogService $logService,
@@ -385,81 +530,35 @@ class EventImportAllToMailchimpJob implements ShouldQueue
             ];
         }
 
-        $locSuccess = 0;
-        $locFailed = 0;
-        $locNew = 0;
-        $locUpdated = 0;
-        $locErrors = [];
-        $failedRowsData = [];
         $listId = $this->listId;
         $maxFailedRowsStored = 100;
 
-        foreach ($subscribers as $subscriber) {
-            try {
-                if (empty($subscriber['email_address'])) {
-                    $locFailed++;
-                    $locErrors[] = 'Skipped: Missing email';
-                    if (count($failedRowsData) < $maxFailedRowsStored) {
-                        $failedRowsData[] = [
-                            'email_address' => '',
-                            'first_name' => $subscriber['first_name'] ?? '',
-                            'last_name' => $subscriber['last_name'] ?? '',
-                            'mobile_number' => $subscriber['mobile_number'] ?? '',
-                            'error_message' => 'Skipped: Missing email',
-                        ];
-                    }
-                    continue;
-                }
-                $result = $mailchimpService->manualImportSubscriber(
-                    $listId,
-                    $subscriber,
-                    $tags,
-                    $this->fieldMapping
-                );
-                $locSuccess++;
-                if (isset($result['import_type'])) {
-                    if ($result['import_type'] === 'new') {
-                        $locNew++;
-                    } elseif ($result['import_type'] === 'updated') {
-                        $locUpdated++;
-                    }
-                }
-                try {
-                    $logService->logImport($location->id, $location->name, [
-                        'success' => true,
-                        'email' => $subscriber['email_address'],
-                        'tags' => $tags,
-                        'source' => 'eventbrite',
-                    ]);
-                } catch (\Throwable $e) {
-                    // Logging failure must not abort the import; continue to next subscriber.
-                }
-            } catch (\Throwable $e) {
-                $locFailed++;
-                $errMsg = substr("{$subscriber['email_address']}: " . $e->getMessage(), 0, 200);
-                $locErrors[] = $errMsg;
-                if (count($failedRowsData) < $maxFailedRowsStored) {
-                    $failedRowsData[] = [
-                        'email_address' => $subscriber['email_address'] ?? '',
-                        'first_name' => $subscriber['first_name'] ?? '',
-                        'last_name' => $subscriber['last_name'] ?? '',
-                        'mobile_number' => $subscriber['mobile_number'] ?? '',
-                        'error_message' => $e->getMessage(),
-                    ];
-                }
-                try {
-                    $logService->logImport($location->id, $location->name, [
-                        'success' => false,
-                        'email' => $subscriber['email_address'] ?? 'unknown',
-                        'error' => $e->getMessage(),
-                        'tags' => $tags,
-                        'source' => 'eventbrite',
-                    ]);
-                } catch (\Throwable $e2) {
-                    // Do not let logging failure abort the import.
-                }
-            }
+        // Filter to subscribers with email for batch (skip empty emails)
+        $subscribersToImport = array_values(array_filter($subscribers, function ($s) {
+            return ! empty(trim($s['email_address'] ?? ''));
+        }));
+        $skippedNoEmail = count($subscribers) - count($subscribersToImport);
+        if ($skippedNoEmail > 0) {
+            Log::info('Event import all (job): skipped subscribers with no email', [
+                'location_id' => $locationId,
+                'skipped' => $skippedNoEmail,
+            ]);
         }
+
+        $batchResult = $this->runBatchImport($mailchimpService, $listId, $subscribersToImport, $tags, $this->fieldMapping);
+        $locSuccess = $batchResult['success'];
+        $batchFailed = $batchResult['failed'];
+        $locFailed = $batchFailed + $skippedNoEmail;
+        $failedOperations = $batchResult['failed_operations'] ?? [];
+        $failedRowsData = array_slice($failedOperations, 0, $maxFailedRowsStored);
+        $attempted = count($subscribersToImport);
+        $locNew = 0;
+        // Only count as "data with error" rows where we have full error details (showable in UI).
+        // Mailchimp-reported errors without details are counted as updated (e.g. may already be in list).
+        $locDataWithError = count($failedRowsData);
+        $noDetailCount = max(0, $batchFailed - count($failedRowsData));
+        $locUpdated = $locSuccess + $noDetailCount;
+        $locErrors = $batchResult['errors'];
 
         $hadPreviousImport = MailchimpImportLog::where('location_id', $locationId)
             ->where('list_id', $this->listId)
@@ -469,10 +568,10 @@ class EventImportAllToMailchimpJob implements ShouldQueue
         $ticketLog = MailchimpImportLog::create([
             'location_id' => $locationId,
             'imported_by' => $this->userId,
-            'total_data' => count($subscribers),
+            'total_data' => $attempted,
             'new_contacts' => $locNew,
             'updated_data' => $locUpdated,
-            'data_with_error' => $locFailed,
+            'data_with_error' => $locDataWithError,
             'errors' => array_slice($locErrors, 0, 50),
             'failed_rows' => array_slice($failedRowsData, 0, $maxFailedRowsStored),
             'tags' => $tags,
@@ -540,15 +639,10 @@ class EventImportAllToMailchimpJob implements ShouldQueue
             ->where('event_id', $eventId)
             ->get();
 
-        $locFormSuccess = 0;
-        $locFormFailed = 0;
-        $locFormNew = 0;
-        $locFormUpdated = 0;
-        $locFormErrors = [];
-        $failedRowsData = [];
         $listId = $this->listId;
         $maxFailedRowsStored = 100;
 
+        $subscribersToImport = [];
         foreach ($signUpRows as $row) {
             $email = trim((string) ($row->email_address ?? ''));
             if ($email === '') {
@@ -561,7 +655,7 @@ class EventImportAllToMailchimpJob implements ShouldQueue
             $zip = trim($row->zip_code ?? $row->postal_code ?? '');
             $country = trim($row->country ?? '');
             $addrParts = array_filter([$street, $street2, $city, $state, $zip, $country]);
-            $subscriber = array_merge(
+            $subscribersToImport[] = array_merge(
                 (array) $row,
                 [
                     'email_address' => $email,
@@ -579,48 +673,20 @@ class EventImportAllToMailchimpJob implements ShouldQueue
                     'address_full' => implode(', ', $addrParts),
                 ]
             );
-            try {
-                $result = $mailchimpService->manualImportSubscriber($listId, $subscriber, $formTags, $this->fieldMapping);
-                $locFormSuccess++;
-                if (isset($result['import_type'])) {
-                    if ($result['import_type'] === 'new') {
-                        $locFormNew++;
-                    } elseif ($result['import_type'] === 'updated') {
-                        $locFormUpdated++;
-                    }
-                }
-                try {
-                    $logService->logImport($location->id, $location->name, [
-                        'success' => true,
-                        'email' => $subscriber['email_address'],
-                        'tags' => $formTags,
-                        'source' => 'signup_form',
-                    ]);
-                } catch (\Throwable $e2) {
-                    // Do not let logging failure abort the import.
-                }
-            } catch (\Throwable $e) {
-                $locFormFailed++;
-                $locFormErrors[] = substr("{$subscriber['email_address']}: " . $e->getMessage(), 0, 200);
-                if (count($failedRowsData) < $maxFailedRowsStored) {
-                    $failedRowsData[] = array_merge(
-                        array_intersect_key($subscriber, array_flip(['email_address', 'first_name', 'last_name', 'mobile_number', 'street_address', 'street_address_2', 'city', 'state', 'zip_code', 'country', 'gender', 'age'])),
-                        ['error_message' => $e->getMessage()]
-                    );
-                }
-                try {
-                    $logService->logImport($location->id, $location->name, [
-                        'success' => false,
-                        'email' => $subscriber['email_address'],
-                        'error' => $e->getMessage(),
-                        'tags' => $formTags,
-                        'source' => 'signup_form',
-                    ]);
-                } catch (\Throwable $e2) {
-                    // Do not let logging failure abort the import.
-                }
-            }
         }
+
+        $batchResult = $this->runBatchImport($mailchimpService, $listId, $subscribersToImport, $formTags, $this->fieldMapping);
+        $locFormSuccess = $batchResult['success'];
+        $locFormFailed = $batchResult['failed'];
+        $failedOperations = $batchResult['failed_operations'] ?? [];
+        $failedRowsData = array_slice($failedOperations, 0, $maxFailedRowsStored);
+        $locFormNew = 0;
+        // Only count as "data with error" rows where we have full error details (showable in UI).
+        $locFormDataWithError = count($failedRowsData);
+        $noDetailCountForm = max(0, $locFormFailed - count($failedRowsData));
+        $locFormUpdated = $locFormSuccess + $noDetailCountForm;
+        $locFormErrors = $batchResult['errors'];
+        $attemptedForm = count($subscribersToImport);
 
         $hadPreviousImport = MailchimpImportLog::where('location_id', $locationId)
             ->where('list_id', $this->listId)
@@ -630,10 +696,10 @@ class EventImportAllToMailchimpJob implements ShouldQueue
         $formLog = MailchimpImportLog::create([
             'location_id' => $locationId,
             'imported_by' => $this->userId,
-            'total_data' => count($signUpRows),
+            'total_data' => $attemptedForm,
             'new_contacts' => $locFormNew,
             'updated_data' => $locFormUpdated,
-            'data_with_error' => $locFormFailed,
+            'data_with_error' => $locFormDataWithError,
             'errors' => array_slice($locFormErrors, 0, 50),
             'failed_rows' => array_slice($failedRowsData, 0, $maxFailedRowsStored),
             'tags' => $formTags,

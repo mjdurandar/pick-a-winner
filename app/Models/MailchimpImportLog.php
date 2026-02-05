@@ -25,6 +25,7 @@ class MailchimpImportLog extends Model
         'custom_source',
         'status',
         'has_import_file',
+        'notes',
     ];
 
     protected $casts = [

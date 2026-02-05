@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed } from 'vue';
+import { ref, computed, watch } from 'vue';
 import Swal from 'sweetalert2';
 import axios from 'axios';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout.vue';
@@ -86,6 +86,11 @@ const hasFailedRows = (log) => {
     return rows.length > 0;
 };
 
+// Show "See more" when we have error text, failed_rows (detailed errors), or data_with_error count
+const hasErrorsToShow = (log) => {
+    return hasErrors(log.errors) || hasFailedRows(log) || (log.data_with_error > 0);
+};
+
 const statusLabel = (status) => {
     if (!status) return '—';
     return status === 'reimport' ? 'Reimport' : 'Import';
@@ -145,13 +150,13 @@ const showFullErrors = (log) => {
     if (hasFailedRows(log)) {
         errorsModalLog.value = log;
         const rows = getFailedRows(log);
-        // Pre-fill every field from the failed row data so you can fix and re-import
-        editableFailedRows.value = rows.map((row) => normalizeFailedRow(row));
+        // Pre-fill every field from the failed row data; add selected: true for re-import checkboxes
+        editableFailedRows.value = rows.map((row) => ({ ...normalizeFailedRow(row), selected: true }));
         showErrorsModal.value = true;
     } else if (hasErrors(log.errors)) {
         // Fallback: no failed_rows (e.g. old log) – parse error strings so user can still fix & re-import
         errorsModalLog.value = log;
-        editableFailedRows.value = parseErrorsToRows(log.errors);
+        editableFailedRows.value = parseErrorsToRows(log.errors).map((row) => ({ ...row, selected: true }));
         if (editableFailedRows.value.length > 0) {
             showErrorsModal.value = true;
         } else {
@@ -166,15 +171,24 @@ const showFullErrors = (log) => {
         }
     } else {
         const text = formatErrors(log.errors);
-        if (!text || text === '—') return;
-        Swal.fire({
-            title: 'Import errors',
-            html: `<div class="text-left text-sm text-gray-700 whitespace-pre-wrap break-words max-h-96 overflow-y-auto p-2 bg-gray-50 rounded border border-gray-200">${escapeHtml(text)}</div>`,
-            width: '32rem',
-            showCloseButton: true,
-            showConfirmButton: true,
-            confirmButtonText: 'Close',
-        });
+        if (text && text !== '—') {
+            Swal.fire({
+                title: 'Import errors',
+                html: `<div class="text-left text-sm text-gray-700 whitespace-pre-wrap break-words max-h-96 overflow-y-auto p-2 bg-gray-50 rounded border border-gray-200">${escapeHtml(text)}</div>`,
+                width: '32rem',
+                showCloseButton: true,
+                showConfirmButton: true,
+                confirmButtonText: 'Close',
+            });
+        } else if ((log.data_with_error ?? 0) > 0) {
+            Swal.fire({
+                title: 'Import errors',
+                html: `<p class="text-sm text-gray-700">No detailed error information is available for this import (${log.data_with_error} row(s) had errors).</p>`,
+                width: '28rem',
+                showCloseButton: true,
+                confirmButtonText: 'Close',
+            });
+        }
     }
 };
 
@@ -184,13 +198,20 @@ const closeErrorsModal = () => {
     editableFailedRows.value = [];
 };
 
+const selectedFailedRows = computed(() => editableFailedRows.value.filter((row) => row.selected !== false));
+
+const setAllReimportSelected = (checked) => {
+    editableFailedRows.value.forEach((row) => { row.selected = !!checked; });
+};
+
 const reimportCorrectedData = async () => {
-    if (!errorsModalLog.value || !editableFailedRows.value.length) return;
+    const toImport = selectedFailedRows.value;
+    if (!errorsModalLog.value || !toImport.length) return;
     isReimporting.value = true;
     try {
         const res = await axios.post(route('mailchimpImportLogs.reimportFailed'), {
             log_id: errorsModalLog.value.id,
-            subscribers: editableFailedRows.value.map((row) => ({
+            subscribers: toImport.map((row) => ({
                 email_address: row.email_address,
                 first_name: row.first_name,
                 last_name: row.last_name,
@@ -417,6 +438,57 @@ const totalsBreakdown = computed(() => {
         dataWithError: logs.reduce((s, l) => s + (l.data_with_error ?? 0), 0),
     };
 });
+
+const savingNotesLogId = ref(null);
+const lastNotesSent = ref({});
+const notesExpandLog = ref(null);
+const notesExpandValue = ref('');
+const showNotesExpandModal = ref(false);
+
+watch(() => props.mailchimpImportLogs, (logs) => {
+    logs?.forEach((log) => {
+        lastNotesSent.value[log.id] = log.notes ?? '';
+    });
+}, { immediate: true });
+
+const saveNotes = async (log) => {
+    const value = (log.notes ?? '').trim();
+    if (lastNotesSent.value[log.id] === value) return true;
+    if (savingNotesLogId.value === log.id) return false;
+    savingNotesLogId.value = log.id;
+    try {
+        const res = await axios.patch(route('mailchimpImportLogs.updateNotes', log.id), { notes: value });
+        if (res.data?.notes !== undefined) log.notes = res.data.notes;
+        lastNotesSent.value[log.id] = value;
+        return true;
+    } catch (err) {
+        const msg = err.response?.data?.message || err.response?.data?.errors?.notes?.[0] || err.message || 'Failed to save notes.';
+        Swal.fire('Error', msg, 'error');
+        return false;
+    } finally {
+        savingNotesLogId.value = null;
+    }
+};
+
+const openNotesExpand = (log) => {
+    notesExpandLog.value = log;
+    notesExpandValue.value = log.notes ?? '';
+    showNotesExpandModal.value = true;
+};
+
+const closeNotesExpand = () => {
+    showNotesExpandModal.value = false;
+    notesExpandLog.value = null;
+    notesExpandValue.value = '';
+};
+
+const saveNotesExpand = async () => {
+    if (!notesExpandLog.value) return;
+    const log = notesExpandLog.value;
+    log.notes = notesExpandValue.value;
+    const ok = await saveNotes(log);
+    if (ok) closeNotesExpand();
+};
 
 const deleteLog = (log) => {
     Swal.fire({
@@ -887,6 +959,7 @@ const exportToCsv = () => {
                                         <th class="border border-gray-300 p-2 text-left whitespace-nowrap">Errors</th>
                                         <th class="border border-gray-300 p-2 text-left whitespace-nowrap">Imported data</th>
                                         <th v-for="i in tagColumnIndices" :key="i" class="border border-gray-300 p-2 text-left whitespace-nowrap">Tag {{ i + 1 }}</th>
+                                        <th class="border border-gray-300 p-2 text-left whitespace-nowrap">Notes</th>
                                         <th class="border border-gray-300 p-2 text-center whitespace-nowrap">Actions</th>
                                         <th v-if="canDeleteLogs" class="border border-gray-300 p-2 text-center whitespace-nowrap w-12">
                                             <input
@@ -921,9 +994,10 @@ const exportToCsv = () => {
                                         <td class="border border-gray-300 p-2 text-right whitespace-nowrap">{{ log.updated_data ?? 0 }}</td>
                                         <td class="border border-gray-300 p-2 text-right whitespace-nowrap">{{ log.data_with_error ?? 0 }}</td>
                                         <td class="border border-gray-300 p-2 text-gray-600 max-w-xs whitespace-nowrap overflow-hidden">
-                                            <span v-if="!hasErrors(log.errors)">—</span>
+                                            <span v-if="!hasErrorsToShow(log)">—</span>
                                             <span v-else class="inline-flex items-baseline gap-1 max-w-full">
-                                                <span class="truncate min-w-0">{{ formatErrors(log.errors) }}</span>
+                                                <span v-if="hasErrors(log.errors)" class="truncate min-w-0">{{ formatErrors(log.errors) }}</span>
+                                                <span v-else-if="(log.data_with_error ?? 0) > 0" class="truncate min-w-0">{{ log.data_with_error }} error(s)</span>
                                                 <button
                                                     type="button"
                                                     @click="showFullErrors(log)"
@@ -946,6 +1020,30 @@ const exportToCsv = () => {
                                             <span v-else class="text-gray-400">—</span>
                                         </td>
                                         <td v-for="i in tagColumnIndices" :key="i" class="border border-gray-300 p-2 text-gray-600 whitespace-nowrap">{{ tagCellDisplay(log, i) }}</td>
+                                        <td class="border border-gray-300 p-2 align-top min-w-[180px] max-w-[280px]">
+                                            <div class="flex flex-col gap-1">
+                                                <textarea
+                                                    :value="log.notes ?? ''"
+                                                    placeholder="Add note..."
+                                                    rows="2"
+                                                    class="w-full border border-gray-300 rounded px-2 py-1.5 text-sm focus:ring-1 focus:ring-teal-500 focus:border-teal-500 resize-y min-h-[2.5rem]"
+                                                    :disabled="savingNotesLogId === log.id"
+                                                    @input="log.notes = $event.target.value"
+                                                    @blur="saveNotes(log)"
+                                                />
+                                                <div class="flex items-center gap-2">
+                                                    <span v-if="savingNotesLogId === log.id" class="text-xs text-gray-500"><i class="fa-solid fa-spinner fa-spin mr-1"></i> Saving...</span>
+                                                    <button
+                                                        type="button"
+                                                        @click="openNotesExpand(log)"
+                                                        class="text-xs text-teal-600 hover:underline"
+                                                        title="Expand to read or edit full note"
+                                                    >
+                                                        <i class="fa-solid fa-up-right-from-square mr-1"></i> Expand
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        </td>
                                         <td class="border border-gray-300 p-2 text-center whitespace-nowrap">
                                             <button
                                                 v-if="canDeleteLogs"
@@ -1126,11 +1224,17 @@ const exportToCsv = () => {
                     <button type="button" @click="closeErrorsModal" class="text-gray-500 hover:text-gray-700 text-2xl leading-none">&times;</button>
                 </div>
                 <div class="p-4 overflow-auto flex-1">
-                    <p class="text-sm text-gray-600 mb-3">The rows below are <strong>pre-filled with the data that had errors</strong>. Edit any field (e.g. fix email typos like mj@yaho.com → mj@yahoo.com), then click Re-import to send the corrected data to Mailchimp. A new log entry will be created.</p>
+                    <p class="text-sm text-gray-600 mb-3">The rows below are <strong>pre-filled with the data that had errors</strong>. Use the checkboxes to <strong>choose which rows to re-import</strong>; uncheck any you want to skip. Edit fields as needed (e.g. fix email typos), then click Re-import. A new log entry will be created for the selected rows only.</p>
                     <div class="overflow-x-auto border rounded">
                         <table class="w-full text-sm border-collapse">
                             <thead class="bg-gray-100">
                                 <tr>
+                                    <th class="border p-2 text-left w-10">
+                                        <label class="flex items-center gap-1 cursor-pointer">
+                                            <input type="checkbox" :checked="editableFailedRows.length > 0 && editableFailedRows.every(r => r.selected)" :indeterminate="editableFailedRows.length > 0 && selectedFailedRows.length > 0 && selectedFailedRows.length < editableFailedRows.length" @change="setAllReimportSelected($event.target.checked)" class="rounded border-gray-300" />
+                                            <span class="text-xs">All</span>
+                                        </label>
+                                    </th>
                                     <th class="border p-2 text-left">Email</th>
                                     <th class="border p-2 text-left">First name</th>
                                     <th class="border p-2 text-left">Last name</th>
@@ -1139,7 +1243,10 @@ const exportToCsv = () => {
                                 </tr>
                             </thead>
                             <tbody>
-                                <tr v-for="(row, idx) in editableFailedRows" :key="idx" class="hover:bg-gray-50">
+                                <tr v-for="(row, idx) in editableFailedRows" :key="idx" class="hover:bg-gray-50" :class="{ 'opacity-60': row.selected === false }">
+                                    <td class="border p-2 w-10">
+                                        <input v-model="row.selected" type="checkbox" class="rounded border-gray-300" />
+                                    </td>
                                     <td class="border p-1"><input v-model="row.email_address" type="text" class="w-full border rounded px-2 py-1 text-sm" placeholder="Email" /></td>
                                     <td class="border p-1"><input v-model="row.first_name" type="text" class="w-full border rounded px-2 py-1 text-sm" placeholder="First" /></td>
                                     <td class="border p-1"><input v-model="row.last_name" type="text" class="w-full border rounded px-2 py-1 text-sm" placeholder="Last" /></td>
@@ -1149,12 +1256,37 @@ const exportToCsv = () => {
                             </tbody>
                         </table>
                     </div>
+                    <p v-if="editableFailedRows.length > 0" class="text-xs text-gray-500 mt-2">{{ selectedFailedRows.length }} of {{ editableFailedRows.length }} row(s) selected for re-import.</p>
                 </div>
                 <div class="p-4 border-t flex justify-end gap-2">
                     <button type="button" @click="closeErrorsModal" class="px-4 py-2 border rounded text-gray-700 hover:bg-gray-50">Cancel</button>
-                    <button type="button" @click="reimportCorrectedData" :disabled="isReimporting" class="px-4 py-2 bg-teal-600 text-white rounded hover:bg-teal-700 disabled:opacity-50">
+                    <button type="button" @click="reimportCorrectedData" :disabled="isReimporting || selectedFailedRows.length === 0" class="px-4 py-2 bg-teal-600 text-white rounded hover:bg-teal-700 disabled:opacity-50">
                         <span v-if="isReimporting"><i class="fa-solid fa-spinner fa-spin mr-2"></i> Re-importing...</span>
-                        <span v-else><i class="fa-solid fa-upload mr-2"></i> Re-import corrected data</span>
+                        <span v-else><i class="fa-solid fa-upload mr-2"></i> Re-import selected ({{ selectedFailedRows.length }})</span>
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Expand notes modal: read/edit full note in a larger area -->
+        <div v-if="showNotesExpandModal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4" @click.self="closeNotesExpand">
+            <div class="bg-white rounded-lg shadow-xl max-w-2xl w-full max-h-[85vh] flex flex-col">
+                <div class="p-4 border-b flex justify-between items-center">
+                    <h3 class="text-lg font-semibold">Note</h3>
+                    <button type="button" @click="closeNotesExpand" class="text-gray-500 hover:text-gray-700 text-2xl leading-none">&times;</button>
+                </div>
+                <div class="p-4 flex-1 overflow-hidden flex flex-col">
+                    <textarea
+                        v-model="notesExpandValue"
+                        placeholder="Add or edit note..."
+                        rows="10"
+                        class="w-full border border-gray-300 rounded px-3 py-2 text-sm focus:ring-1 focus:ring-teal-500 focus:border-teal-500 resize-y min-h-[200px]"
+                    />
+                </div>
+                <div class="p-4 border-t flex justify-end gap-2">
+                    <button type="button" @click="closeNotesExpand" class="px-4 py-2 border rounded text-gray-700 hover:bg-gray-50">Cancel</button>
+                    <button type="button" @click="saveNotesExpand" class="px-4 py-2 bg-teal-600 text-white rounded hover:bg-teal-700">
+                        <i class="fa-solid fa-check mr-2"></i> Save
                     </button>
                 </div>
             </div>

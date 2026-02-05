@@ -60,6 +60,7 @@ class MailchimpImportLogsController extends Controller
                 'mailchimp_import_logs.custom_source',
                 'mailchimp_import_logs.status',
                 'mailchimp_import_logs.has_import_file',
+                'mailchimp_import_logs.notes',
                 'mailchimp_import_logs.failed_rows',
                 'mailchimp_import_logs.created_at',
                 DB::raw("COALESCE(locations.name, 'Manual import') as location_name"),
@@ -252,6 +253,22 @@ class MailchimpImportLogsController extends Controller
     }
 
     /**
+     * Update notes for a Mailchimp import log (inline edit, save on blur).
+     */
+    public function updateNotes(Request $request, $id)
+    {
+        $request->validate([
+            'notes' => 'nullable|string|max:65535',
+        ]);
+
+        $log = MailchimpImportLog::findOrFail($id);
+        $log->notes = $request->input('notes') ?? '';
+        $log->save();
+
+        return response()->json(['success' => true, 'notes' => $log->notes]);
+    }
+
+    /**
      * Delete all Mailchimp import logs and their stored CSV files.
      * Only allowed for mj@adventureentertainment.com.
      */
@@ -325,7 +342,7 @@ class MailchimpImportLogsController extends Controller
     {
         $request->validate([
             'log_id' => 'required|integer|exists:mailchimp_import_logs,id',
-            'subscribers' => 'required|array',
+            'subscribers' => 'required|array|min:1',
             'subscribers.*.email_address' => 'required|string|email',
             'subscribers.*.first_name' => 'nullable|string|max:255',
             'subscribers.*.last_name' => 'nullable|string|max:255',

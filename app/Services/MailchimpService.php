@@ -77,6 +77,259 @@ class MailchimpService
     }
 
     /**
+     * Submit a batch of operations to Mailchimp (e.g. bulk add/update members).
+     * Each operation: method, path, optional operation_id, optional body (JSON string for PUT/POST/PATCH).
+     *
+     * @param  array  $operations  Array of [ 'method' => 'PUT'|'POST'|'PATCH'|'GET', 'path' => '/lists/...', 'body' => '...' (optional), 'operation_id' => '...' (optional) ]
+     * @return array  Response with id (batch_id), status, total_operations, etc.
+     */
+    public function submitBatch(array $operations): array
+    {
+        if (empty($this->apiKey)) {
+            throw new \Exception("Mailchimp API key not configured for account: {$this->account}");
+        }
+        $response = Http::withBasicAuth('anystring', $this->apiKey)
+            ->timeout(120)
+            ->post("{$this->baseUrl}/batches", ['operations' => $operations]);
+
+        if (! $response->successful()) {
+            throw new \Exception('Failed to submit Mailchimp batch: ' . $response->body());
+        }
+
+        return $response->json();
+    }
+
+    /**
+     * Get the status of a batch operation.
+     *
+     * @param  string  $batchId  The id returned from submitBatch().
+     * @return array  status (pending|preprocessing|started|finalizing|finished), total_operations, finished_operations, errored_operations, etc.
+     */
+    public function getBatchStatus(string $batchId): array
+    {
+        if (empty($this->apiKey)) {
+            throw new \Exception("Mailchimp API key not configured for account: {$this->account}");
+        }
+        $response = Http::withBasicAuth('anystring', $this->apiKey)
+            ->get("{$this->baseUrl}/batches/{$batchId}");
+
+        if (! $response->successful()) {
+            throw new \Exception('Failed to get Mailchimp batch status: ' . $response->body());
+        }
+
+        return $response->json();
+    }
+
+    /**
+     * Fetch and parse the batch response body from Mailchimp (per-operation results including errors).
+     * The URL is returned in getBatchStatus() as response_body_url when the batch is finished.
+     * Mailchimp returns application/gzip: either raw gzip of JSON, or gzip of a tar archive containing the JSON file.
+     * When the client auto-decompresses, we may receive tar bytes (ustar); we extract the first file and parse as JSON/NDJSON.
+     *
+     * @param  string  $url  response_body_url from batch status
+     * @return array<int, array{status_code: int, response: string}>  Index matches operation order.
+     */
+    public function getBatchResponseBody(string $url): array
+    {
+        $response = Http::timeout(60)->get($url);
+        if (! $response->successful()) {
+            throw new \Exception('Failed to fetch batch response body: ' . $response->status());
+        }
+        $body = $response->body();
+
+        // If raw gzip (magic bytes), decompress first
+        if (strlen($body) >= 2 && substr($body, 0, 2) === "\x1f\x8b") {
+            $decoded = @gzdecode($body);
+            if ($decoded !== false) {
+                $body = $decoded;
+            }
+        }
+
+        // Mailchimp may return a gzip-compressed tar; when the HTTP client auto-decompresses we get tar bytes (ustar)
+        if (strlen($body) >= 512 && substr($body, 257, 5) === 'ustar') {
+            $body = $this->extractFirstFileFromTar($body);
+        }
+
+        return $this->parseBatchResponseAsList($body);
+    }
+
+    /**
+     * Extract the first file payload from a tar archive (512-byte header + file content).
+     * Mailchimp's tar may have multiple 512-byte blocks; skip to the first JSON ([ or {) to get the batch response.
+     */
+    private function extractFirstFileFromTar(string $tar): string
+    {
+        $maxSize = 100 * 1024 * 1024;
+        $offset = 0;
+
+        while ($offset + 512 <= strlen($tar)) {
+            $header = substr($tar, $offset, 512);
+            $offset += 512;
+            if (substr($header, 257, 5) !== 'ustar') {
+                break;
+            }
+            $sizeOct = trim(substr($header, 124, 12));
+            $size = (int) octdec($sizeOct);
+            if ($size > 0 && $size <= $maxSize) {
+                $content = substr($tar, $offset, $size);
+                if (strlen($content) === $size) {
+                    return $content;
+                }
+            }
+            $offset += $size;
+            if ($size % 512 !== 0) {
+                $offset += 512 - ($size % 512);
+            }
+        }
+
+        // No valid header/size: find first JSON start in the remainder (skip extra header blocks)
+        $rest = substr($tar, 512);
+        $jsonStart = strpos($rest, '[');
+        if ($jsonStart === false) {
+            $jsonStart = strpos($rest, '{');
+        }
+        if ($jsonStart !== false && strlen($rest) - $jsonStart <= $maxSize) {
+            return substr($rest, $jsonStart);
+        }
+
+        // Fallback: use PharData to parse tar
+        $tmp = tempnam(sys_get_temp_dir(), 'mc_batch');
+        $tarPath = $tmp . '.tar';
+        try {
+            if (file_put_contents($tarPath, $tar) === false) {
+                throw new \Exception('Could not write temp tar file');
+            }
+            $phar = new \PharData($tarPath);
+            $content = null;
+            foreach (new \RecursiveIteratorIterator($phar) as $file) {
+                if ($file->isFile() && $file->getFilename() !== '' && substr($file->getFilename(), -5) === '.json') {
+                    $content = file_get_contents($file->getPathname());
+                    break;
+                }
+            }
+            if ($content === null) {
+                foreach (new \RecursiveIteratorIterator($phar) as $file) {
+                    if ($file->isFile() && $file->getFilename() !== '') {
+                        $content = file_get_contents($file->getPathname());
+                        break;
+                    }
+                }
+            }
+            if ($content !== null && strlen($content) <= $maxSize) {
+                return $content;
+            }
+        } finally {
+            if (file_exists($tarPath)) {
+                @unlink($tarPath);
+            }
+            if (file_exists($tmp)) {
+                @unlink($tmp);
+            }
+        }
+
+        throw new \Exception('Invalid tar file size in batch response');
+    }
+
+    /**
+     * Parse a string as batch response: JSON array, wrapped object, or NDJSON.
+     *
+     * @return array<int, array{status_code: int, response: string}>
+     */
+    private function parseBatchResponseAsList(string $body): array
+    {
+        $data = json_decode($body, true);
+
+        if (is_array($data)) {
+            if (isset($data['responses']) && is_array($data['responses'])) {
+                $data = $data['responses'];
+            } elseif (isset($data['operations']) && is_array($data['operations'])) {
+                $data = $data['operations'];
+            }
+            if (is_array($data) && (array_is_list($data) || array_key_exists(0, $data))) {
+                return $data;
+            }
+        }
+
+        $lines = preg_split('/\r\n|\r|\n/', trim($body));
+        $out = [];
+        foreach ($lines as $line) {
+            $line = trim($line);
+            if ($line === '') {
+                continue;
+            }
+            $item = json_decode($line, true);
+            if (is_array($item)) {
+                $out[] = $item;
+            }
+        }
+        if (! empty($out)) {
+            return $out;
+        }
+
+        \Illuminate\Support\Facades\Log::warning('Mailchimp batch response body: could not parse as JSON array or NDJSON', [
+            'body_preview' => substr($body, 0, 300),
+        ]);
+        throw new \Exception('Invalid batch response body: not a JSON array or NDJSON. Check logs for body preview.');
+    }
+
+    /**
+     * Build the request body for a single member for use in a batch operation (PUT /lists/{list_id}/members/{subscriber_hash}).
+     * Reuses the same merge field and tag logic as manualImportSubscriber so batch imports match per-request behavior.
+     *
+     * @param  string  $listId  Mailchimp list (audience) ID.
+     * @param  array  $subscriber  Subscriber data (email_address, first_name, last_name, etc.).
+     * @param  array  $tags  Tags to apply.
+     * @param  array|null  $fieldMapping  Optional map of Mailchimp tag => subscriber key.
+     * @param  array|null  $availableMergeFields  Optional merge fields from getListMergeFields(); fetched if null.
+     * @return array  Body for batch op: email_address, status, merge_fields, tags.
+     */
+    public function buildMemberPayloadForBatch(string $listId, array $subscriber, array $tags = [], ?array $fieldMapping = null, ?array $availableMergeFields = null): array
+    {
+        $ageValue = null;
+        if (isset($subscriber['age'])) {
+            if (is_numeric($subscriber['age'])) {
+                $ageValue = (int) $subscriber['age'];
+            } elseif (is_string($subscriber['age'])) {
+                $ageStr = strtolower(trim($subscriber['age']));
+                if ($ageStr === 'under 21') {
+                    $ageValue = 'Under 21';
+                } elseif ($ageStr === '22-44') {
+                    $ageValue = '22-44';
+                } elseif ($ageStr === '45+') {
+                    $ageValue = '45+';
+                } else {
+                    $ageValue = $subscriber['age'];
+                }
+            }
+        }
+
+        $tagsData = array_values(array_unique($tags));
+        $rejectedFields = [];
+
+        if ($availableMergeFields === null) {
+            $availableMergeFields = $this->getListMergeFields($listId);
+        }
+
+        try {
+            $mergeFieldMap = $this->createDynamicMergeFieldMap($availableMergeFields, $subscriber, $ageValue, $rejectedFields, $fieldMapping);
+        } catch (\Exception $e) {
+            \Illuminate\Support\Facades\Log::error('Batch build payload: merge field map failed, using fallback', ['error' => $e->getMessage()]);
+            $mergeFieldMap = [
+                'FNAME' => $this->getSubscriberField($subscriber, ['first_name', 'firstname', 'First Name', 'fname']),
+                'LNAME' => $this->getSubscriberField($subscriber, ['last_name', 'lastname', 'Last Name', 'lname', 'surname']),
+                'PHONE' => $this->getSubscriberField($subscriber, ['mobile_number', 'phone', 'mobile', 'Phone Number', 'Mobile Number', 'phone_number']),
+            ];
+        }
+
+        return [
+            'email_address' => $subscriber['email_address'],
+            'status' => 'subscribed',
+            'merge_fields' => $mergeFieldMap,
+            'tags' => $tagsData,
+        ];
+    }
+
+    /**
      * Format phone number to E.164 (international standard) for Mailchimp PHONE/SMSPHONE.
      * Mailchimp requires "SMS number in the international standard format" (e.g. +61412345678).
      *
