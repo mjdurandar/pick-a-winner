@@ -1021,7 +1021,7 @@ class LocationController extends Controller
         ]);
 
         $eventId = $request->event_id;
-        $apiToken = env('EVENTBRITE_API_TOKEN');
+        $apiToken = config('services.eventbrite.api_token');
 
         if (!$apiToken) {
             return response()->json([
@@ -1163,7 +1163,7 @@ class LocationController extends Controller
         ]);
 
         $eventId = $request->event_id;
-        $apiToken = env('EVENTBRITE_API_TOKEN');
+        $apiToken = config('services.eventbrite.api_token');
 
         if (!$apiToken) {
             return response()->json([
