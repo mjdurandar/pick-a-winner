@@ -131,11 +131,29 @@ class MailchimpService
      */
     public function getBatchResponseBody(string $url): array
     {
-        $response = Http::timeout(60)->get($url);
-        if (! $response->successful()) {
-            throw new \Exception('Failed to fetch batch response body: ' . $response->status());
+        $timeoutSeconds = 120;
+        $body = null;
+        $lastException = null;
+        for ($attempt = 0; $attempt < 2; $attempt++) {
+            try {
+                $response = Http::timeout($timeoutSeconds)->get($url);
+                if (! $response->successful()) {
+                    throw new \Exception('Failed to fetch batch response body: ' . $response->status());
+                }
+                $body = $response->body();
+                break;
+            } catch (\Throwable $e) {
+                $lastException = $e;
+                $isTimeout = str_contains($e->getMessage(), 'timed out') || str_contains($e->getMessage(), 'Operation timed out');
+                if ($attempt < 1 && $isTimeout) {
+                    continue;
+                }
+                throw $e;
+            }
         }
-        $body = $response->body();
+        if ($body === null) {
+            throw $lastException ?? new \Exception('Failed to fetch batch response body');
+        }
 
         // If raw gzip (magic bytes), decompress first
         if (strlen($body) >= 2 && substr($body, 0, 2) === "\x1f\x8b") {
