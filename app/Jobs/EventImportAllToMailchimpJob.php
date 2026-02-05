@@ -43,10 +43,10 @@ class EventImportAllToMailchimpJob implements ShouldQueue
         public ?string $importBatchId = null,
         public ?array $fieldMapping = null
     ) {
-        // Allow production to run until all locations are imported (default 2 hours).
-        $this->timeout = config('queue.mailchimp_import_job_timeout', 7200);
+        // Allow production to run until all locations are imported (default 16 hours for large imports).
+        $this->timeout = config('queue.mailchimp_import_job_timeout', 57600);
         if ($this->timeout < 60) {
-            $this->timeout = 7200;
+            $this->timeout = 57600;
         }
     }
 

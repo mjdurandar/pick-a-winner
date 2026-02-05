@@ -19,11 +19,11 @@ return [
     |--------------------------------------------------------------------------
     | Mailchimp Import All job timeout (seconds)
     |--------------------------------------------------------------------------
-    | How long a single Import All job may run before being killed. Increase for
-    | production with many locations (e.g. 7200 = 2 hours). Worker must run at
-    | least this long to let one job finish.
+    | How long a single Import All job may run before being killed. With many
+    | locations and subscribers, imports can take 8–16+ hours. Set to 57600 (16h)
+    | so the job is not killed mid-run. retry_after must be >= this.
     */
-    'mailchimp_import_job_timeout' => (int) env('MAILCHIMP_IMPORT_JOB_TIMEOUT', 7200),
+    'mailchimp_import_job_timeout' => (int) env('MAILCHIMP_IMPORT_JOB_TIMEOUT', 57600),
 
     /*
     |--------------------------------------------------------------------------
@@ -49,8 +49,8 @@ return [
             'connection' => env('DB_QUEUE_CONNECTION'),
             'table' => env('DB_QUEUE_TABLE', 'jobs'),
             'queue' => env('DB_QUEUE', 'default'),
-            // Must be >= longest job timeout (e.g. Mailchimp import ~7200s) or the job is re-queued mid-run and triggers MaxAttemptsExceededException.
-            'retry_after' => (int) env('DB_QUEUE_RETRY_AFTER', 7200),
+            // Must be >= longest job timeout (e.g. Mailchimp import 16h = 57600s) or the job is re-queued mid-run and triggers MaxAttemptsExceededException.
+            'retry_after' => (int) env('DB_QUEUE_RETRY_AFTER', 57600),
             'after_commit' => false,
         ],
 
