@@ -56,6 +56,7 @@ class EventImportAllToMailchimpJob implements ShouldQueue
             $this->runImport($logService);
         } catch (\Throwable $e) {
             $progress = $this->getProgressForLogging();
+            $hint = $this->buildTimeoutHint($progress);
             Log::error('Event import all (job): import failed with error – job removed from queue (not user cancel)', [
                 'event_id' => $this->eventId,
                 'list_id' => $this->listId,
@@ -64,6 +65,8 @@ class EventImportAllToMailchimpJob implements ShouldQueue
                 'trace' => $e->getTraceAsString(),
                 'reason' => 'An error occurred during import. The queued job is gone because the job failed.',
                 'progress' => $progress,
+                'job_timeout_seconds' => $this->timeout,
+                'what_to_check' => $hint,
             ]);
             // Do not rethrow: allow the job to complete so Laravel does not retry and the queue keeps processing other jobs.
         }
@@ -76,6 +79,7 @@ class EventImportAllToMailchimpJob implements ShouldQueue
     public function failed(?\Throwable $e = null): void
     {
         $progress = $this->getProgressForLogging();
+        $hint = $this->buildTimeoutHint($progress);
         Log::error('Event import all (job): job moved to failed_jobs – import did not complete (not user cancel)', [
             'event_id' => $this->eventId,
             'list_id' => $this->listId,
@@ -83,7 +87,26 @@ class EventImportAllToMailchimpJob implements ShouldQueue
             'exception' => $e ? $e->getMessage() : 'unknown (e.g. timeout or max attempts exceeded)',
             'reason' => 'The queued import is gone because the job failed or was killed. Remaining locations were not imported.',
             'progress' => $progress,
+            'job_timeout_seconds' => $this->timeout,
+            'what_likely_stopped_it' => $hint,
         ]);
+    }
+
+    /**
+     * Build a short hint for logs when import stops (timeout, kill, or error).
+     */
+    private function buildTimeoutHint(array $progress): string
+    {
+        $elapsed = isset($progress['started_at']) ? (time() - (int) $progress['started_at']) : null;
+        $timeout = $this->timeout;
+        $hint = 'Increase MAILCHIMP_IMPORT_JOB_TIMEOUT and DB_QUEUE_RETRY_AFTER in .env if the import stops at the same time every run. ';
+        if ($elapsed !== null && $timeout > 0 && $elapsed >= $timeout * 0.95) {
+            $hint .= sprintf('Elapsed %ds is near job timeout %ds – job was likely stopped by Laravel timeout. ', $elapsed, $timeout);
+        } elseif ($elapsed !== null) {
+            $hint .= sprintf('Elapsed %ds (job timeout %ds). ', $elapsed, $timeout);
+        }
+        $hint .= 'If the process dies earlier, check PHP memory_limit, max_execution_time, and server/worker kill signals.';
+        return $hint;
     }
 
     /**
@@ -94,7 +117,12 @@ class EventImportAllToMailchimpJob implements ShouldQueue
         if (! empty($this->progressForLogging)) {
             $p = $this->progressForLogging;
             $remaining = max(0, ($p['locations_queued'] ?? 0) - ($p['last_index'] ?? 0));
-            return array_merge($p, ['locations_remaining_not_imported' => $remaining]);
+            $elapsed = isset($p['started_at']) ? (time() - (int) $p['started_at']) : null;
+            $out = array_merge($p, ['locations_remaining_not_imported' => $remaining]);
+            if ($elapsed !== null) {
+                $out['elapsed_seconds'] = $elapsed;
+            }
+            return $out;
         }
         $key = $this->importBatchId
             ? 'event_import_progress_' . $this->importBatchId
@@ -103,23 +131,33 @@ class EventImportAllToMailchimpJob implements ShouldQueue
         $locationsQueued = $p['locations_queued'] ?? count($this->locationsPayload);
         $lastIndex = $p['last_index'] ?? 0;
         $remaining = max(0, $locationsQueued - $lastIndex);
-        return array_merge($p, [
+        $elapsed = isset($p['started_at']) ? (time() - (int) $p['started_at']) : null;
+        $out = array_merge($p, [
             'locations_queued' => $locationsQueued,
             'locations_remaining_not_imported' => $remaining,
         ]);
+        if ($elapsed !== null) {
+            $out['elapsed_seconds'] = $elapsed;
+        }
+        return $out;
     }
 
-    private function writeProgressToCache(int $locationsQueued, int $lastIndex, int $imported, int $failed): void
+    private function writeProgressToCache(int $locationsQueued, int $lastIndex, int $imported, int $failed, ?int $startedAt = null, int $subscribersImported = 0): void
     {
         $key = $this->importBatchId
             ? 'event_import_progress_' . $this->importBatchId
             : 'event_import_progress_' . $this->eventId . '_' . $this->listId;
-        Cache::put($key, [
+        $payload = [
             'locations_queued' => $locationsQueued,
             'last_index' => $lastIndex,
             'locations_imported' => $imported,
             'locations_failed' => $failed,
-        ], 7200);
+            'subscribers_imported_so_far' => $subscribersImported,
+        ];
+        if ($startedAt !== null) {
+            $payload['started_at'] = $startedAt;
+        }
+        Cache::put($key, $payload, 7200);
     }
 
     private function runImport(MailchimpLogService $logService): void
@@ -149,20 +187,26 @@ class EventImportAllToMailchimpJob implements ShouldQueue
         $locationsSkipped = 0;
         $failureReasons = [];
         $locationIndex = 0;
+        $totalSubscribersImported = 0;
+        $startedAt = time();
 
         $this->progressForLogging = [
             'locations_queued' => $locationsQueued,
             'last_index' => 0,
             'locations_imported' => 0,
             'locations_failed' => 0,
+            'subscribers_imported_so_far' => 0,
+            'started_at' => $startedAt,
         ];
-        $this->writeProgressToCache($locationsQueued, 0, 0, 0);
+        $this->writeProgressToCache($locationsQueued, 0, 0, 0, $startedAt, 0);
 
         Log::info('Event import all (job) started', [
             'event_id' => $this->eventId,
             'locations_queued' => $locationsQueued,
             'locations_total_before_skip' => count($this->locationsPayload),
             'skip_already_imported' => $this->skipAlreadyImported,
+            'job_timeout_seconds' => $this->timeout,
+            'hint' => 'Laravel will stop this job after ' . $this->timeout . 's if not finished. Set MAILCHIMP_IMPORT_JOB_TIMEOUT and DB_QUEUE_RETRY_AFTER in .env to allow longer runs.',
         ]);
 
         foreach ($locationsToProcess as $loc) {
@@ -222,12 +266,12 @@ class EventImportAllToMailchimpJob implements ShouldQueue
 
                 // --- Ticket data import ---
                 if ($hasTicketData) {
-                    $this->importTicketData($mailchimpService, $logService, $location, $attendees, $tags);
+                    $totalSubscribersImported += $this->importTicketData($mailchimpService, $logService, $location, $attendees, $tags);
                 }
 
                 // --- Win form (sign-up) data import ---
                 if ($hasFormData) {
-                    $this->importFormData($mailchimpService, $logService, $location, $formTags);
+                    $totalSubscribersImported += $this->importFormData($mailchimpService, $logService, $location, $formTags);
                 }
 
                 $locationsImported++;
@@ -247,19 +291,25 @@ class EventImportAllToMailchimpJob implements ShouldQueue
 
             // Progress log and cache every 5 locations so we can log progress if job fails or is killed
             if ($locationIndex % 5 === 0 || $locationIndex === $locationsQueued) {
+                $elapsed = time() - $startedAt;
                 $this->progressForLogging = [
                     'locations_queued' => $locationsQueued,
                     'last_index' => $locationIndex,
                     'locations_imported' => $locationsImported,
                     'locations_failed' => $locationsFailed,
+                    'subscribers_imported_so_far' => $totalSubscribersImported,
+                    'started_at' => $startedAt,
                 ];
-                $this->writeProgressToCache($locationsQueued, $locationIndex, $locationsImported, $locationsFailed);
-                Log::info('Event import all (job) progress', [
+                $this->writeProgressToCache($locationsQueued, $locationIndex, $locationsImported, $locationsFailed, $startedAt, $totalSubscribersImported);
+                Log::info('Event import all (job) progress – success count so far', [
                     'event_id' => $this->eventId,
-                    'processed' => $locationIndex,
-                    'total' => $locationsQueued,
-                    'imported_so_far' => $locationsImported,
-                    'failed_so_far' => $locationsFailed,
+                    'locations_processed' => $locationIndex,
+                    'locations_total' => $locationsQueued,
+                    'locations_imported_so_far' => $locationsImported,
+                    'locations_failed_so_far' => $locationsFailed,
+                    'subscribers_imported_to_mailchimp_so_far' => $totalSubscribersImported,
+                    'elapsed_seconds' => $elapsed,
+                    'job_timeout_seconds' => $this->timeout,
                 ]);
             }
         }
@@ -269,12 +319,15 @@ class EventImportAllToMailchimpJob implements ShouldQueue
             $reasonsSummary[] = $msg . ' (locations: ' . implode(', ', $info['location_ids']) . ', count: ' . $info['count'] . ')';
         }
 
+        $elapsed = time() - $startedAt;
         Log::info('Event import all (job) completed', [
             'event_id' => $this->eventId,
             'locations_queued' => $locationsQueued,
             'locations_imported' => $locationsImported,
             'locations_failed' => $locationsFailed,
             'locations_skipped' => $locationsSkipped,
+            'total_subscribers_imported_to_mailchimp' => $totalSubscribersImported,
+            'elapsed_seconds' => $elapsed,
             'failure_reasons' => array_slice($reasonsSummary, 0, 20),
         ]);
     }
@@ -285,7 +338,7 @@ class EventImportAllToMailchimpJob implements ShouldQueue
         Location $location,
         array $attendees,
         array $tags
-    ): void {
+    ): int {
         $locationId = $location->id;
 
         TicketAttendee::where('location_id', $locationId)->delete();
@@ -464,6 +517,8 @@ class EventImportAllToMailchimpJob implements ShouldQueue
             Storage::disk('local')->put('mailchimp_imports/' . $ticketLog->id . '.csv', $csv);
             $ticketLog->update(['has_import_file' => true]);
         }
+
+        return $locSuccess;
     }
 
     private function importFormData(
@@ -471,13 +526,13 @@ class EventImportAllToMailchimpJob implements ShouldQueue
         MailchimpLogService $logService,
         Location $location,
         array $formTags
-    ): void {
+    ): int {
         $eventId = $this->eventId;
         $locationId = $location->id;
         $signUpForm = SignUpForm::where('event_id', $eventId)->first();
 
         if (!$signUpForm || !$signUpForm->table_name || !Schema::hasTable($signUpForm->table_name)) {
-            return;
+            return 0;
         }
 
         $signUpRows = DB::table($signUpForm->table_name)
@@ -620,5 +675,7 @@ class EventImportAllToMailchimpJob implements ShouldQueue
             Storage::disk('local')->put('mailchimp_imports/' . $formLog->id . '.csv', $csvForm);
             $formLog->update(['has_import_file' => true]);
         }
+
+        return $locFormSuccess;
     }
 }
