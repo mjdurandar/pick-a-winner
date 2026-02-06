@@ -8,6 +8,7 @@ use App\Models\SignUpForm;
 use App\Models\TicketAttendee;
 use App\Services\MailchimpLogService;
 use App\Services\MailchimpService;
+use App\Jobs\EventImportLocationToMailchimpJob;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
@@ -52,33 +53,98 @@ class EventImportAllToMailchimpJob implements ShouldQueue
         public ?string $importBatchId = null,
         public ?array $fieldMapping = null
     ) {
-        // Allow production to run until all locations are imported (default 16 hours for large imports).
-        $this->timeout = config('queue.mailchimp_import_job_timeout', 57600);
+        // This job only dispatches per-location jobs; keep timeout short (e.g. 5 min for many locations).
+        $this->timeout = config('queue.mailchimp_import_dispatch_job_timeout', 300);
         if ($this->timeout < 60) {
-            $this->timeout = 57600;
+            $this->timeout = 300;
         }
     }
 
     public function handle(MailchimpLogService $logService): void
     {
         try {
-            $this->runImport($logService);
+            $this->dispatchLocationJobs();
         } catch (\Throwable $e) {
             $progress = $this->getProgressForLogging();
             $hint = $this->buildTimeoutHint($progress);
-            Log::error('Event import all (job): import failed with error – job removed from queue (not user cancel)', [
+            Log::error('Event import all (job): dispatch failed – job removed from queue (not user cancel)', [
                 'event_id' => $this->eventId,
                 'list_id' => $this->listId,
                 'import_batch_id' => $this->importBatchId,
                 'error' => $e->getMessage(),
                 'trace' => $e->getTraceAsString(),
-                'reason' => 'An error occurred during import. The queued job is gone because the job failed.',
+                'reason' => 'An error occurred while dispatching per-location jobs.',
                 'progress' => $progress,
                 'job_timeout_seconds' => $this->timeout,
                 'what_to_check' => $hint,
             ]);
-            // Do not rethrow: allow the job to complete so Laravel does not retry and the queue keeps processing other jobs.
+            throw $e;
         }
+    }
+
+    /**
+     * Dispatch one EventImportLocationToMailchimpJob per location. Each location runs as a separate job
+     * so imports finish without long-running timeouts.
+     */
+    private function dispatchLocationJobs(): void
+    {
+        $locationsToProcess = $this->locationsPayload;
+        if ($this->skipAlreadyImported) {
+            $alreadyImportedLocationIds = MailchimpImportLog::where('list_id', $this->listId)
+                ->where('mailchimp_account', $this->mailchimpAccount)
+                ->distinct()
+                ->pluck('location_id')
+                ->flip();
+            $locationsToProcess = array_values(array_filter($this->locationsPayload, function ($loc) use ($alreadyImportedLocationIds) {
+                return ! $alreadyImportedLocationIds->has((int) ($loc['location_id'] ?? 0));
+            }));
+        }
+
+        $locationsQueued = count($locationsToProcess);
+        $startedAt = time();
+        $this->progressForLogging = [
+            'locations_queued' => $locationsQueued,
+            'last_index' => 0,
+            'locations_imported' => 0,
+            'locations_failed' => 0,
+            'subscribers_imported_so_far' => 0,
+            'started_at' => $startedAt,
+        ];
+        $this->writeProgressToCache($locationsQueued, 0, 0, 0, $startedAt, 0);
+
+        Log::info('Event import all (job): dispatching per-location jobs', [
+            'event_id' => $this->eventId,
+            'list_id' => $this->listId,
+            'import_batch_id' => $this->importBatchId,
+            'locations_to_process' => $locationsQueued,
+            'skip_already_imported' => $this->skipAlreadyImported,
+        ]);
+
+        foreach ($locationsToProcess as $loc) {
+            if ($this->importBatchId && Cache::get('cancel_import_batch_' . $this->importBatchId)) {
+                Log::info('Event import all (job): stopped by user – remaining locations not dispatched', [
+                    'import_batch_id' => $this->importBatchId,
+                    'event_id' => $this->eventId,
+                ]);
+                break;
+            }
+            EventImportLocationToMailchimpJob::dispatch(
+                $this->eventId,
+                $this->listId,
+                $this->mailchimpAccount,
+                $this->listName,
+                $loc,
+                $this->userId,
+                $this->importBatchId,
+                $this->fieldMapping
+            );
+        }
+
+        Log::info('Event import all (job): dispatch complete – location jobs queued', [
+            'event_id' => $this->eventId,
+            'import_batch_id' => $this->importBatchId,
+            'locations_dispatched' => $locationsQueued,
+        ]);
     }
 
     /**
@@ -254,7 +320,9 @@ class EventImportAllToMailchimpJob implements ShouldQueue
                     continue;
                 }
 
-                // Skip locations with no data: no Mailchimp API calls, no MC logs (optimization)
+                // Only import what the user selected per location (import_ticket / import_form). Skip locations with no data – no MC log.
+                $importTicket = $loc['import_ticket'] ?? true;
+                $importForm = $loc['import_form'] ?? true;
                 $hasTicketData = ! empty($attendees) && ! empty($tags);
                 $hasFormData = false;
                 if (! empty($formTags)) {
@@ -268,18 +336,20 @@ class EventImportAllToMailchimpJob implements ShouldQueue
                             ->exists();
                     }
                 }
-                if (! $hasTicketData && ! $hasFormData) {
+                $runTicket = $importTicket && $hasTicketData;
+                $runForm = $importForm && $hasFormData;
+                if (! $runTicket && ! $runForm) {
                     $locationsSkipped++;
                     continue;
                 }
 
-                // --- Ticket data import ---
-                if ($hasTicketData) {
+                // --- Ticket data import (only when selected and has data) ---
+                if ($runTicket) {
                     $totalSubscribersImported += $this->importTicketData($mailchimpService, $logService, $location, $attendees, $tags);
                 }
 
-                // --- Win form (sign-up) data import ---
-                if ($hasFormData) {
+                // --- Win form (sign-up) data import (only when selected and has data) ---
+                if ($runForm) {
                     $totalSubscribersImported += $this->importFormData($mailchimpService, $logService, $location, $formTags);
                 }
 

@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Jobs\EventImportAllToMailchimpJob;
+use App\Jobs\EventImportLocationToMailchimpJob;
 use App\Jobs\ManualImportToMailchimpJob;
 use App\Models\Events;
 use App\Models\Location;
@@ -447,6 +448,7 @@ class MailchimpImportLogsController extends Controller
             ->where('queue', $queueName)
             ->where(function ($q) {
                 $q->where('payload', 'like', '%EventImportAllToMailchimpJob%')
+                    ->orWhere('payload', 'like', '%EventImportLocationToMailchimpJob%')
                     ->orWhere('payload', 'like', '%ManualImportToMailchimpJob%');
             })
             ->orderBy('id')
@@ -505,6 +507,25 @@ class MailchimpImportLogsController extends Controller
                 continue;
             }
 
+            if ($job instanceof EventImportLocationToMailchimpJob) {
+                $locationId = (int) ($job->locationPayload['location_id'] ?? 0);
+                $eventIds[] = $job->eventId;
+                if ($locationId) {
+                    $locationIds[$locationId] = true;
+                }
+                $result[] = [
+                    'job_id' => $row->id,
+                    'status' => $row->reserved_at ? 'in_progress' : 'queued',
+                    'event_id' => $job->eventId,
+                    'locations_count' => 1,
+                    'location_ids' => $locationId ? [$locationId] : [],
+                    'job_type' => 'import_location',
+                    'import_batch_id' => $job->importBatchId,
+                    'created_at' => $row->created_at ? date('Y-m-d H:i:s', $row->created_at) : null,
+                ];
+                continue;
+            }
+
             if (! $job instanceof EventImportAllToMailchimpJob) {
                 continue;
             }
@@ -528,6 +549,7 @@ class MailchimpImportLogsController extends Controller
                 'total_locations_to_import' => $totalLocations,
                 'location_ids' => array_values($locationIdsFromPayload),
                 'job_type' => 'import_all',
+                'import_batch_id' => $job->importBatchId,
                 'created_at' => $row->created_at ? date('Y-m-d H:i:s', $row->created_at) : null,
             ];
             if ($row->reserved_at && $job->importBatchId) {
@@ -658,6 +680,7 @@ class MailchimpImportLogsController extends Controller
             ->where('queue', config('queue.connections.database.queue', 'default'))
             ->where(function ($q) {
                 $q->where('payload', 'like', '%EventImportAllToMailchimpJob%')
+                    ->orWhere('payload', 'like', '%EventImportLocationToMailchimpJob%')
                     ->orWhere('payload', 'like', '%ManualImportToMailchimpJob%');
             })
             ->first(['id', 'payload', 'reserved_at']);
@@ -667,11 +690,22 @@ class MailchimpImportLogsController extends Controller
         }
 
         $isManualImport = str_contains($row->payload, 'ManualImportToMailchimpJob');
+        $isLocationJob = str_contains($row->payload, 'EventImportLocationToMailchimpJob')
+            && ! str_contains($row->payload, 'EventImportAllToMailchimpJob');
 
         if ($isManualImport) {
             $this->jobsTable()->where('id', $jobId)->delete();
             Log::info('Import cancelled by user: manual import job removed from queue', ['job_id' => $jobId]);
             return response()->json(['success' => true, 'message' => 'Manual import removed from queue.']);
+        }
+
+        if ($isLocationJob) {
+            if ($row->reserved_at !== null) {
+                return response()->json(['error' => 'Cannot cancel: this location import is already in progress.'], 422);
+            }
+            $this->jobsTable()->where('id', $jobId)->delete();
+            Log::info('Import cancelled by user: per-location import job removed from queue', ['job_id' => $jobId]);
+            return response()->json(['success' => true, 'message' => 'Location import removed from queue.']);
         }
 
         if ($row->reserved_at !== null) {

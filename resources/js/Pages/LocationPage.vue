@@ -120,6 +120,8 @@ const importAllEventbriteLinkByLocation = ref({}); // { [locationId]: '' }
 const isFetchingPreviewByLocation = ref({}); // { [locationId]: true/false }
 const importAllCsvFileInputByLocation = ref({}); // keep file input ref per location if needed
 const importAllSkipAlreadyImported = ref(false); // when true, skip locations already imported to this audience
+/** '' = choose type first; 'ticket' = import ticket only; 'form' = import win form only */
+const importAllDataMode = ref('');
 const importAllMergeFieldsWithValidation = ref([]); // audience columns + validation
 const importAllSourceColumns = ref([]); // our data columns for mapping
 const importAllFieldMapping = ref({}); // { FNAME: 'first_name', ADDRESS: 'address_full', ... }
@@ -2062,6 +2064,7 @@ const openImportAllModal = async () => {
     importAllDefaultTags.value = '';
     importAllTagsByLocation.value = {};
     importAllFormTagsByLocation.value = {};
+    importAllDataMode.value = '';
     isFetchingPreviewByLocation.value = {};
         importAllListId.value = '';
         importAllAccount.value = '';
@@ -2098,6 +2101,7 @@ const openImportAllModal = async () => {
         });
         importAllTagsByLocation.value = ticketTagsByLoc;
         importAllFormTagsByLocation.value = formTagsByLoc;
+        importAllDataMode.value = '';
         importAllAccounts.value = settingsRes.data.available_accounts || { anz: { name: 'ANZ', enabled: true }, usa: { name: 'USA', enabled: false } };
         await loadImportAllLists(importAllAccount.value);
         // Fetch import preview (win form counts per location) so we can show total contacts to be imported
@@ -2139,6 +2143,7 @@ const closeImportAllModal = () => {
     importAllDefaultTags.value = '';
     importAllTagsByLocation.value = {};
     importAllFormTagsByLocation.value = {};
+    importAllDataMode.value = '';
     importPreviewFormTotal.value = 0;
     importPreviewByLocation.value = [];
 };
@@ -2353,37 +2358,68 @@ const runImportAll = async () => {
         const country = (loc?.country || '').trim();
         return country ? `COUNTRY - ${country.toUpperCase()}` : null;
     };
-    // Build payload: all locations. Win form data is imported for every location (form_tags). Ticket data only where staged (attendees + tags).
-    const locationsPayload = props.locations.map((loc) => {
-        const locationId = loc.id;
-        const staged = stagedByLocation.value[locationId];
-        const attendees = (staged && Array.isArray(staged.attendees) && staged.attendees.length > 0) ? staged.attendees : [];
-        const countryTag = getLocationCountryTag(locationId);
-        const ticketTags = attendees.length > 0
-            ? [...defaultTagsArray, ...(countryTag ? [countryTag] : []), ...parseTagStr(importAllTagsByLocation.value[locationId] || '')]
-            : [];
-        const formTags = [...defaultTagsArray, ...(countryTag ? [countryTag] : []), ...parseTagStr(importAllFormTagsByLocation.value[locationId] || '')];
-        return {
-            location_id: locationId,
-            attendees,
-            tags: ticketTags,
-            form_tags: formTags
-        };
-    });
-    // Locations with staged ticket data must have at least one ticket tag
-    const missingTicketTags = locationsPayload.filter(loc => loc.attendees.length > 0 && loc.tags.length === 0);
-    if (missingTicketTags.length > 0) {
-        Swal.fire('Error', 'Each location where you added ticket data (Eventbrite/CSV) must have at least one tag in "Tags for ticket data".', 'error');
+    const mode = importAllDataMode.value;
+    if (mode !== 'ticket' && mode !== 'form') {
+        Swal.fire('Error', 'Please choose what to import (Ticket data or Win form data) first.', 'error');
         return;
     }
-    // At least one location must have form tags (we always import win form per location)
-    const hasFormTags = locationsPayload.some(loc => loc.form_tags.length > 0);
-    if (!hasFormTags) {
-        Swal.fire('Error', 'Each location needs tags in "Tags for form data". Win form data is imported for every location.', 'error');
+    // Build payload: one type per run (ticket only or win form only). Locations with no data are skipped by the job and not logged.
+    const isTicket = mode === 'ticket';
+    const locationsPayload = (isTicket ? props.locations.filter((loc) => {
+        const staged = stagedByLocation.value[loc.id];
+        return staged && Array.isArray(staged.attendees) && staged.attendees.length > 0;
+    }) : props.locations)
+        .map((loc) => {
+            const locationId = loc.id;
+            const countryTag = getLocationCountryTag(locationId);
+            if (isTicket) {
+                const staged = stagedByLocation.value[locationId];
+                const attendees = (staged && Array.isArray(staged.attendees) && staged.attendees.length > 0) ? staged.attendees : [];
+                const ticketTags = attendees.length > 0
+                    ? [...defaultTagsArray, ...(countryTag ? [countryTag] : []), ...parseTagStr(importAllTagsByLocation.value[locationId] || '')]
+                    : [];
+                return {
+                    location_id: locationId,
+                    import_ticket: true,
+                    import_form: false,
+                    attendees,
+                    tags: ticketTags,
+                    form_tags: []
+                };
+            }
+            const formTags = [...defaultTagsArray, ...(countryTag ? [countryTag] : []), ...parseTagStr(importAllFormTagsByLocation.value[locationId] || '')];
+            return {
+                location_id: locationId,
+                import_ticket: false,
+                import_form: true,
+                attendees: [],
+                tags: [],
+                form_tags: formTags
+            };
+        });
+    if (locationsPayload.length === 0) {
+        Swal.fire('Error', isTicket
+            ? 'No locations have ticket data staged. Add Eventbrite link or CSV per location first, then Fetch.'
+            : 'No locations to import. Add tags for form data per location.', 'error');
         return;
+    }
+    if (isTicket) {
+        const missingTicketTags = locationsPayload.filter(loc => loc.attendees.length > 0 && loc.tags.length === 0);
+        if (missingTicketTags.length > 0) {
+            Swal.fire('Error', 'Each location with ticket data must have at least one tag in "Tags for ticket data".', 'error');
+            return;
+        }
+    } else {
+        const missingFormTags = locationsPayload.filter(loc => loc.form_tags.length === 0);
+        if (missingFormTags.length > 0) {
+            Swal.fire('Error', 'Each location must have at least one tag in "Tags for form data".', 'error');
+            return;
+        }
     }
     const totalLocations = locationsPayload.length;
-    const totalContacts = totalToImport.value || 0;
+    const totalContacts = mode === 'ticket'
+        ? (totalStagedCount.value || 0)
+        : (importPreviewFormTotal.value || 0);
     isImportAllLoading.value = true;
     const listName = (importAllLists.value || []).find(l => l.id === listId)?.name || '';
     try {
@@ -3430,17 +3466,49 @@ const runImportAll = async () => {
             </div>
         </div>
 
-        <!-- Import All Data Modal (event-level: stage ticket data per location, then import in one click) -->
+        <!-- Import All Data Modal: step 1 = choose type (ticket or win form), step 2 = type-specific form -->
         <div v-if="showImportAllModal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
             <div class="bg-white p-6 rounded-lg shadow-xl max-w-4xl w-full mx-4 max-h-[90vh] overflow-y-auto">
                 <div class="flex justify-between items-center mb-4">
-                    <h3 class="text-lg font-semibold">Import All Data</h3>
-                    <button @click="closeImportAllModal" class="text-gray-500 hover:text-gray-700">
+                    <h3 class="text-lg font-semibold">{{ importAllDataMode ? (importAllDataMode === 'ticket' ? 'Import All – Ticket data' : 'Import All – Win form data') : 'Import All Data' }}</h3>
+                    <button @click="importAllDataMode ? (importAllDataMode = '') : closeImportAllModal()" class="text-gray-500 hover:text-gray-700">
                         <i class="fa-solid fa-times"></i>
                     </button>
                 </div>
+
+                <!-- Step 1: Choose what to import (ticket or win form only – not both in one run) -->
+                <div v-if="!importAllDataMode" class="py-6">
+                    <p class="text-gray-600 text-sm mb-6">Choose what data to import. Each run imports <strong>one type only</strong> so the flow stays simple. Locations with no data are skipped and not logged in MC Logs.</p>
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <button
+                            type="button"
+                            @click="importAllDataMode = 'ticket'"
+                            class="p-6 border-2 border-teal-200 rounded-lg text-left hover:border-teal-500 hover:bg-teal-50 transition-colors"
+                        >
+                            <div class="font-semibold text-gray-800 mb-2"><i class="fa-solid fa-ticket mr-2 text-teal-600"></i> Ticket data</div>
+                            <p class="text-sm text-gray-600">Import Eventbrite/CSV ticket attendees per location. Add links or CSV, then set tags and run.</p>
+                        </button>
+                        <button
+                            type="button"
+                            @click="importAllDataMode = 'form'"
+                            class="p-6 border-2 border-amber-200 rounded-lg text-left hover:border-amber-500 hover:bg-amber-50 transition-colors"
+                        >
+                            <div class="font-semibold text-gray-800 mb-2"><i class="fa-solid fa-clipboard-list mr-2 text-amber-600"></i> Win form data</div>
+                            <p class="text-sm text-gray-600">Import sign-up (win) form data per location. Set tags per location and run.</p>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Step 2: Type-specific form (ticket only or win form only) -->
+                <template v-else>
+                <div class="flex items-center gap-2 mb-4">
+                    <button type="button" @click="importAllDataMode = ''" class="text-sm text-gray-500 hover:text-gray-700">
+                        <i class="fa-solid fa-arrow-left mr-1"></i> Back
+                    </button>
+                </div>
                 <p class="text-gray-600 text-sm mb-4">
-                    We import <strong>win form (sign-up) data for every location</strong>. Ticket data is added only when you provide an Eventbrite link or upload CSV for that location. Review and edit <strong>tags for ticket data</strong> and <strong>tags for form data</strong> per location. Separate tags with <strong>;</strong> (e.g. <code>SHOW - Mammoth, LA</code> is one tag). Each location gets <strong>COUNTRY - USA</strong>, <strong>COUNTRY - CANADA</strong>, etc. based on its country. Click <strong>Import All</strong> to import win form data (and ticket data where you added it) to Mailchimp. Everything is logged.
+                    <template v-if="importAllDataMode === 'ticket'">Import <strong>ticket data only</strong>. Add Eventbrite link or CSV per location, set tags, then run. Locations with no ticket data are skipped (not logged).</template>
+                    <template v-else>Import <strong>win form data only</strong>. Set tags per location, then run. Locations with no form data are skipped (not logged).</template>
                 </p>
 
                 <!-- Year used in SOURCE tag -->
@@ -3469,19 +3537,19 @@ const runImportAll = async () => {
                     <p class="text-xs text-gray-600 mt-1">Separate with semicolon (;). These tags are added to every location when you import.</p>
                 </div>
 
-                <!-- Per-location: ticket data (optional), ticket tags, form tags -->
+                <!-- Per-location: ticket-only fields (when ticket mode) or form-only fields (when form mode) -->
                 <div class="space-y-4 mb-6">
                     <div v-for="loc in locations" :key="loc.id" class="border rounded-lg p-4 bg-gray-50 space-y-4">
-                        <div class="flex justify-between items-start">
+                        <div class="flex flex-wrap items-center gap-4">
                             <span class="font-medium">{{ loc.name }}</span>
-                            <span v-if="stagedByLocation[loc.id]?.attendees?.length" class="text-sm text-green-600 font-medium">
+                            <span v-if="importAllDataMode === 'ticket' && stagedByLocation[loc.id]?.attendees?.length" class="text-sm text-green-600 font-medium">
                                 {{ stagedByLocation[loc.id].attendees.length }} ticket attendees staged
                             </span>
-                            <span v-else class="text-xs text-gray-500">No ticket data (optional)</span>
+                            <span v-else-if="importAllDataMode === 'ticket'" class="text-xs text-gray-500">No ticket data (add Eventbrite/CSV below)</span>
                         </div>
 
-                        <!-- Ticket data (optional): Eventbrite or CSV -->
-                        <div>
+                        <!-- Ticket data: Eventbrite or CSV (only when ticket mode) -->
+                        <div v-if="importAllDataMode === 'ticket'">
                             <label class="block text-xs font-medium text-gray-600 mb-2">Ticket data (optional)</label>
                             <div class="flex flex-wrap gap-3 items-end">
                                 <div class="flex-1 min-w-[200px]">
@@ -3520,8 +3588,8 @@ const runImportAll = async () => {
                             </div>
                         </div>
 
-                        <!-- Tags for ticket data (this location) – used when importing this location's ticket data -->
-                        <div>
+                        <!-- Tags for ticket data (this location) – only when ticket mode -->
+                        <div v-if="importAllDataMode === 'ticket'">
                             <label class="block text-xs font-medium text-gray-700 mb-1">Tags for ticket data (this location)</label>
                             <div class="mb-2 px-2.5 py-1.5 rounded bg-teal-50 border border-teal-200 text-sm">
                                 <span class="text-gray-600">Country tag (auto-applied):</span>
@@ -3538,8 +3606,8 @@ const runImportAll = async () => {
                             <p class="text-xs text-gray-500 mt-1">Separate with ; . These are added on top of the default tags above.</p>
                         </div>
 
-                        <!-- Tags for form data (this location) – for review when importing form/sign-up data -->
-                        <div>
+                        <!-- Tags for form data (this location) – only when form mode -->
+                        <div v-if="importAllDataMode === 'form'">
                             <label class="block text-xs font-medium text-gray-700 mb-1">Tags for form data (this location)</label>
                             <input
                                 type="text"
@@ -3548,7 +3616,7 @@ const runImportAll = async () => {
                                 class="w-full border rounded px-2 py-1.5 text-sm bg-white"
                                 placeholder="SHOW - LOC; SOURCE - WM LOC COMP 2025"
                             />
-                            <p class="text-xs text-gray-500 mt-1">For review when you import sign-up form data for this location. Separate with ; .</p>
+                            <p class="text-xs text-gray-500 mt-1">Separate with ; . These are added on top of the default tags above.</p>
                         </div>
                     </div>
                 </div>
@@ -3644,21 +3712,19 @@ const runImportAll = async () => {
                     <p class="text-xs text-gray-600 mt-1 ml-6">When checked, only locations that have not been imported to this Mailchimp audience will be included. When unchecked, all locations are re-imported.</p>
                 </div>
 
-                <!-- Total contacts to be imported (win form + ticket) -->
+                <!-- Total contacts to be imported (ticket or form only) -->
                 <div class="mb-4 p-4 bg-gray-100 border border-gray-200 rounded-lg">
                     <div class="text-sm font-medium text-gray-800 mb-1">Total contacts to be imported</div>
-                    <div class="text-lg font-semibold text-gray-900">{{ totalToImport }}</div>
+                    <div class="text-lg font-semibold text-gray-900">{{ importAllDataMode === 'ticket' ? totalStagedCount : importPreviewFormTotal }}</div>
                     <div class="text-xs text-gray-600 mt-1">
-                        {{ importPreviewFormTotal }} win form
-                        <span v-if="totalStagedCount"> + {{ totalStagedCount }} ticket</span>
-                        <span v-if="!totalStagedCount"> (add Eventbrite/CSV per location for ticket data)</span>
+                        <template v-if="importAllDataMode === 'ticket'">{{ totalStagedCount }} ticket (add Eventbrite/CSV per location)</template>
+                        <template v-else>{{ importPreviewFormTotal }} win form</template>
                     </div>
                 </div>
 
                 <div class="flex justify-between items-center pt-4 border-t">
                     <div class="text-sm text-gray-600">
-                        <span v-if="hasStagedData">{{ stagedLocationIds.length }} location(s), {{ totalStagedCount }} total attendees staged. Ticket tags are applied only for these.</span>
-                        <span v-else>Win form data is imported for every location. Add Eventbrite or CSV per location only if you have ticket data; same tag structure, SOURCE differs (TIX vs COMP).</span>
+                        <span>{{ importAllDataMode === 'ticket' ? 'Ticket data only. Locations with no staged ticket data are skipped (not logged).' : 'Win form data only. Locations with no form data are skipped (not logged).' }}</span>
                         <span v-if="!importAllListId || !importAllAccount" class="block mt-1 text-amber-600">
                             To enable Import All: {{ !importAllAccount ? 'select Mailchimp account' : '' }}{{ !importAllAccount && !importAllListId ? ' and ' : '' }}{{ !importAllListId ? 'select Mailchimp audience' : '' }}.
                         </span>
@@ -3676,6 +3742,7 @@ const runImportAll = async () => {
                         </button>
                     </div>
                 </div>
+                </template>
             </div>
         </div>
 

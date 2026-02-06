@@ -17,11 +17,18 @@ return [
 
     /*
     |--------------------------------------------------------------------------
-    | Mailchimp Import All job timeout (seconds)
+    | Mailchimp Import All dispatch job timeout (seconds)
     |--------------------------------------------------------------------------
-    | How long a single Import All job may run before being killed. With many
-    | locations and subscribers, imports can take 8–16+ hours. Set to 57600 (16h)
-    | so the job is not killed mid-run. retry_after must be >= this.
+    | The Import All job only dispatches per-location jobs; it exits quickly.
+    | 300s (5 min) is enough for many locations. retry_after can stay high for
+    | the per-location jobs (EventImportLocationToMailchimpJob).
+    */
+    'mailchimp_import_dispatch_job_timeout' => (int) env('MAILCHIMP_IMPORT_DISPATCH_JOB_TIMEOUT', 300),
+
+    /*
+    |--------------------------------------------------------------------------
+    | Mailchimp Import job timeout (seconds) – manual / legacy
+    |--------------------------------------------------------------------------
     */
     'mailchimp_import_job_timeout' => (int) env('MAILCHIMP_IMPORT_JOB_TIMEOUT', 57600),
 
