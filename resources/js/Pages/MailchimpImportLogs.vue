@@ -42,6 +42,8 @@ function isLogSelected(id) {
 
 const props = defineProps({
     mailchimpImportLogs: { type: Array, default: () => [] },
+    pagination: { type: Object, default: null }, // { current_page, last_page, per_page, total, from, to, links }
+    perPage: { type: String, default: '10' }, // '10' | '50' | '100' | 'all'
     events: { type: Array, default: () => [] },
     filterEventId: { type: Number, default: null },
     filterSource: { type: String, default: null } // 'signup_form' | 'ticket_data' | null
@@ -402,22 +404,49 @@ function tagCellDisplay(log, columnIndex) {
     return tags.slice(MAX_TAG_COLUMNS - 1).join(', ');
 }
 
-const buildLogsUrl = (eventId, source) => {
+const buildLogsQuery = (opts = {}) => {
+    const {
+        eventId = props.filterEventId,
+        source = props.filterSource,
+        per_page = props.perPage,
+        page = 1
+    } = opts;
     const params = new URLSearchParams();
     if (eventId) params.set('event_id', eventId);
     if (source) params.set('source', source);
-    const q = params.toString();
+    if (per_page) params.set('per_page', per_page);
+    if (per_page && per_page !== 'all' && page > 1) params.set('page', String(page));
+    return params.toString();
+};
+
+const buildLogsUrl = (eventId, source, per_page, page) => {
+    const q = buildLogsQuery({ eventId, source, per_page, page });
     return q ? `/mailchimp-import-logs?${q}` : '/mailchimp-import-logs';
+};
+
+const visitLogs = (opts = {}) => {
+    const q = buildLogsQuery(opts);
+    router.visit(q ? `/mailchimp-import-logs?${q}` : '/mailchimp-import-logs');
 };
 
 const applyEventFilter = (value) => {
     const eventId = value === '' || value == null ? null : Number(value);
-    router.visit(buildLogsUrl(eventId, props.filterSource || ''));
+    visitLogs({ eventId, source: props.filterSource || '', per_page: props.perPage, page: 1 });
 };
 
 const applySourceFilter = (value) => {
     const source = value === '' || value == null ? null : value;
-    router.visit(buildLogsUrl(props.filterEventId || '', source));
+    visitLogs({ eventId: props.filterEventId || '', source, per_page: props.perPage, page: 1 });
+};
+
+const applyPerPage = (value) => {
+    const per_page = value === '' || value == null ? '10' : value;
+    visitLogs({ eventId: props.filterEventId || '', source: props.filterSource || '', per_page, page: 1 });
+};
+
+const goToPage = (page) => {
+    if (page < 1 || (props.pagination && page > props.pagination.last_page)) return;
+    visitLogs({ eventId: props.filterEventId || '', source: props.filterSource || '', per_page: props.perPage, page });
 };
 
 const sourceLabel = (source) => {
@@ -881,6 +910,20 @@ const exportToCsv = () => {
                                         <option value="manual_csv">Manual CSV</option>
                                     </select>
                                 </div>
+                                <div class="flex items-center gap-2">
+                                    <label for="per-page" class="text-sm font-medium text-gray-700">Show</label>
+                                    <select
+                                        id="per-page"
+                                        :value="perPage ?? '10'"
+                                        class="border rounded px-3 py-2 text-sm"
+                                        @change="applyPerPage($event.target.value)"
+                                    >
+                                        <option value="10">10</option>
+                                        <option value="50">50</option>
+                                        <option value="100">100</option>
+                                        <option value="all">All</option>
+                                    </select>
+                                </div>
                             </div>
                             <div class="flex items-center gap-2">
                                 <button
@@ -1068,6 +1111,30 @@ const exportToCsv = () => {
                                     </tr>
                                 </tbody>
                             </table>
+
+                            <!-- Pagination -->
+                            <div v-if="pagination && pagination.last_page > 1" class="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-gray-200 pt-4">
+                                <div class="text-sm text-gray-600">
+                                    Showing <span class="font-medium">{{ pagination.from }}</span>–<span class="font-medium">{{ pagination.to }}</span> of <span class="font-medium">{{ pagination.total }}</span>
+                                </div>
+                                <div class="flex items-center gap-1 flex-wrap">
+                                    <template v-for="(link, idx) in pagination.links" :key="idx">
+                                        <span
+                                            v-if="!link.url || link.label === '...'"
+                                            class="px-2 py-1.5 text-gray-400"
+                                        >{{ link.label === '...' ? '…' : link.label }}</span>
+                                        <a
+                                            v-else
+                                            :href="link.url"
+                                            class="px-3 py-1.5 text-sm border rounded min-w-[2.25rem] text-center"
+                                            :class="link.active ? 'border-blue-600 bg-blue-50 text-blue-700 font-medium' : 'border-gray-300 hover:bg-gray-50'"
+                                            @click.prevent="router.visit(link.url)"
+                                        >
+                                            {{ link.label }}
+                                        </a>
+                                    </template>
+                                </div>
+                            </div>
 
                             <!-- Totals breakdown (based on current filter) -->
                             <div v-if="filteredLogs.length > 0" class="mt-4 p-4 bg-gray-50 rounded-lg border border-gray-200">
@@ -1405,8 +1472,8 @@ const exportToCsv = () => {
 
                 <div class="mb-4">
                     <label class="block text-sm font-medium text-gray-700 mb-1">Tags (optional)</label>
-                    <input v-model="manualImportTags" type="text" class="w-full border rounded px-3 py-2" placeholder="TAG1; TAG2" />
-                    <p class="text-xs text-gray-500 mt-1">Separate with semicolons.</p>
+                    <input v-model="manualImportTags" type="text" class="w-full border rounded px-3 py-2" placeholder="Tag1; Tag2; Tag3; Tag4; Tag5; Tag6; Tag7" />
+                    <p class="text-xs text-gray-500 mt-1">Separate with semicolons. Each tag goes in its own column (Tag 1–6). If you add more than 6 tags, the extra ones are shown together in the Tag 6 column (e.g. Tag6, Tag7).</p>
                 </div>
 
                 <div class="flex justify-end gap-3 pt-4 border-t">

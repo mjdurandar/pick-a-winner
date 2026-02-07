@@ -35,14 +35,19 @@ class MailchimpImportLogsController extends Controller
 
     /**
      * Display the Mailchimp import logs page. Optional filter by event_id and source.
+     * Pagination: per_page = 10, 50, 100, or "all". When "all", no pagination.
      * Logs with null location_id (manual CSV import from this page) show location_name as "Manual import".
      */
     public function index(Request $request)
     {
         $eventId = $request->query('event_id');
         $source = $request->query('source');
+        $perPageParam = $request->query('per_page', '10');
+        $perPage = in_array($perPageParam, ['10', '50', '100'], true)
+            ? (int) $perPageParam
+            : 'all';
 
-        $logs = MailchimpImportLog::query()
+        $query = MailchimpImportLog::query()
             ->select(
                 'mailchimp_import_logs.id',
                 'mailchimp_import_logs.location_id',
@@ -76,11 +81,9 @@ class MailchimpImportLogsController extends Controller
                 $q->where('locations.event_id', $eventId)->orWhereNull('mailchimp_import_logs.location_id');
             }))
             ->when($source && in_array($source, ['signup_form', 'ticket_data', 'manual_csv']), fn ($q) => $q->where('mailchimp_import_logs.source', $source))
-            ->orderByDesc('mailchimp_import_logs.created_at')
-            ->get();
+            ->orderByDesc('mailchimp_import_logs.created_at');
 
-        // Ensure failed_rows is always an array for the frontend (decode JSON if stored as string)
-        $logs = $logs->map(function ($log) {
+        $normalizeLog = function ($log) {
             $item = $log instanceof MailchimpImportLog ? $log->toArray() : (array) $log;
             if (isset($item['failed_rows']) && is_string($item['failed_rows'])) {
                 $item['failed_rows'] = json_decode($item['failed_rows'], true) ?? [];
@@ -89,12 +92,35 @@ class MailchimpImportLogsController extends Controller
                 $item['failed_rows'] = [];
             }
             return $item;
-        })->values()->all();
+        };
 
+        if ($perPage === 'all') {
+            $logs = $query->get()->map($normalizeLog)->values()->all();
+            $events = Events::orderBy('event_name')->get(['id', 'event_name']);
+            return Inertia::render('MailchimpImportLogs', [
+                'mailchimpImportLogs' => $logs,
+                'pagination' => null,
+                'perPage' => 'all',
+                'events' => $events,
+                'filterEventId' => $eventId ? (int) $eventId : null,
+                'filterSource' => $source && in_array($source, ['signup_form', 'ticket_data', 'manual_csv']) ? $source : null,
+            ]);
+        }
+
+        $paginator = $query->paginate($perPage)->through($normalizeLog);
         $events = Events::orderBy('event_name')->get(['id', 'event_name']);
-
         return Inertia::render('MailchimpImportLogs', [
-            'mailchimpImportLogs' => $logs,
+            'mailchimpImportLogs' => $paginator->items(),
+            'pagination' => [
+                'current_page' => $paginator->currentPage(),
+                'last_page' => $paginator->lastPage(),
+                'per_page' => $paginator->perPage(),
+                'total' => $paginator->total(),
+                'from' => $paginator->firstItem(),
+                'to' => $paginator->lastItem(),
+                'links' => $paginator->linkCollection()->toArray(),
+            ],
+            'perPage' => (string) $perPage,
             'events' => $events,
             'filterEventId' => $eventId ? (int) $eventId : null,
             'filterSource' => $source && in_array($source, ['signup_form', 'ticket_data', 'manual_csv']) ? $source : null,
