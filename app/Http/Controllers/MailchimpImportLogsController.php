@@ -42,11 +42,32 @@ class MailchimpImportLogsController extends Controller
     {
         $eventId = $request->query('event_id');
         $source = $request->query('source');
+        $search = $request->query('search');
+        $search = is_string($search) ? trim($search) : '';
         $perPageParam = $request->query('per_page', '10');
         $perPage = in_array($perPageParam, ['10', '50', '100'], true)
             ? (int) $perPageParam
             : 'all';
 
+        $applySearch = function ($q) use ($search) {
+            if ($search === '') {
+                return;
+            }
+            $term = '%' . str_replace(['\\', '%', '_'], ['\\\\', '\\%', '\\_'], $search) . '%';
+            $q->where(function ($q) use ($term) {
+                $q->where('mailchimp_import_logs.list_name', 'like', $term)
+                    ->orWhere('mailchimp_import_logs.list_id', 'like', $term)
+                    ->orWhere('mailchimp_import_logs.notes', 'like', $term)
+                    ->orWhere('mailchimp_import_logs.custom_event_name', 'like', $term)
+                    ->orWhere('mailchimp_import_logs.custom_source', 'like', $term)
+                    ->orWhere('mailchimp_import_logs.tags', 'like', $term)
+                    ->orWhere('locations.name', 'like', $term)
+                    ->orWhere('events.event_name', 'like', $term)
+                    ->orWhere('users.name', 'like', $term);
+            });
+        };
+
+        // Totals use only event/source filter (not search), so "Totals" = all matching event/source
         $baseQuery = MailchimpImportLog::query()
             ->leftJoin('locations', 'locations.id', '=', 'mailchimp_import_logs.location_id')
             ->when($eventId, fn ($q) => $q->where(function ($q) use ($eventId) {
@@ -98,6 +119,7 @@ class MailchimpImportLogsController extends Controller
             }))
             ->when($source && in_array($source, ['signup_form', 'ticket_data', 'manual_csv']), fn ($q) => $q->where('mailchimp_import_logs.source', $source))
             ->orderByDesc('mailchimp_import_logs.created_at');
+        $applySearch($query);
 
         $normalizeLog = function ($log) {
             $item = $log instanceof MailchimpImportLog ? $log->toArray() : (array) $log;
@@ -121,6 +143,7 @@ class MailchimpImportLogsController extends Controller
                 'events' => $events,
                 'filterEventId' => $eventId ? (int) $eventId : null,
                 'filterSource' => $source && in_array($source, ['signup_form', 'ticket_data', 'manual_csv']) ? $source : null,
+                'searchKeyword' => $search !== '' ? $search : null,
             ]);
         }
 
@@ -142,6 +165,7 @@ class MailchimpImportLogsController extends Controller
             'events' => $events,
             'filterEventId' => $eventId ? (int) $eventId : null,
             'filterSource' => $source && in_array($source, ['signup_form', 'ticket_data', 'manual_csv']) ? $source : null,
+            'searchKeyword' => $search !== '' ? $search : null,
         ]);
     }
 

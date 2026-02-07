@@ -47,7 +47,8 @@ const props = defineProps({
     totalsFiltered: { type: Object, default: null }, // { totalImports, totalData, newContacts, updatedData, dataWithError } – all matching logs (event/source filter only)
     events: { type: Array, default: () => [] },
     filterEventId: { type: Number, default: null },
-    filterSource: { type: String, default: null } // 'signup_form' | 'ticket_data' | null
+    filterSource: { type: String, default: null }, // 'signup_form' | 'ticket_data' | null
+    searchKeyword: { type: String, default: null }
 });
 
 const formatImportDate = (dateStr) => {
@@ -410,13 +411,15 @@ const buildLogsQuery = (opts = {}) => {
         eventId = props.filterEventId,
         source = props.filterSource,
         per_page = props.perPage,
-        page = 1
+        page = 1,
+        search = props.searchKeyword
     } = opts;
     const params = new URLSearchParams();
     if (eventId) params.set('event_id', eventId);
     if (source) params.set('source', source);
     if (per_page) params.set('per_page', per_page);
     if (per_page && per_page !== 'all' && page > 1) params.set('page', String(page));
+    if (search && search.trim()) params.set('search', search.trim());
     return params.toString();
 };
 
@@ -432,22 +435,29 @@ const visitLogs = (opts = {}) => {
 
 const applyEventFilter = (value) => {
     const eventId = value === '' || value == null ? null : Number(value);
-    visitLogs({ eventId, source: props.filterSource || '', per_page: props.perPage, page: 1 });
+    visitLogs({ eventId, source: props.filterSource || '', per_page: props.perPage, page: 1, search: props.searchKeyword || '' });
 };
 
 const applySourceFilter = (value) => {
     const source = value === '' || value == null ? null : value;
-    visitLogs({ eventId: props.filterEventId || '', source, per_page: props.perPage, page: 1 });
+    visitLogs({ eventId: props.filterEventId || '', source, per_page: props.perPage, page: 1, search: props.searchKeyword || '' });
 };
 
 const applyPerPage = (value) => {
     const per_page = value === '' || value == null ? '10' : value;
-    visitLogs({ eventId: props.filterEventId || '', source: props.filterSource || '', per_page, page: 1 });
+    visitLogs({ eventId: props.filterEventId || '', source: props.filterSource || '', per_page, page: 1, search: props.searchKeyword || '' });
 };
 
 const goToPage = (page) => {
     if (page < 1 || (props.pagination && page > props.pagination.last_page)) return;
-    visitLogs({ eventId: props.filterEventId || '', source: props.filterSource || '', per_page: props.perPage, page });
+    visitLogs({ eventId: props.filterEventId || '', source: props.filterSource || '', per_page: props.perPage, page, search: props.searchKeyword || '' });
+};
+
+const searchKeywordInput = ref(props.searchKeyword ?? '');
+watch(() => props.searchKeyword, (v) => { searchKeywordInput.value = v ?? ''; }, { immediate: true });
+const applySearch = () => {
+    const search = (searchKeywordInput.value || '').trim();
+    visitLogs({ eventId: props.filterEventId || '', source: props.filterSource || '', per_page: props.perPage, page: 1, search });
 };
 
 const sourceLabel = (source) => {
@@ -941,6 +951,24 @@ const exportToCsv = () => {
                                         <option value="all">All</option>
                                     </select>
                                 </div>
+                                <div class="flex items-center gap-2">
+                                    <label for="search-keyword" class="text-sm font-medium text-gray-700 sr-only">Search</label>
+                                    <input
+                                        id="search-keyword"
+                                        v-model="searchKeywordInput"
+                                        type="text"
+                                        class="border rounded px-3 py-2 text-sm w-48 min-w-0"
+                                        placeholder="Search event, location, list, notes…"
+                                        @keyup.enter="applySearch"
+                                    />
+                                    <button
+                                        type="button"
+                                        @click="applySearch"
+                                        class="px-3 py-2 text-sm border border-gray-300 rounded hover:bg-gray-50"
+                                    >
+                                        Search
+                                    </button>
+                                </div>
                             </div>
                             <div class="flex items-center gap-2">
                                 <button
@@ -997,7 +1025,7 @@ const exportToCsv = () => {
 
                         <div v-if="filteredLogs.length === 0" class="text-gray-600 py-8 text-center">
                             No MC logs found.
-                            <span v-if="filterEventId || filterSource">Try changing the event or source filter.</span>
+                            <span v-if="filterEventId || filterSource || searchKeyword">Try changing the event, source, or search keyword.</span>
                         </div>
 
                         <div v-else class="overflow-x-auto">
