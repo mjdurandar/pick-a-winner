@@ -5,6 +5,10 @@ import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout.vue';
 import { Head } from '@inertiajs/vue3';
 import Swal from 'sweetalert2';
 
+function goToBrandReport(brand) {
+    router.visit(route('films.report', { film: brand.id }));
+}
+
 const props = defineProps({
     films: { type: Array, default: () => [] }
 });
@@ -134,13 +138,27 @@ function deleteBrand(brandId) {
                                         class="hover:bg-gray-50"
                                     >
                                         <td class="px-4 py-3">
-                                            <span class="font-medium text-gray-900">{{ brand.name }}</span>
+                                            <button
+                                                type="button"
+                                                @click="goToBrandReport(brand)"
+                                                class="text-left font-medium text-gray-900 hover:text-teal-600 focus:outline-none"
+                                            >
+                                                {{ brand.name }}
+                                            </button>
                                         </td>
                                         <td class="px-4 py-3 text-right">
                                             <button
+                                                type="button"
+                                                @click="goToBrandReport(brand)"
+                                                class="text-indigo-600 hover:text-indigo-800 mr-3"
+                                                title="View report"
+                                            >
+                                                <i class="fa-solid fa-chart-line"></i>
+                                            </button>
+                                            <button
                                                 v-if="userRole === 'admin'"
                                                 type="button"
-                                                @click="openEditModal(brand)"
+                                                @click.stop="openEditModal(brand)"
                                                 class="text-teal-600 hover:text-teal-800 mr-3"
                                                 title="Edit"
                                             >
@@ -149,7 +167,7 @@ function deleteBrand(brandId) {
                                             <button
                                                 v-if="canDelete"
                                                 type="button"
-                                                @click="deleteBrand(brand.id)"
+                                                @click.stop="deleteBrand(brand.id)"
                                                 class="text-red-600 hover:text-red-800"
                                                 title="Delete"
                                             >

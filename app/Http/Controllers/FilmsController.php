@@ -13,13 +13,17 @@ class FilmsController extends Controller
      */
     public function index() {
         return Inertia::render('Films', [
-            // Include events so we can show connected events per film in the UI
-            'films' => Films::with(['events' => function ($query) {
-                    $query->orderBy('event_date');
-                }])
-                ->withCount('events')
-                ->orderBy('name')
-                ->get(),
+            'films' => Films::orderBy('name')->get(),
+        ]);
+    }
+
+    /**
+     * Show the brand analytics report page (data is loaded via API on the frontend).
+     */
+    public function report(Films $film)
+    {
+        return Inertia::render('BrandReport', [
+            'film' => $film->only(['id', 'name']),
         ]);
     }
     

@@ -2420,6 +2420,32 @@ class LocationController extends Controller
                     'signup_only_count' => $locationSignUpEmails->diff($locationTicketEmails)->count()
                 ];
             });
+
+            // Demographics: by country (from ticket attendees; unique by email)
+            $attendeesByEmail = $ticketAttendees->unique(function ($a) {
+                return strtolower(trim($a->email ?? ''));
+            });
+            $byCountry = $attendeesByEmail->groupBy(function ($a) {
+                $c = trim($a->country ?? '');
+                return $c !== '' ? $c : 'N/A';
+            })->map(function ($group) {
+                return $group->count();
+            })->sortDesc()->map(function ($count, $country) {
+                return ['country' => $country, 'count' => $count];
+            })->values();
+
+            // By state (within country) for drill-down
+            $byState = $attendeesByEmail->filter(fn ($a) => trim($a->country ?? '') !== '' && trim($a->state ?? '') !== '')
+                ->groupBy(function ($a) {
+                    return trim($a->country ?? '') . '|' . trim($a->state ?? '');
+                })->map(function ($group) {
+                    $first = $group->first();
+                    return [
+                        'country' => trim($first->country ?? ''),
+                        'state' => trim($first->state ?? ''),
+                        'count' => $group->count()
+                    ];
+                })->sortByDesc('count')->values();
             
             return response()->json([
                 'film' => $film,
@@ -2437,7 +2463,11 @@ class LocationController extends Controller
                 'ticket_only_emails' => $ticketOnlyEmails,
                 'signup_only_emails' => $signUpOnlyEmails,
                 'location_stats' => $locationStats,
-                'events' => $events
+                'events' => $events,
+                'demographics' => [
+                    'by_country' => $byCountry,
+                    'by_state' => $byState
+                ]
             ]);
         } catch (\Exception $e) {
             Log::error('Error getting film ticket report', [

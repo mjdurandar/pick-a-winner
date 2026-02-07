@@ -47,6 +47,7 @@ Route::middleware(['auth', RoleMiddleware::class . ':admin,host'])->group(functi
     
     //films page
     Route::get('/films', [FilmsController::class, 'index'])->name('films.index');
+    Route::get('/films/{film}/report', [FilmsController::class, 'report'])->name('films.report');
 
     //LARAVEL LOGS (view / clear app log)
     Route::get('/laravel-logs', [LaravelLogsController::class, 'index'])->name('laravelLogs.index');
