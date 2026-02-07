@@ -44,6 +44,7 @@ const props = defineProps({
     mailchimpImportLogs: { type: Array, default: () => [] },
     pagination: { type: Object, default: null }, // { current_page, last_page, per_page, total, from, to, links }
     perPage: { type: String, default: '10' }, // '10' | '50' | '100' | 'all'
+    totalsFiltered: { type: Object, default: null }, // { totalImports, totalData, newContacts, updatedData, dataWithError } – all matching logs (event/source filter only)
     events: { type: Array, default: () => [] },
     filterEventId: { type: Number, default: null },
     filterSource: { type: String, default: null } // 'signup_form' | 'ticket_data' | null
@@ -456,8 +457,24 @@ const sourceLabel = (source) => {
     return 'Signup form';
 };
 
-// Totals for filtered logs (breakdown at bottom)
+// Decode Laravel pagination link labels so « / » render instead of &laquo; / &raquo;
+const paginationLinkLabel = (label) => {
+    if (typeof label !== 'string') return label;
+    return label.replace(/&laquo;/g, '«').replace(/&raquo;/g, '»');
+};
+
+// Totals: use server-provided totalsFiltered (all matching logs by event/source only), fallback to current page when not provided
 const totalsBreakdown = computed(() => {
+    const t = props.totalsFiltered;
+    if (t && typeof t.totalImports === 'number') {
+        return {
+            totalImports: t.totalImports,
+            totalData: t.totalData ?? 0,
+            newContacts: t.newContacts ?? 0,
+            updatedData: t.updatedData ?? 0,
+            dataWithError: t.dataWithError ?? 0,
+        };
+    }
     const logs = filteredLogs.value;
     return {
         totalImports: logs.length,
@@ -1122,7 +1139,7 @@ const exportToCsv = () => {
                                         <span
                                             v-if="!link.url || link.label === '...'"
                                             class="px-2 py-1.5 text-gray-400"
-                                        >{{ link.label === '...' ? '…' : link.label }}</span>
+                                        >{{ link.label === '...' ? '…' : paginationLinkLabel(link.label) }}</span>
                                         <a
                                             v-else
                                             :href="link.url"
@@ -1130,15 +1147,15 @@ const exportToCsv = () => {
                                             :class="link.active ? 'border-blue-600 bg-blue-50 text-blue-700 font-medium' : 'border-gray-300 hover:bg-gray-50'"
                                             @click.prevent="router.visit(link.url)"
                                         >
-                                            {{ link.label }}
+                                            {{ paginationLinkLabel(link.label) }}
                                         </a>
                                     </template>
                                 </div>
                             </div>
 
-                            <!-- Totals breakdown (based on current filter) -->
-                            <div v-if="filteredLogs.length > 0" class="mt-4 p-4 bg-gray-50 rounded-lg border border-gray-200">
-                                <h4 class="text-sm font-semibold text-gray-800 mb-3">Totals (filtered)</h4>
+                            <!-- Totals: all matching logs (filtered by event/source only, not by page) -->
+                            <div v-if="totalsBreakdown.totalImports > 0" class="mt-4 p-4 bg-gray-50 rounded-lg border border-gray-200">
+                                <h4 class="text-sm font-semibold text-gray-800 mb-3">Totals{{ filterEventId || filterSource ? ' (filtered by event/source)' : '' }}</h4>
                                 <div class="grid grid-cols-2 sm:grid-cols-5 gap-4 text-sm">
                                     <div class="bg-white p-3 rounded border border-gray-200">
                                         <div class="text-gray-500">Import sessions</div>

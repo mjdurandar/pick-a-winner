@@ -47,6 +47,22 @@ class MailchimpImportLogsController extends Controller
             ? (int) $perPageParam
             : 'all';
 
+        $baseQuery = MailchimpImportLog::query()
+            ->leftJoin('locations', 'locations.id', '=', 'mailchimp_import_logs.location_id')
+            ->when($eventId, fn ($q) => $q->where(function ($q) use ($eventId) {
+                $q->where('locations.event_id', $eventId)->orWhereNull('mailchimp_import_logs.location_id');
+            }))
+            ->when($source && in_array($source, ['signup_form', 'ticket_data', 'manual_csv']), fn ($q) => $q->where('mailchimp_import_logs.source', $source));
+
+        // Totals across all matching logs (filtered by event/source only, not pagination)
+        $totalsFiltered = [
+            'totalImports' => (clone $baseQuery)->count(),
+            'totalData' => (clone $baseQuery)->sum('mailchimp_import_logs.total_data'),
+            'newContacts' => (clone $baseQuery)->sum('mailchimp_import_logs.new_contacts'),
+            'updatedData' => (clone $baseQuery)->sum('mailchimp_import_logs.updated_data'),
+            'dataWithError' => (clone $baseQuery)->sum('mailchimp_import_logs.data_with_error'),
+        ];
+
         $query = MailchimpImportLog::query()
             ->select(
                 'mailchimp_import_logs.id',
@@ -101,6 +117,7 @@ class MailchimpImportLogsController extends Controller
                 'mailchimpImportLogs' => $logs,
                 'pagination' => null,
                 'perPage' => 'all',
+                'totalsFiltered' => $totalsFiltered,
                 'events' => $events,
                 'filterEventId' => $eventId ? (int) $eventId : null,
                 'filterSource' => $source && in_array($source, ['signup_form', 'ticket_data', 'manual_csv']) ? $source : null,
@@ -121,6 +138,7 @@ class MailchimpImportLogsController extends Controller
                 'links' => $paginator->linkCollection()->toArray(),
             ],
             'perPage' => (string) $perPage,
+            'totalsFiltered' => $totalsFiltered,
             'events' => $events,
             'filterEventId' => $eventId ? (int) $eventId : null,
             'filterSource' => $source && in_array($source, ['signup_form', 'ticket_data', 'manual_csv']) ? $source : null,
