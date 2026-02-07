@@ -59,7 +59,7 @@ const userRole = computed(() => user.value?.role);
                                     :href="route('films.index')"
                                     :active="route().current('films.index')"
                                 >
-                                    Films
+                                    Brands
                                 </NavLink>
                                 <NavLink
                                     v-if="userRole === 'admin' || userRole === 'host'"
@@ -76,13 +76,6 @@ const userRole = computed(() => user.value?.role);
                                 >
                                     Locations
                                 </NavLink> -->
-                                <NavLink
-                                    v-if="userRole === 'admin'"
-                                    :href="route('users.index')"
-                                    :active="route().current('users.index')"
-                                >
-                                    Users
-                                </NavLink>
                                 <NavLink
                                     v-if="userRole === 'admin' || userRole === 'host'"
                                     :href="route('weekly-report')"
@@ -138,6 +131,12 @@ const userRole = computed(() => user.value?.role);
                                             :href="route('laravelLogs.index')"
                                         >
                                             Laravel Logs
+                                        </DropdownLink>
+                                        <DropdownLink
+                                            v-if="userRole === 'admin'"
+                                            :href="route('users.index')"
+                                        >
+                                            Users
                                         </DropdownLink>
                                         <DropdownLink
                                             :href="route('logout')"
@@ -222,7 +221,7 @@ const userRole = computed(() => user.value?.role);
                                     :href="route('films.index')"
                                     :active="route().current('films.index')"
                                 >
-                                    Films
+                                    Brands
                         </ResponsiveNavLink>
                         <ResponsiveNavLink
                                 v-if="userRole === 'admin' || userRole === 'host'"
@@ -239,13 +238,6 @@ const userRole = computed(() => user.value?.role);
                                 >
                                     Locations
                         </ResponsiveNavLink> -->
-                        <ResponsiveNavLink
-                                v-if="userRole === 'admin'"
-                                    :href="route('users.index')"
-                                    :active="route().current('users.index')"
-                                >
-                                    Users
-                        </ResponsiveNavLink>
                         <ResponsiveNavLink
                                 v-if="userRole === 'admin' || userRole === 'host'"
                                     :href="route('weekly-report')"
@@ -285,6 +277,12 @@ const userRole = computed(() => user.value?.role);
                                 :href="route('laravelLogs.index')"
                             >
                                 Laravel Logs
+                            </ResponsiveNavLink>
+                            <ResponsiveNavLink
+                                v-if="userRole === 'admin'"
+                                :href="route('users.index')"
+                            >
+                                Users
                             </ResponsiveNavLink>
                             <ResponsiveNavLink
                                 :href="route('logout')"
