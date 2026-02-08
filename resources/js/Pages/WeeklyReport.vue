@@ -284,6 +284,87 @@ const exportEventBreakdownPdf = async () => {
     }
 };
 
+const doExportEndOfFilmTourPdf = async (lastFilmSignups, lastFilmYear) => {
+    const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') ||
+        document.querySelector('input[name="_token"]')?.value;
+    if (!csrfToken) throw new Error('CSRF token not found');
+    const body = { event_id: selectedEventId.value };
+    if (lastFilmSignups != null && lastFilmYear != null) {
+        body.last_film_signups = parseInt(lastFilmSignups, 10);
+        body.last_film_year = parseInt(lastFilmYear, 10);
+    }
+    const response = await fetch(route('weekly-report.end-of-film-tour.export-pdf'), {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+            'X-CSRF-TOKEN': csrfToken,
+            'Accept': 'application/pdf'
+        },
+        body: JSON.stringify(body)
+    });
+    if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'PDF export failed');
+    }
+    const blob = await response.blob();
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    const eventName = (eventBreakdown.value?.event?.name || 'event').replace(/[^a-z0-9]/gi, '_').toLowerCase();
+    a.download = `end_of_film_tour_${eventName}_${new Date().toISOString().split('T')[0]}.pdf`;
+    a.style.display = 'none';
+    document.body.appendChild(a);
+    a.click();
+    window.URL.revokeObjectURL(url);
+    document.body.removeChild(a);
+    Swal.fire('Success', 'End of film tour report exported', 'success');
+};
+
+const exportEndOfFilmTourPdf = () => {
+    if (!selectedEventId.value) {
+        Swal.fire('Error', 'Please select an event first', 'error');
+        return;
+    }
+    Swal.fire({
+        title: 'End of Film Tour Report',
+        html: `
+            <p class="text-left mb-2 mt-2">How many signups last film?</p>
+            <input id="last-signups" type="number" class="swal2-input" placeholder="e.g. 3500" min="0" style="margin-top: 0;">
+            <p class="text-left mb-2 mt-4">What year?</p>
+            <input id="last-year" type="number" class="swal2-input" placeholder="e.g. 2024" min="1990" max="2100" style="margin-top: 0;">
+        `,
+        showCancelButton: true,
+        confirmButtonText: 'Export PDF',
+        preConfirm: () => {
+            const signups = document.getElementById('last-signups')?.value?.trim();
+            const year = document.getElementById('last-year')?.value?.trim();
+            if (!signups || !year) {
+                Swal.showValidationMessage('Please fill both fields');
+                return false;
+            }
+            const s = parseInt(signups, 10);
+            const y = parseInt(year, 10);
+            if (isNaN(s) || s < 0) {
+                Swal.showValidationMessage('Enter a valid signup count');
+                return false;
+            }
+            if (isNaN(y) || y < 1990 || y > 2100) {
+                Swal.showValidationMessage('Enter a valid year (1990–2100)');
+                return false;
+            }
+            return { lastFilmSignups: s, lastFilmYear: y };
+        }
+    }).then((result) => {
+        if (result.isConfirmed) {
+            const { lastFilmSignups, lastFilmYear } = result.value || {};
+            doExportEndOfFilmTourPdf(lastFilmSignups, lastFilmYear).catch((error) => {
+                console.error('Error exporting end of film tour PDF:', error);
+                Swal.fire('Error', `Failed to export PDF: ${error.message}`, 'error');
+            });
+        }
+    });
+};
+
 // Computed properties for better data handling
 const hasData = computed(() => props.reportData && props.reportData.length > 0);
 const totalSignups = computed(() => props.summary.total_signups || 0);
@@ -360,48 +441,6 @@ const loadEventBreakdown = async () => {
     } finally {
         isLoadingBreakdown.value = false;
     }
-};
-
-/** Build tab-separated template matching the weekly report spreadsheet. Populates only data we have; leaves rest blank. */
-const copyReportTemplateToClipboard = () => {
-    if (!eventBreakdown.value) {
-        Swal.fire('Error', 'Load an event breakdown first, then copy the template.', 'error');
-        return;
-    }
-    const e = eventBreakdown.value.event;
-    const locs = eventBreakdown.value.location_breakdown || [];
-
-    const t = (...args) => args.join('\t');
-    const rows = [];
-
-    // Summary metrics (Metric, Value)
-    rows.push(t('Metric', 'Value'));
-    rows.push(t('Total Participants 2024', ''));
-    rows.push(t('Total Participants 2025', e.total_signups ?? ''));
-    // Top 5 locations from event (location_breakdown is already sorted by signups desc)
-    const top5 = (locs || []).slice(0, 5);
-    for (let i = 0; i < 5; i++) {
-        const loc = top5[i];
-        rows.push(t('Top Location 2025 - ' + (loc ? loc.location_name : ''), loc ? (loc.signups ?? '') : ''));
-    }
-    rows.push(t('Total TIX Tickets Collected 2025', ''));
-    rows.push('');
-
-    // Location Details
-    rows.push(t('Location Name', 'Attendees_2025', 'TIX_Total'));
-    locs.forEach((loc) => {
-        rows.push(t(loc.location_name || '', loc.signups ?? '', ''));
-    });
-    if (!locs.length) {
-        rows.push(t('', '', ''));
-    }
-
-    const tsv = rows.join('\n');
-    navigator.clipboard.writeText(tsv).then(() => {
-        Swal.fire('Copied!', 'Table template copied to clipboard. Paste into Excel or Google Sheets. Empty cells are left for you to fill manually.', 'success');
-    }).catch(() => {
-        Swal.fire('Error', 'Could not copy to clipboard. Try selecting and copying the table manually.', 'error');
-    });
 };
 
 const switchTab = (tab) => {
@@ -995,14 +1034,14 @@ watch(() => eventBreakdown.value, async () => {
                                         Export PDF
                                     </button>
                                     <button
-                                        @click="copyReportTemplateToClipboard"
-                                        :disabled="!selectedEventId || !eventBreakdown || isLoadingBreakdown"
-                                        class="px-4 py-2 bg-teal-600 text-white rounded-md hover:bg-teal-700 disabled:opacity-50 disabled:cursor-not-allowed"
-                                        title="Copy table template (like the spreadsheet) with available data; paste into Excel/Sheets and fill the rest manually"
+                                        @click="exportEndOfFilmTourPdf"
+                                        :disabled="!selectedEventId || isLoadingBreakdown"
+                                        class="px-4 py-2 bg-amber-600 text-white rounded-md hover:bg-amber-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                                        title="Export end of film tour report (signups, tickets, demographics)"
                                     >
-                                        Copy table template
+                                        End of film tour report
                                     </button>
-                                </div>
+                                    </div>
                             </div>
 
                             <!-- Export demographics spreadsheet: multi-select events -->

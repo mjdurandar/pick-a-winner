@@ -177,6 +177,7 @@ Route::get('/weekly-report/export-demographics-spreadsheet', [App\Http\Controlle
 Route::post('/weekly-report/export-pdf', [App\Http\Controllers\WeeklyReportController::class, 'exportPdf'])->name('weekly-report.export-pdf');
 Route::get('/weekly-report/event-breakdown', [App\Http\Controllers\WeeklyReportController::class, 'getEventBreakdown'])->name('weekly-report.event-breakdown');
 Route::post('/weekly-report/event-breakdown/export-pdf', [App\Http\Controllers\WeeklyReportController::class, 'exportEventBreakdownPdf'])->name('weekly-report.event-breakdown.export-pdf');
+Route::post('/weekly-report/end-of-film-tour/export-pdf', [App\Http\Controllers\WeeklyReportController::class, 'exportEndOfFilmTourPdf'])->name('weekly-report.end-of-film-tour.export-pdf');
 
 // API Routes
 Route::prefix('api')->middleware(['auth', 'verified'])->group(function () {

@@ -6,6 +6,7 @@ use Illuminate\Http\Request;
 use App\Models\Events;
 use App\Models\Location;
 use App\Models\SignUpForm;
+use App\Models\TicketAttendee;
 use Inertia\Inertia;
 use Illuminate\Support\Facades\DB;
 use Carbon\Carbon;
@@ -1491,6 +1492,223 @@ class WeeklyReportController extends Controller
             return $pdf->download($filename);
         } catch (\Exception $e) {
             Log::error('Event Breakdown PDF Generation Error: ' . $e->getMessage());
+            return response()->json(['error' => 'PDF generation failed: ' . $e->getMessage()], 500);
+        }
+    }
+
+    /**
+     * Export End of Film Tour report as PDF for the selected event.
+     * Includes signups, tickets, demographics (by country/state), location breakdown, and question breakdown.
+     */
+    public function exportEndOfFilmTourPdf(Request $request)
+    {
+        try {
+            $request->validate([
+                'event_id' => 'required|exists:events,id',
+                'last_film_signups' => 'nullable|integer|min:0',
+                'last_film_year' => 'nullable|integer|min:1990|max:2100',
+            ]);
+        } catch (\Exception $e) {
+            Log::error('End of Film Tour PDF Export Validation Error: ' . $e->getMessage());
+            return response()->json(['error' => 'Validation failed: ' . $e->getMessage()], 400);
+        }
+
+        $event = Events::with(['signUpForm', 'locations', 'film'])->findOrFail($request->event_id);
+        $lastFilmSignups = $request->filled('last_film_signups') ? (int) $request->last_film_signups : null;
+        $lastFilmYear = $request->filled('last_film_year') ? (int) $request->last_film_year : null;
+
+        if (!$event->signUpForm || !$event->signUpForm->table_name) {
+            return response()->json([
+                'error' => 'This event does not have a signup form'
+            ], 404);
+        }
+
+        $tableName = $event->signUpForm->table_name;
+        $questions = json_decode($event->signUpForm->questions, true) ?? [];
+        $allSignups = DB::table($tableName)->where('event_id', $event->id)->get();
+        $totalSignups = $allSignups->count();
+        $breakdown = [];
+        $detectPhoneCountry = function ($phoneNumber) {
+            if (empty($phoneNumber)) return 'Other';
+            $cleaned = preg_replace('/\D+/', '', $phoneNumber);
+            if (empty($cleaned)) return 'Other';
+            if (preg_match('/^(\+61|61)/', $phoneNumber)) {
+                $withoutCountry = preg_replace('/^(\+61|61)/', '', $cleaned);
+                if (strlen($withoutCountry) >= 9 && strlen($withoutCountry) <= 10) return 'Australian';
+            }
+            if (preg_match('/^(\+64|64)/', $phoneNumber)) {
+                $withoutCountry = preg_replace('/^(\+64|64)/', '', $cleaned);
+                if (strlen($withoutCountry) >= 8 && strlen($withoutCountry) <= 9) return 'New Zealand';
+            }
+            if (preg_match('/^(04|02|03|07|08)/', $cleaned) && strlen($cleaned) === 10) return 'Australian';
+            if (preg_match('/^(02|03|04|06|07|09)/', $cleaned) && strlen($cleaned) >= 8 && strlen($cleaned) <= 9) return 'New Zealand';
+            return 'Other';
+        };
+
+        foreach ($questions as $question) {
+            $columnName = $question['column_name'] ?? null;
+            if (!$columnName) continue;
+            if ($question['type'] === 'email' || $columnName === 'email_address' ||
+                $columnName === 'first_name' || $columnName === 'last_name' ||
+                stripos($columnName, 'date_of_birth') !== false ||
+                stripos($columnName, 'dateofbirth') !== false ||
+                stripos($columnName, 'dob') !== false ||
+                (strtolower($question['text'] ?? '') === 'date of birth') ||
+                $question['type'] === 'text') {
+                continue;
+            }
+            $questionBreakdown = [
+                'question_text' => $question['text'] ?? $columnName,
+                'question_type' => $question['type'] ?? 'text',
+                'column_name' => $columnName,
+                'total_responses' => 0,
+                'responses' => []
+            ];
+            if ($columnName === 'mobile_number') {
+                $allPhones = DB::table($tableName)
+                    ->where('event_id', $event->id)
+                    ->whereNotNull($columnName)->where($columnName, '!=', '')
+                    ->pluck($columnName);
+                $phoneBreakdown = ['Australian' => 0, 'New Zealand' => 0, 'Other' => 0];
+                foreach ($allPhones as $phone) {
+                    $country = $detectPhoneCountry($phone);
+                    $phoneBreakdown[$country]++;
+                }
+                $questionBreakdown['total_responses'] = array_sum($phoneBreakdown);
+                foreach ($phoneBreakdown as $country => $count) {
+                    if ($count > 0) {
+                        $questionBreakdown['responses'][] = [
+                            'value' => $country,
+                            'count' => $count,
+                            'percentage' => $totalSignups > 0 ? round(($count / $totalSignups) * 100, 2) : 0
+                        ];
+                    }
+                }
+            } else {
+                $questionOptions = isset($question['options']) && is_array($question['options']) ? $question['options'] : [];
+                $hasOtherOption = isset($question['hasOtherOption']) && $question['hasOtherOption'];
+                $responses = DB::table($tableName)
+                    ->where('event_id', $event->id)
+                    ->whereNotNull($columnName)->where($columnName, '!=', '')
+                    ->select($columnName, DB::raw('count(*) as count'))
+                    ->groupBy($columnName)->orderByDesc('count')->get();
+                $questionBreakdown['total_responses'] = $responses->sum('count');
+                if ($question['type'] === 'dropdown' && isset($question['allowMultiple']) && $question['allowMultiple']) {
+                    $individualCounts = [];
+                    $otherCount = 0;
+                    foreach ($responses as $response) {
+                        $value = $response->{$columnName};
+                        $count = $response->count;
+                        $decoded = json_decode($value, true);
+                        if (is_array($decoded) && count($decoded) > 0) {
+                            foreach ($decoded as $item) {
+                                $item = trim($item);
+                                if (!empty($item)) {
+                                    if (!empty($questionOptions) && !in_array($item, $questionOptions) && $item !== 'Other') {
+                                        $otherCount += $count;
+                                    } else {
+                                        $individualCounts[$item] = ($individualCounts[$item] ?? 0) + $count;
+                                    }
+                                }
+                            }
+                        } elseif (!empty($value)) {
+                            if (!empty($questionOptions)) {
+                                $matchedOptions = [];
+                                $remainingValue = $value;
+                                $sortedOptions = $questionOptions;
+                                usort($sortedOptions, fn ($a, $b) => strlen($b) - strlen($a));
+                                foreach ($sortedOptions as $option) {
+                                    if (strpos($remainingValue, $option) !== false) {
+                                        $matchedOptions[] = $option;
+                                        $remainingValue = str_replace($option, '', $remainingValue);
+                                    }
+                                }
+                                foreach ($matchedOptions as $option) {
+                                    $individualCounts[$option] = ($individualCounts[$option] ?? 0) + $count;
+                                }
+                                if (empty($matchedOptions)) $otherCount += $count;
+                            } else {
+                                if ($hasOtherOption && $value !== 'Other' && !in_array($value, $questionOptions)) {
+                                    $otherCount += $count;
+                                } else {
+                                    $individualCounts[$value] = ($individualCounts[$value] ?? 0) + $count;
+                                }
+                            }
+                        }
+                    }
+                    if ($otherCount > 0) $individualCounts['Other'] = $otherCount;
+                    arsort($individualCounts);
+                    foreach ($individualCounts as $item => $count) {
+                        $questionBreakdown['responses'][] = [
+                            'value' => $item,
+                            'count' => $count,
+                            'percentage' => $totalSignups > 0 ? round(($count / $totalSignups) * 100, 2) : 0
+                        ];
+                    }
+                } else {
+                    $otherCount = 0;
+                    foreach ($responses as $response) {
+                        $value = $response->{$columnName};
+                        $count = $response->count;
+                        if ($hasOtherOption && !empty($questionOptions) && !in_array($value, $questionOptions) && $value !== 'Other') {
+                            $otherCount += $count;
+                        } else {
+                            $questionBreakdown['responses'][] = [
+                                'value' => $value,
+                                'count' => $count,
+                                'percentage' => $totalSignups > 0 ? round(($count / $totalSignups) * 100, 2) : 0
+                            ];
+                        }
+                    }
+                    if ($otherCount > 0) {
+                        $questionBreakdown['responses'][] = [
+                            'value' => 'Other',
+                            'count' => $otherCount,
+                            'percentage' => $totalSignups > 0 ? round(($otherCount / $totalSignups) * 100, 2) : 0
+                        ];
+                    }
+                }
+            }
+            usort($questionBreakdown['responses'], fn ($a, $b) => $b['count'] - $a['count']);
+            $breakdown[] = $questionBreakdown;
+        }
+
+        $locationIds = $event->locations->pluck('id');
+        $locationBreakdown = [];
+        foreach ($event->locations as $location) {
+            $locationSignups = DB::table($tableName)
+                ->where('event_id', $event->id)
+                ->where('location_id', $location->id)
+                ->count();
+            $locationBreakdown[] = [
+                'location_id' => $location->id,
+                'location_name' => $location->name,
+                'signups' => $locationSignups,
+                'percentage' => $totalSignups > 0 ? round(($locationSignups / $totalSignups) * 100, 2) : 0
+            ];
+        }
+        usort($locationBreakdown, fn ($a, $b) => $b['signups'] - $a['signups']);
+
+        // Ticket attendees (counts only; no demographics from tickets)
+        $ticketAttendees = TicketAttendee::whereIn('location_id', $locationIds)
+            ->with(['location'])
+            ->get();
+        $totalTickets = $ticketAttendees->unique(fn ($a) => strtolower(trim($a->email ?? '')))->count();
+
+        foreach ($locationBreakdown as &$row) {
+            $row['tickets'] = $ticketAttendees->where('location_id', $row['location_id'])->unique(fn ($a) => strtolower(trim($a->email ?? '')))->count();
+        }
+        unset($row);
+
+        $film = $event->film;
+
+        try {
+            $pdf = Pdf::loadView('reports.end-of-film-tour-pdf', compact('event', 'film', 'totalSignups', 'totalTickets', 'breakdown', 'locationBreakdown', 'lastFilmSignups', 'lastFilmYear'));
+            $pdf->setPaper('A4', 'portrait');
+            $filename = 'end_of_film_tour_' . Str::slug($event->event_name) . '_' . date('Y-m-d') . '.pdf';
+            return $pdf->download($filename);
+        } catch (\Exception $e) {
+            Log::error('End of Film Tour PDF Generation Error: ' . $e->getMessage());
             return response()->json(['error' => 'PDF generation failed: ' . $e->getMessage()], 500);
         }
     }
