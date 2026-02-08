@@ -537,6 +537,7 @@ class MailchimpImportLogsController extends Controller
                     'event_id' => null,
                     'locations' => [],
                     'job_type' => null,
+                    'source' => '—',
                     'created_at' => $row->created_at ? date('Y-m-d H:i:s', $row->created_at) : null,
                 ];
                 continue;
@@ -552,6 +553,7 @@ class MailchimpImportLogsController extends Controller
                     'event_id' => null,
                     'locations' => [],
                     'job_type' => null,
+                    'source' => '—',
                     'created_at' => $row->created_at ? date('Y-m-d H:i:s', $row->created_at) : null,
                 ];
                 continue;
@@ -570,6 +572,7 @@ class MailchimpImportLogsController extends Controller
                         ['location_id' => null, 'location_name' => "Manual import ({$subscribersCount} rows)"],
                     ],
                     'job_type' => 'manual_import',
+                    'source' => 'Manual CSV',
                     'created_at' => $row->created_at ? date('Y-m-d H:i:s', $row->created_at) : null,
                 ];
                 continue;
@@ -581,6 +584,12 @@ class MailchimpImportLogsController extends Controller
                 if ($locationId) {
                     $locationIds[$locationId] = true;
                 }
+                $source = 'Signup form';
+                if (!empty($job->locationPayload['import_ticket'])) {
+                    $source = !empty($job->locationPayload['import_form']) ? 'Ticket + Signup form' : 'Ticket';
+                } elseif (!empty($job->locationPayload['import_form'])) {
+                    $source = 'Signup form';
+                }
                 $result[] = [
                     'job_id' => $row->id,
                     'status' => $row->reserved_at ? 'in_progress' : 'queued',
@@ -589,6 +598,7 @@ class MailchimpImportLogsController extends Controller
                     'location_ids' => $locationId ? [$locationId] : [],
                     'job_type' => 'import_location',
                     'import_batch_id' => $job->importBatchId,
+                    'source' => $source,
                     'created_at' => $row->created_at ? date('Y-m-d H:i:s', $row->created_at) : null,
                 ];
                 continue;
@@ -609,6 +619,15 @@ class MailchimpImportLogsController extends Controller
                 $locationIds[$lid] = true;
             }
 
+            $source = 'Signup form';
+            $first = $locationsPayload[0] ?? null;
+            if ($first !== null) {
+                if (!empty($first['import_ticket'])) {
+                    $source = !empty($first['import_form']) ? 'Ticket + Signup form' : 'Ticket';
+                } elseif (!empty($first['import_form'])) {
+                    $source = 'Signup form';
+                }
+            }
             $item = [
                 'job_id' => $row->id,
                 'status' => $row->reserved_at ? 'in_progress' : 'queued',
@@ -618,6 +637,7 @@ class MailchimpImportLogsController extends Controller
                 'location_ids' => array_values($locationIdsFromPayload),
                 'job_type' => 'import_all',
                 'import_batch_id' => $job->importBatchId,
+                'source' => $source,
                 'created_at' => $row->created_at ? date('Y-m-d H:i:s', $row->created_at) : null,
             ];
             if ($row->reserved_at && $job->importBatchId) {

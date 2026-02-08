@@ -286,12 +286,14 @@ const queuedImportRows = computed(() => {
         const importedSoFar = job.locations_imported_so_far ?? null;
         const failedSoFar = job.locations_failed_so_far ?? null;
         const jobType = job.job_type || null;
+        const source = job.source || '—';
         for (const loc of locations) {
             rows.push({
                 job_id: job.job_id,
                 location_id: loc.location_id,
                 location_name: loc.location_name || '—',
                 event_name: job.event_name || '—',
+                source,
                 status: job.status,
                 created_at: job.created_at,
                 total_locations_to_import: jobType === 'import_all' ? totalToImport : null,
@@ -305,6 +307,7 @@ const queuedImportRows = computed(() => {
                 location_id: null,
                 location_name: '—',
                 event_name: job.event_name || '—',
+                source,
                 status: job.status,
                 created_at: job.created_at,
                 total_locations_to_import: jobType === 'import_all' ? totalToImport : null,
@@ -1243,6 +1246,7 @@ const exportToCsv = () => {
                                 <tr>
                                     <th class="border border-gray-300 p-2 text-left whitespace-nowrap">Event</th>
                                     <th class="border border-gray-300 p-2 text-left whitespace-nowrap">Location</th>
+                                    <th class="border border-gray-300 p-2 text-left whitespace-nowrap">Source</th>
                                     <th class="border border-gray-300 p-2 text-left whitespace-nowrap">Status</th>
                                     <th class="border border-gray-300 p-2 text-left whitespace-nowrap">Queued at</th>
                                     <th class="border border-gray-300 p-2 text-center whitespace-nowrap">Actions</th>
@@ -1269,6 +1273,11 @@ const exportToCsv = () => {
                                         </div>
                                     </td>
                                     <td class="border border-gray-300 p-2 text-gray-700">{{ row.location_name }}</td>
+                                    <td class="border border-gray-300 p-2 text-gray-700">
+                                        <span class="text-xs font-medium" :title="row.source === 'Ticket' ? 'Ticket data (Eventbrite/CSV)' : row.source === 'Signup form' ? 'Win form / signup data' : row.source === 'Manual CSV' ? 'Manual CSV upload' : ''">
+                                            {{ row.source || '—' }}
+                                        </span>
+                                    </td>
                                     <td class="border border-gray-300 p-2">
                                         <span
                                             :class="row.status === 'in_progress' ? 'bg-blue-100 text-blue-800' : 'bg-amber-100 text-amber-800'"
