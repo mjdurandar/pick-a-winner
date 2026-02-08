@@ -1,13 +1,9 @@
 <script setup>
-import { ref, computed } from 'vue';
+import { ref, computed, watch } from 'vue';
 import { useForm, router, usePage } from '@inertiajs/vue3';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout.vue';
 import { Head } from '@inertiajs/vue3';
 import Swal from 'sweetalert2';
-
-function goToBrandReport(brand) {
-    router.visit(route('films.report', { film: brand.id }));
-}
 
 const props = defineProps({
     films: { type: Array, default: () => [] }
@@ -61,6 +57,15 @@ function saveBrand() {
     }
 }
 
+// Show flash error in SweetAlert when landing on this page (e.g. after redirect from failed delete)
+watch(
+    () => page.props.flash?.error,
+    (msg) => {
+        if (msg) Swal.fire('Cannot delete', msg, 'error');
+    },
+    { immediate: true }
+);
+
 function deleteBrand(brandId) {
     Swal.fire({
         title: 'Are you sure?',
@@ -72,18 +77,7 @@ function deleteBrand(brandId) {
         confirmButtonText: 'Yes, delete it!'
     }).then((result) => {
         if (result.isConfirmed) {
-            router.delete(route('films.destroy', { film: brandId }), {
-                onSuccess: () => {
-                    router.visit(route('films.index'), { preserveState: false });
-                    Swal.fire('Deleted!', 'Brand has been deleted.', 'success');
-                },
-                onError: (errors) => {
-                    let msg = 'There was an issue deleting the brand.';
-                    if (typeof errors === 'string') msg = errors;
-                    else if (errors?.message) msg = errors.message;
-                    Swal.fire('Error!', msg, 'error');
-                }
-            });
+            router.delete(route('films.destroy', { film: brandId }));
         }
     });
 }
@@ -137,24 +131,8 @@ function deleteBrand(brandId) {
                                         :key="brand.id"
                                         class="hover:bg-gray-50"
                                     >
-                                        <td class="px-4 py-3">
-                                            <button
-                                                type="button"
-                                                @click="goToBrandReport(brand)"
-                                                class="text-left font-medium text-gray-900 hover:text-teal-600 focus:outline-none"
-                                            >
-                                                {{ brand.name }}
-                                            </button>
-                                        </td>
+                                        <td class="px-4 py-3 font-medium text-gray-900">{{ brand.name }}</td>
                                         <td class="px-4 py-3 text-right">
-                                            <button
-                                                type="button"
-                                                @click="goToBrandReport(brand)"
-                                                class="text-indigo-600 hover:text-indigo-800 mr-3"
-                                                title="View report"
-                                            >
-                                                <i class="fa-solid fa-chart-line"></i>
-                                            </button>
                                             <button
                                                 v-if="userRole === 'admin'"
                                                 type="button"

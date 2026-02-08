@@ -73,7 +73,7 @@ class FilmsController extends Controller
     
         // Check if film has associated events
         if ($film->events()->count() > 0) {
-            return redirect()->route('films.index')->with('error', 'Cannot delete film with associated events.');
+            return redirect()->route('films.index')->with('error', 'Cannot delete this brand because it has connected events.');
         }
     
         $film->delete();

@@ -362,6 +362,48 @@ const loadEventBreakdown = async () => {
     }
 };
 
+/** Build tab-separated template matching the weekly report spreadsheet. Populates only data we have; leaves rest blank. */
+const copyReportTemplateToClipboard = () => {
+    if (!eventBreakdown.value) {
+        Swal.fire('Error', 'Load an event breakdown first, then copy the template.', 'error');
+        return;
+    }
+    const e = eventBreakdown.value.event;
+    const locs = eventBreakdown.value.location_breakdown || [];
+
+    const t = (...args) => args.join('\t');
+    const rows = [];
+
+    // Summary metrics (Metric, Value)
+    rows.push(t('Metric', 'Value'));
+    rows.push(t('Total Participants 2024', ''));
+    rows.push(t('Total Participants 2025', e.total_signups ?? ''));
+    // Top 5 locations from event (location_breakdown is already sorted by signups desc)
+    const top5 = (locs || []).slice(0, 5);
+    for (let i = 0; i < 5; i++) {
+        const loc = top5[i];
+        rows.push(t('Top Location 2025 - ' + (loc ? loc.location_name : ''), loc ? (loc.signups ?? '') : ''));
+    }
+    rows.push(t('Total TIX Tickets Collected 2025', ''));
+    rows.push('');
+
+    // Location Details
+    rows.push(t('Location Name', 'Attendees_2025', 'TIX_Total'));
+    locs.forEach((loc) => {
+        rows.push(t(loc.location_name || '', loc.signups ?? '', ''));
+    });
+    if (!locs.length) {
+        rows.push(t('', '', ''));
+    }
+
+    const tsv = rows.join('\n');
+    navigator.clipboard.writeText(tsv).then(() => {
+        Swal.fire('Copied!', 'Table template copied to clipboard. Paste into Excel or Google Sheets. Empty cells are left for you to fill manually.', 'success');
+    }).catch(() => {
+        Swal.fire('Error', 'Could not copy to clipboard. Try selecting and copying the table manually.', 'error');
+    });
+};
+
 const switchTab = (tab) => {
     // Clean up charts when switching tabs
     Object.values(chartInstances.value).forEach(chart => {
@@ -951,6 +993,14 @@ watch(() => eventBreakdown.value, async () => {
                                         class="px-4 py-2 bg-red-600 text-white rounded-md hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed"
                                     >
                                         Export PDF
+                                    </button>
+                                    <button
+                                        @click="copyReportTemplateToClipboard"
+                                        :disabled="!selectedEventId || !eventBreakdown || isLoadingBreakdown"
+                                        class="px-4 py-2 bg-teal-600 text-white rounded-md hover:bg-teal-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                                        title="Copy table template (like the spreadsheet) with available data; paste into Excel/Sheets and fill the rest manually"
+                                    >
+                                        Copy table template
                                     </button>
                                 </div>
                             </div>
