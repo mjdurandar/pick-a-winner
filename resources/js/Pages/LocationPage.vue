@@ -2446,8 +2446,7 @@ const runImportAll = async () => {
                 `,
                 icon: 'success'
             });
-            closeImportAllModal();
-            router.reload();
+            // Keep modal open so user can run another import or close manually
         } else {
             // Fallback if backend ever returns sync results
             let msg = d.message || 'Import completed.';
@@ -2455,8 +2454,7 @@ const runImportAll = async () => {
                 msg += '\n\n' + d.locations.map(l => `${l.location_name}${l.source ? ` (${l.source === 'signup_form' ? 'win form' : 'ticket'})` : ''}: ${l.success} success, ${l.failed} failed`).join('\n');
             }
             await Swal.fire('Done', msg, 'success');
-            closeImportAllModal();
-            router.reload();
+            // Keep modal open so user can run another import or close manually
         }
     } catch (err) {
         await Swal.close();
@@ -2582,6 +2580,7 @@ const runImportAll = async () => {
                                 <!-- Import All + Database - Right -->
                                 <div class="ml-auto flex items-center gap-3">
                                     <button 
+                                        type="button"
                                         @click="openImportAllModal"
                                         style="background-color: #0d9488; color: white; border-radius: 5px; padding: 10px 20px; cursor: pointer;"
                                         title="Import all ticket data for this event in one place (Eventbrite or CSV per location), then import to Mailchimp in one click"
@@ -3468,10 +3467,10 @@ const runImportAll = async () => {
 
         <!-- Import All Data Modal: step 1 = choose type (ticket or win form), step 2 = type-specific form -->
         <div v-if="showImportAllModal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-            <div class="bg-white p-6 rounded-lg shadow-xl max-w-4xl w-full mx-4 max-h-[90vh] overflow-y-auto">
+            <div class="bg-white p-6 rounded-lg shadow-xl max-w-4xl w-full mx-4 max-h-[90vh] overflow-y-auto" @click.stop role="dialog" aria-modal="true">
                 <div class="flex justify-between items-center mb-4">
                     <h3 class="text-lg font-semibold">{{ importAllDataMode ? (importAllDataMode === 'ticket' ? 'Import All – Ticket data' : 'Import All – Win form data') : 'Import All Data' }}</h3>
-                    <button @click="importAllDataMode ? (importAllDataMode = '') : closeImportAllModal()" class="text-gray-500 hover:text-gray-700">
+                    <button type="button" @click="importAllDataMode ? (importAllDataMode = '') : closeImportAllModal()" class="text-gray-500 hover:text-gray-700">
                         <i class="fa-solid fa-times"></i>
                     </button>
                 </div>
@@ -3730,8 +3729,9 @@ const runImportAll = async () => {
                         </span>
                     </div>
                     <div class="flex gap-3">
-                        <button @click="closeImportAllModal" class="px-4 py-2 border rounded text-gray-600 hover:bg-gray-50">Cancel</button>
+                        <button type="button" @click="closeImportAllModal" class="px-4 py-2 border rounded text-gray-600 hover:bg-gray-50">Cancel</button>
                         <button
+                            type="button"
                             @click="runImportAll"
                             :disabled="!importAllListId || !importAllAccount || isImportAllLoading"
                             class="px-4 py-2 bg-teal-600 text-white rounded hover:bg-teal-700 disabled:opacity-50"
