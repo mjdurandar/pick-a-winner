@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed, onMounted, watch } from 'vue';
+import { ref, computed, onMounted, watch, nextTick } from 'vue';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout.vue';
 import { Head } from '@inertiajs/vue3';
 import { router } from '@inertiajs/vue3';
@@ -68,6 +68,7 @@ const selectedCategory = ref('');
 
 // Import All (event-level): one modal to stage ticket data for all locations, then import in one click
 const showImportAllModal = ref(false);
+const isOpeningImportAllModal = ref(false); // true while loading before showing modal
 const stagedByLocation = ref({}); // { [locationId]: { attendees: [...] } }
 const importAllDefaultTags = ref(''); // Default tags applied to ALL locations (separate with ;)
 const importAllTagsByLocation = ref({}); // { [locationId]: 'SHOW - X; SOURCE - ...' } – tags for ticket data for this location (; separator)
@@ -2058,7 +2059,8 @@ watch(
 
 // ---- Import All (event-level) ----
 const openImportAllModal = async () => {
-    showImportAllModal.value = true;
+    isOpeningImportAllModal.value = true;
+    // Reset state first; do NOT show modal yet so the opening click cannot hit the overlay
     stagedByLocation.value = {};
     importAllEventbriteLinkByLocation.value = {};
     importAllDefaultTags.value = '';
@@ -2066,19 +2068,18 @@ const openImportAllModal = async () => {
     importAllFormTagsByLocation.value = {};
     importAllDataMode.value = '';
     isFetchingPreviewByLocation.value = {};
-        importAllListId.value = '';
-        importAllAccount.value = '';
-        importAllLists.value = [];
-        importAllMergeFieldsWithValidation.value = [];
-        importAllSourceColumns.value = [];
-        importAllFieldMapping.value = {};
-        showMappingSection.value = false;
+    importAllListId.value = '';
+    importAllAccount.value = '';
+    importAllLists.value = [];
+    importAllMergeFieldsWithValidation.value = [];
+    importAllSourceColumns.value = [];
+    importAllFieldMapping.value = {};
+    showMappingSection.value = false;
     try {
         const settingsRes = await axios.get(route('mailchimp.autosync.settings'), { params: { event_id: props.event.id } });
         const settings = settingsRes.data.settings || {};
         importAllAccount.value = settings.mailchimp_account || 'anz';
         const filmTour = settings.film_tour || 'WM';
-        // Use modal year for SOURCE tag; default to current year when opening
         const year = typeof importAllSourceYear.value === 'number' && importAllSourceYear.value >= 2020 && importAllSourceYear.value <= 2035
             ? importAllSourceYear.value
             : new Date().getFullYear();
@@ -2091,9 +2092,8 @@ const openImportAllModal = async () => {
         }
         const ticketTagsByLoc = {};
         const formTagsByLoc = {};
-        // Use event country for "add state to SHOW tag?" so Australia & New Zealand events never get state.
         const eventCountry = props.event?.event_country || '';
-        props.locations.forEach(loc => {
+        (props.locations || []).forEach(loc => {
             const showLoc = locationTagForShow(loc.name, loc.state, eventCountry || loc.country);
             const sourceLoc = locationTagForSource(loc.name, loc.state);
             ticketTagsByLoc[loc.id] = [`SHOW - ${showLoc}`, `SOURCE - ${filmTour.toUpperCase()} ${sourceLoc} TIX ${year}`].join('; ');
@@ -2104,7 +2104,6 @@ const openImportAllModal = async () => {
         importAllDataMode.value = '';
         importAllAccounts.value = settingsRes.data.available_accounts || { anz: { name: 'ANZ', enabled: true }, usa: { name: 'USA', enabled: false } };
         await loadImportAllLists(importAllAccount.value);
-        // Fetch import preview (win form counts per location) so we can show total contacts to be imported
         try {
             const previewRes = await axios.get(route('event.mailchimpImportPreview', props.event.id));
             importPreviewFormTotal.value = previewRes.data.total_form ?? 0;
@@ -2116,6 +2115,9 @@ const openImportAllModal = async () => {
     } catch (e) {
         console.error(e);
         importAllAccounts.value = { anz: { name: 'ANZ', enabled: true }, usa: { name: 'USA', enabled: false } };
+    } finally {
+        isOpeningImportAllModal.value = false;
+        showImportAllModal.value = true;
     }
 };
 
@@ -2446,7 +2448,8 @@ const runImportAll = async () => {
                 `,
                 icon: 'success'
             });
-            // Keep modal open so user can run another import or close manually
+            closeImportAllModal();
+            router.reload();
         } else {
             // Fallback if backend ever returns sync results
             let msg = d.message || 'Import completed.';
@@ -2454,7 +2457,8 @@ const runImportAll = async () => {
                 msg += '\n\n' + d.locations.map(l => `${l.location_name}${l.source ? ` (${l.source === 'signup_form' ? 'win form' : 'ticket'})` : ''}: ${l.success} success, ${l.failed} failed`).join('\n');
             }
             await Swal.fire('Done', msg, 'success');
-            // Keep modal open so user can run another import or close manually
+            closeImportAllModal();
+            router.reload();
         }
     } catch (err) {
         await Swal.close();
@@ -2582,10 +2586,19 @@ const runImportAll = async () => {
                                     <button 
                                         type="button"
                                         @click="openImportAllModal"
-                                        style="background-color: #0d9488; color: white; border-radius: 5px; padding: 10px 20px; cursor: pointer;"
+                                        :disabled="isOpeningImportAllModal"
+                                        :style="{
+                                            backgroundColor: '#0d9488',
+                                            color: 'white',
+                                            borderRadius: '5px',
+                                            padding: '10px 20px',
+                                            cursor: isOpeningImportAllModal ? 'wait' : 'pointer',
+                                            opacity: isOpeningImportAllModal ? 0.9 : 1
+                                        }"
                                         title="Import all ticket data for this event in one place (Eventbrite or CSV per location), then import to Mailchimp in one click"
                                     >
-                                        <i class="fa-solid fa-upload"></i> Import All Data
+                                        <i v-if="isOpeningImportAllModal" class="fa-solid fa-spinner fa-spin mr-2"></i>
+                                        <i v-else class="fa-solid fa-upload"></i> Import All Data
                                     </button>
                                     <button 
                                         @click="goToAttendeesPage"
