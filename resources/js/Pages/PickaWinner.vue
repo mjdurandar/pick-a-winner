@@ -26,20 +26,29 @@ const selectedLocation = computed(() => {
     return locations.value.find(loc => loc.id === form.location_id);
 });
 
-// Format locations to display date and time in the desired format
+// Sort key: raw date + time string (no timezone – use values as stored for the location)
+function dateTimeSortKey(dateStr, timeStr) {
+    if (!dateStr || !timeStr) return '';
+    const t = String(timeStr).trim();
+    const parts = t.split(':');
+    const h = parseInt(parts[0], 10) || 0;
+    const m = parseInt(parts[1], 10) || 0;
+    return `${dateStr}T${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+}
+
+// Format locations to display date and time in the desired format (no timezone conversion)
 const formattedLocations = computed(() => {
     return locations.value.map(location => {
-        const dateObj = new Date(location.date);
-        // Create a datetime object that includes both date and time for proper sorting
-        const dateTimeObj = new Date(`${location.date}T${location.time}`);
+        const dateSortKey = location.date || '';
+        const dateTimeSortKeyVal = dateTimeSortKey(location.date, location.time);
         return {
             ...location,
-            dateObj, // Add the date object for sorting
-            dateTimeObj, // Add the datetime object for time sorting
+            dateSortKey,
+            dateTimeSortKeyVal,
             formatted_date: formatDate(location.date),
             formatted_time: formatTime(location.time)
         };
-    }).sort((a, b) => a.dateObj - b.dateObj); // Sort by date
+    }).sort((a, b) => (a.dateSortKey || '').localeCompare(b.dateSortKey || '')); // Sort by date string
 });
 
 // Group locations by date
@@ -56,71 +65,57 @@ const groupedLocations = computed(() => {
         return groups;
     }, {});
 
-    // Sort locations within each date group alphabetically by name, then by time
+    // Sort locations within each date group alphabetically by name, then by time (no timezone)
     Object.keys(groups).forEach(dateKey => {
         groups[dateKey].locations.sort((a, b) => {
-            // First sort alphabetically by name
             const nameComparison = a.name.localeCompare(b.name);
-            if (nameComparison !== 0) {
-                return nameComparison;
-            }
-            
-            // If names are the same, sort by datetime (which includes time)
-            return a.dateTimeObj - b.dateTimeObj;
+            if (nameComparison !== 0) return nameComparison;
+            return (a.dateTimeSortKeyVal || '').localeCompare(b.dateTimeSortKeyVal || '');
         });
     });
 
     return groups;
 });
 
-// Function to format date to "March 07, 2025" format
+// Month names for formatting (no timezone – we only use the date parts as stored)
+const MONTH_NAMES = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+
+// Format date to "March 07, 2025" using only the date string (no timezone conversion)
 function formatDate(dateString) {
     if (!dateString) return '';
-    
     try {
-        // If date is already in a format like "March 7, 2025", no need to reformat
-        if (dateString.includes(',')) {
-            return dateString;
-        }
-        
-        const date = new Date(dateString);
-        if (isNaN(date.getTime())) return dateString; // Return original if invalid
-        
-        return date.toLocaleDateString('en-US', {
-            month: 'long',
-            day: '2-digit',
-            year: 'numeric'
-        });
+        if (dateString.includes(',')) return dateString;
+        // Parse YYYY-MM-DD as plain numbers (no Date so no UTC/local shift)
+        const match = String(dateString).trim().match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+        if (!match) return dateString;
+        const [, y, m, d] = match;
+        const monthIdx = parseInt(m, 10) - 1;
+        if (monthIdx < 0 || monthIdx > 11) return dateString;
+        const day = parseInt(d, 10);
+        const month = MONTH_NAMES[monthIdx];
+        return `${month} ${String(day).padStart(2, '0')}, ${y}`;
     } catch (e) {
         console.error("Error formatting date:", e);
         return dateString;
     }
 }
 
-// Function to format time to "7:00PM" format
+// Format time to "7:00PM" using only the time string (no timezone conversion)
 function formatTime(timeString) {
     if (!timeString) return '';
-    
     try {
-        // If time is already in a format like "7:00 PM", no need to reformat
         if (timeString.includes('AM') || timeString.includes('PM')) {
-            return timeString.replace(' ', ''); // Remove space between time and AM/PM
+            return timeString.replace(/\s+/g, ''); // Remove spaces
         }
-        
-        // For 24-hour format "HH:MM"
+        // Parse HH:MM or HH:MM:SS as plain numbers and convert to 12h AM/PM
         if (timeString.includes(':')) {
-            const [hours, minutes] = timeString.split(':');
-            const date = new Date();
-            date.setHours(parseInt(hours));
-            date.setMinutes(parseInt(minutes));
-            
-            return date.toLocaleTimeString('en-US', {
-                hour: 'numeric',
-                minute: '2-digit',
-                hour12: true
-            }).replace(' ', ''); // Remove space between time and AM/PM
+            const parts = timeString.split(':');
+            let hours = parseInt(parts[0], 10) || 0;
+            const minutes = parseInt(parts[1], 10) || 0;
+            const ampm = hours >= 12 ? 'PM' : 'AM';
+            hours = hours % 12 || 12;
+            return `${hours}:${String(minutes).padStart(2, '0')}${ampm}`;
         }
-        
         return timeString;
     } catch (e) {
         console.error("Error formatting time:", e);
