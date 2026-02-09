@@ -817,11 +817,11 @@ class LocationController extends Controller
 
                 } catch (\Exception $e) {
                     $results['failed']++;
-                    $errorMessage = "Failed to import {$subscriber['email_address']}: " . substr($e->getMessage(), 0, 200);
-                    $results['errors'][] = $errorMessage;
+                    $fullMessage = $e->getMessage();
+                    $results['errors'][] = "Failed to import {$subscriber['email_address']}: " . $fullMessage;
                     $results['errorDetails'][] = [
                         'email' => $subscriber['email_address'],
-                        'error' => $e->getMessage(),
+                        'error' => $fullMessage,
                         'subscriber_data' => $subscriber
                     ];
                     Log::error('Manual import - Failed to import subscriber', [
@@ -913,6 +913,8 @@ class LocationController extends Controller
             'tags' => 'required|array',
             'errors' => 'nullable|array',
             'errors.*' => 'string',
+            'failed_rows' => 'nullable|array',
+            'failed_rows.*' => 'array',
             'subscribers' => 'nullable|array',
             'subscribers.*' => 'array',
             'source' => 'nullable|string|in:signup_form,ticket_data',
@@ -1579,6 +1581,7 @@ class LocationController extends Controller
         $signUpForm = SignUpForm::where('event_id', $eventId)->first();
         $byLocation = [];
         $totalForm = 0;
+        $previewRow = null;
         if ($signUpForm && $signUpForm->table_name && Schema::hasTable($signUpForm->table_name)) {
             foreach ($locations as $loc) {
                 $formCount = (int) DB::table($signUpForm->table_name)
@@ -1592,6 +1595,37 @@ class LocationController extends Controller
                 ];
                 $totalForm += $formCount;
             }
+            // One sample row for field-mapping preview (same shape as import)
+            $firstRow = DB::table($signUpForm->table_name)
+                ->where('event_id', $eventId)
+                ->whereNotNull('email_address')
+                ->where('email_address', '!=', '')
+                ->first();
+            if ($firstRow) {
+                $row = (array) $firstRow;
+                $street = trim($row['street_address'] ?? '');
+                $street2 = trim($row['street_address_2'] ?? '');
+                $city = trim($row['city'] ?? '');
+                $state = trim($row['state'] ?? '');
+                $zip = trim($row['zip_code'] ?? $row['postal_code'] ?? '');
+                $country = trim($row['country'] ?? '');
+                $addrParts = array_filter([$street, $street2, $city, $state, $zip, $country]);
+                $previewRow = array_merge($row, [
+                    'email_address' => trim($row['email_address'] ?? ''),
+                    'first_name' => $row['first_name'] ?? '',
+                    'last_name' => $row['last_name'] ?? '',
+                    'mobile_number' => $row['mobile_number'] ?? $row['phone'] ?? '',
+                    'street_address' => $street,
+                    'street_address_2' => $street2,
+                    'city' => $city,
+                    'state' => $state,
+                    'zip_code' => $zip,
+                    'country' => $country,
+                    'gender' => $row['gender'] ?? '',
+                    'age' => $row['age'] ?? '',
+                    'address_full' => implode(', ', $addrParts),
+                ]);
+            }
         } else {
             foreach ($locations as $loc) {
                 $byLocation[] = [
@@ -1604,6 +1638,7 @@ class LocationController extends Controller
         return response()->json([
             'by_location' => $byLocation,
             'total_form' => $totalForm,
+            'preview_row' => $previewRow,
         ]);
     }
 

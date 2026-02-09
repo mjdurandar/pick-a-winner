@@ -1087,8 +1087,8 @@ const exportToCsv = () => {
                                         <td class="border border-gray-300 p-2 text-gray-600 max-w-xs whitespace-nowrap overflow-hidden">
                                             <span v-if="!hasErrorsToShow(log)">—</span>
                                             <span v-else class="inline-flex items-baseline gap-1 max-w-full">
-                                                <span v-if="hasErrors(log.errors)" class="truncate min-w-0">{{ formatErrors(log.errors) }}</span>
-                                                <span v-else-if="(log.data_with_error ?? 0) > 0" class="truncate min-w-0">{{ log.data_with_error }} error(s)</span>
+                                                <span v-if="(log.data_with_error ?? 0) > 0" class="truncate min-w-0">{{ log.data_with_error }} error(s)</span>
+                                                <span v-else-if="hasErrors(log.errors)" class="truncate min-w-0">{{ formatErrors(log.errors) }}</span>
                                                 <button
                                                     type="button"
                                                     @click="showFullErrors(log)"

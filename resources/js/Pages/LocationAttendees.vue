@@ -169,6 +169,47 @@ const mailchimpAttendeeCount = computed(() => {
     return filteredAttendees.value.length;
 });
 
+// Attendees we'll import (same as handleMailchimpImport) – for mapping preview
+const mailchimpPreviewAttendees = computed(() => {
+    if (mailchimpImportSubscribers.value && mailchimpImportSubscribers.value.length > 0) {
+        return mailchimpImportSubscribers.value;
+    }
+    return filteredAttendees.value;
+});
+
+// Build concatenated address from attendee (same logic as backend) for preview when mapping to "Address (concatenated)"
+function buildAddressFull(attendee) {
+    const parts = [
+        (attendee.street_address ?? '').trim(),
+        (attendee.street_address_2 ?? '').trim(),
+        (attendee.city ?? '').trim(),
+        (attendee.state ?? '').trim(),
+        (attendee.zip_code ?? attendee.postal_code ?? '').trim(),
+        (attendee.country ?? '').trim(),
+    ].filter(Boolean);
+    return parts.length ? parts.join(', ') : '';
+}
+
+// Preview value for a Mailchimp field: what will be sent for the first attendee (so user can verify mapping)
+function getMappingPreviewValue(mailchimpTag, mappedOurKey) {
+    const list = mailchimpPreviewAttendees.value;
+    if (!list || list.length === 0) return '—';
+    const first = list[0];
+    let val;
+    if (mailchimpTag === 'EMAIL') {
+        val = first.email_address ?? first.email ?? '';
+    } else if (!mappedOurKey) {
+        return '—';
+    } else if (mappedOurKey === 'address_full') {
+        val = (first.address_full && String(first.address_full).trim()) || buildAddressFull(first);
+    } else {
+        val = first[mappedOurKey];
+    }
+    if (val == null || val === '') return '—';
+    const s = String(val).trim();
+    return s.length > 50 ? s.slice(0, 50) + '…' : s;
+}
+
 // ✅ Navigate pages
 const goToPage = (page) => {
     if (page >= 1 && page <= totalPages.value) {
@@ -987,6 +1028,11 @@ const handleMailchimpImport = async () => {
                 updated_data: updateCount,
                 data_with_error: failureCount,
                 errors: errors,
+                failed_rows: errorDetails.length ? errorDetails.map((d) => ({
+                    email: d.email,
+                    error: d.error,
+                    subscriber_data: d.subscriber_data,
+                })) : undefined,
                 tags: allTags.slice(0),
                 subscribers: attendeesToImport,
                 source: (mailchimpImportSubscribers.value && mailchimpImportSubscribers.value.length) ? 'ticket_data' : 'signup_form',
@@ -1915,6 +1961,7 @@ const downloadLogFile = (content, filename) => {
                                             <th class="border border-purple-200 p-2 text-left">Mailchimp field (label)</th>
                                             <th class="border border-purple-200 p-2 text-left">Map from our column</th>
                                             <th class="border border-purple-200 p-2 text-left">Validation</th>
+                                            <th class="border border-purple-200 p-2 text-left">Value we'll import (1st row)</th>
                                         </tr>
                                     </thead>
                                     <tbody>
@@ -1922,6 +1969,9 @@ const downloadLogFile = (content, filename) => {
                                             <td class="border border-purple-200 p-2 font-medium">Email Address</td>
                                             <td class="border border-purple-200 p-2 text-gray-600">email_address (built-in)</td>
                                             <td class="border border-purple-200 p-2 text-xs text-gray-600">Required, valid email</td>
+                                            <td class="border border-purple-200 p-2 text-xs text-gray-700 font-mono max-w-[200px] truncate" :title="getMappingPreviewValue('EMAIL')">
+                                                {{ getMappingPreviewValue('EMAIL') }}
+                                            </td>
                                         </tr>
                                         <tr v-for="mf in mergeFieldsWithValidation" :key="mf.tag" class="bg-white">
                                             <td class="border border-purple-200 p-2 font-medium">{{ mf.name || mf.tag }}</td>
@@ -1939,9 +1989,12 @@ const downloadLogFile = (content, filename) => {
                                                 <span v-if="mf.validation">{{ mf.validation.type }}{{ mf.validation.required ? ', required' : '' }}</span>
                                                 <span v-if="mf.validation?.choices" class="block mt-1">Allowed: {{ mf.validation.choices.slice(0, 5).join(', ') }}{{ mf.validation.choices.length > 5 ? '…' : '' }}</span>
                                             </td>
+                                            <td class="border border-purple-200 p-2 text-xs text-gray-700 font-mono max-w-[200px] truncate" :title="getMappingPreviewValue(mf.tag, fieldMapping[mf.tag])">
+                                                {{ getMappingPreviewValue(mf.tag, fieldMapping[mf.tag]) }}
+                                            </td>
                                         </tr>
                                         <tr v-if="mergeFieldsWithValidation.length === 0 && selectedList">
-                                            <td colspan="3" class="border border-purple-200 p-4 text-gray-500 text-center">Loading audience fields...</td>
+                                            <td colspan="4" class="border border-purple-200 p-4 text-gray-500 text-center">Loading audience fields...</td>
                                         </tr>
                                     </tbody>
                                 </table>
