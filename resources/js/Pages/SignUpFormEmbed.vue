@@ -90,10 +90,12 @@ const checkForOther = (question) => {
     }
 };
 
-// Filter to only include locations from 1 week ago up to 3 weeks from now
+// When event.show_all_locations is true, show all locations; otherwise filter to 4-week window (1 week ago → 3 weeks from now)
 const fourWeekWindowLocations = computed(() => {
+    if (props.event?.show_all_locations) {
+        return formattedLocations.value;
+    }
     return formattedLocations.value.filter(location => {
-        // Include locations from 1 week ago up to 3 weeks from now
         return location.date_obj >= oneWeekAgo && location.date_obj <= threeWeeksFromToday;
     });
 });

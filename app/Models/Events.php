@@ -12,6 +12,7 @@ class Events extends Model
     protected $fillable = [
         'event_name',
         'is_enabled',
+        'show_all_locations',
         'event_date',
         'event_year',
         'event_banner',
