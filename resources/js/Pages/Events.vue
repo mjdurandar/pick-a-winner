@@ -252,16 +252,17 @@ const redoSheets = () => {
     }
 };
 
-// Check if date format (e.g., "Friday, January 23, 2026")
+// Check if date format (e.g. "Friday, January 23, 2026" or "Thursday, 5 March 2026")
 const isDateFormat = (text) => {
-    // Check for common date patterns
     const datePatterns = [
+        // "Thursday, March 5, 2026" – weekday, month, day, year
         /^(Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday),\s+(January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{1,2},\s+\d{4}$/i,
+        // "Thursday, 5 March 2026" – weekday, day, month, year (no comma after day)
+        /^(Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday),\s+\d{1,2}\s+(January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{4}$/i,
         /^\d{1,2}\/\d{1,2}\/\d{4}$/,
         /^\d{4}-\d{2}-\d{2}$/,
         /^(January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{1,2},?\s+\d{4}$/i
     ];
-    
     return datePatterns.some(pattern => pattern.test(text.trim()));
 };
 
