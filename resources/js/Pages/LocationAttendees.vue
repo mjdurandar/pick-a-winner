@@ -246,7 +246,7 @@ const fetchMailchimpSettings = async () => {
 const generateLocationTags = (sourceType = 'signup_form') => {
     const tags = [];
     const filmTour = mailchimpSettings.value.film_tour || 'WM';
-    const year = new Date().getFullYear();
+    const year = props.event?.event_year ?? new Date().getFullYear();
     const locationName = props.location.name;
     // Use event country for tag logic: only USA & Canada events get state in SHOW tag; Australia/NZ/other never do.
     const eventCountry = (props.event.event_country || props.location.country || 'Other').toString().trim();
@@ -323,7 +323,8 @@ const fetchMergeFields = async (listId) => {
         sourceColumns.value = sourceRes.data?.source_columns ?? [];
         missingFields.value = mergeRes.data.missing_required_fields || [];
         fieldSuggestions.value = mergeRes.data.field_mapping || {};
-        // Default mapping (same as Import All)
+        const sourceCols = sourceRes.data?.source_columns ?? [];
+        // Default mapping by Mailchimp tag (same as Import All)
         const tagToDefault = {
             FNAME: 'first_name', LNAME: 'last_name',
             PHONE: 'mobile_number', SMSPHONE: 'mobile_number', MERGE4: 'mobile_number', MERGE30: 'mobile_number',
@@ -335,11 +336,62 @@ const fetchMergeFields = async (listId) => {
             GENDER: 'gender', MERGE17: 'gender',
             AGEWIN: 'age', MERGE14: 'age', MMERGE14: 'age'
         };
+        // Name/label aliases for auto-matching when tag is not in tagToDefault (e.g. Birthday, Company)
+        const nameToCandidateKeys = {
+            birthday: ['date_of_birth', 'dob', 'birthday', 'birth_date'],
+            company: ['company', 'company_name', 'organization'],
+            gender: ['gender'],
+            age: ['age'],
+            first: ['first_name', 'firstname', 'fname'],
+            last: ['last_name', 'lastname', 'lname', 'surname'],
+            email: ['email_address', 'email'],
+            phone: ['mobile_number', 'phone', 'mobile', 'cell'],
+            mobile: ['mobile_number', 'phone', 'mobile'],
+            address: ['address_full', 'street_address', 'address'],
+            city: ['city'],
+            state: ['state'],
+            zip: ['zip_code', 'postal_code', 'zip'],
+            postal: ['zip_code', 'postal_code'],
+            country: ['country'],
+            attend: ['where_are_you_attending', 'attending', 'location'] // e.g. "Where are you attending F3T 2025?"
+        };
+        const normalize = (s) => (s || '').toLowerCase().replace(/[^a-z0-9]/g, ' ');
         const mapping = {};
         (mergeRes.data.merge_fields || []).forEach((f) => {
-            const tag = f.tag || f;
+            const tag = (typeof f === 'object' && f?.tag) ? f.tag : (f?.tag || f);
             if (tag === 'EMAIL') return;
-            mapping[tag] = tagToDefault[tag] ?? '';
+            let chosen = tagToDefault[tag] ?? '';
+            if (!chosen && sourceCols.length > 0) {
+                const name = (typeof f === 'object' && f?.name) ? f.name : '';
+                const combined = `${name} ${tag}`.trim().toLowerCase();
+                const normalizedName = normalize(name);
+                const normalizedTag = normalize(tag);
+                for (const [concept, candidates] of Object.entries(nameToCandidateKeys)) {
+                    const matches = combined.includes(concept) || normalizedName.includes(concept) || normalizedTag.includes(concept);
+                    const birthdayMatch = (concept === 'birthday') && (combined.includes('birth') || combined.includes('dob') || normalizedName.includes('birth') || normalizedName.includes('dob'));
+                    if (matches || birthdayMatch) {
+                        const found = sourceCols.find((sc) => {
+                            const k = (sc.key || '').toLowerCase();
+                            const l = (sc.label || '').toLowerCase();
+                            return candidates.some((c) => k === c || l.includes(c) || k.includes(c));
+                        });
+                        if (found) {
+                            chosen = found.key;
+                            break;
+                        }
+                    }
+                }
+                if (!chosen) {
+                    const nameWords = normalizedName.split(/\s+/).filter(Boolean);
+                    const found = sourceCols.find((sc) => {
+                        const k = (sc.key || '').toLowerCase();
+                        const l = (sc.label || '').toLowerCase();
+                        return nameWords.some((w) => w.length >= 2 && (k.includes(w) || l.includes(w)));
+                    });
+                    if (found) chosen = found.key;
+                }
+            }
+            mapping[tag] = chosen;
         });
         fieldMapping.value = mapping;
     } catch (error) {
@@ -574,7 +626,7 @@ const openMailchimpWithTicketAttendees = async () => {
     }
 };
 
-// Fetch Eventbrite attendees
+// Fetch Eventbrite attendees (saves to this location; then you can use Import to Mailchimp)
 const fetchEventbriteAttendees = async () => {
     if (!eventbriteLink.value.trim()) {
         Swal.fire('Error', 'Please enter an Eventbrite link', 'error');
@@ -593,7 +645,7 @@ const fetchEventbriteAttendees = async () => {
     try {
         Swal.fire({
             title: 'Fetching Attendees',
-            html: 'Please wait while we fetch attendee data from Eventbrite...',
+            html: 'Please wait while we fetch attendee data from Eventbrite. This may take a minute for large events.',
             allowOutsideClick: false,
             allowEscapeKey: false,
             showConfirmButton: false,
@@ -605,23 +657,43 @@ const fetchEventbriteAttendees = async () => {
         const response = await axios.post(route('location.fetchEventbriteAttendees'), {
             event_id: eventId,
             location_id: props.location.id
-        });
+        }, { timeout: 120000 });
 
-        eventbriteAttendees.value = response.data.attendees;
-        
+        if (response.data.error) {
+            await Swal.close();
+            Swal.fire('Error', response.data.error, 'error');
+            return;
+        }
+
+        const attendees = Array.isArray(response.data.attendees) ? response.data.attendees : [];
+        eventbriteAttendees.value = attendees;
+
         await Swal.close();
-        
-        if (eventbriteAttendees.value.length === 0) {
+
+        if (attendees.length === 0) {
             Swal.fire('Info', 'No attendees found for this event.', 'info');
         } else {
-            Swal.fire('Success', `Found ${eventbriteAttendees.value.length} unique attendees`, 'success').then(() => {
-                router.reload();
-            });
+            // Map to Mailchimp subscriber shape (same as getTicketAttendees)
+            const subscribers = attendees.map((a) => ({
+                email_address: a.email || '',
+                first_name: a.first_name ?? '',
+                last_name: a.last_name ?? '',
+                mobile_number: a.phone ?? '',
+                city: a.city ?? '',
+                state: a.state ?? '',
+                country: a.country ?? ''
+            }));
+            mailchimpImportSubscribers.value = subscribers;
+            closeEventbriteModal();
+            await openMailchimpImportModal();
         }
     } catch (error) {
         await Swal.close();
         console.error('Error fetching Eventbrite attendees:', error);
-        Swal.fire('Error', error.response?.data?.error || 'Failed to fetch attendees from Eventbrite', 'error');
+        const msg = error.code === 'ECONNABORTED'
+            ? 'The request took too long. Check your link and try again, or the event may have many attendees.'
+            : (error.response?.data?.error || error.message || 'Failed to fetch attendees from Eventbrite.');
+        Swal.fire('Error', msg, 'error');
     } finally {
         isFetchingEventbrite.value = false;
     }
@@ -1051,18 +1123,6 @@ const handleMailchimpImport = async () => {
         await Swal.close();
         console.log('Progress modal closed');
         
-        // Generate and download log file
-        await generateImportLog({
-            totalSubscribers: totalAttendees,
-            successCount,
-            failureCount,
-            updateCount,
-            newCount,
-            errors,
-            errorDetails
-        }, importedAttendees);
-        console.log('Log file generated');
-        
         // Generate copy-paste data with cumulative totals
         let copyPasteData = null;
         try {
@@ -1339,12 +1399,6 @@ const showDetailedResults = async (results) => {
                 <div id="tab-content-updates" class="tab-content hidden">${updatesTab}</div>
                 <div id="tab-content-errors" class="tab-content hidden">${errorsTab}</div>
                 <div id="tab-content-rejected" class="tab-content hidden">${rejectedTab}</div>
-                <div class="mt-4 text-center">
-                    <div class="text-sm text-gray-600">
-                        📥 A detailed log file has been downloaded with complete import details.
-                    </div>
-                </div>
-                
                 <!-- Copy-Paste Data Section -->
                 <div class="mt-6 p-4 bg-gray-50 rounded-lg">
                     <h4 class="font-semibold text-gray-800 mb-3">📋 Spreadsheet Data</h4>
@@ -1505,77 +1559,6 @@ const showDetailedResults = async (results) => {
     });
 };
 
-// Generate import log file
-const generateImportLog = async (stats, attendees) => {
-    try {
-        const logContent = generateLogContent(stats, attendees);
-        downloadLogFile(logContent, `mailchimp-import-${props.location.name}-${new Date().toISOString().split('T')[0]}.log`);
-    } catch (error) {
-        console.error('Failed to generate log file:', error);
-    }
-};
-
-const generateLogContent = (stats, attendees) => {
-    const timestamp = new Date().toISOString();
-    const locationName = props.location.name;
-    
-    let content = `=== Mailchimp Import Log ===\n`;
-    content += `Timestamp: ${timestamp}\n`;
-    content += `Location: ${locationName}\n`;
-    content += `Event: ${props.event.event_name}\n`;
-    content += `Mailchimp List ID: ${selectedList.value}\n`;
-    
-    // Include the final tags that were actually used for import
-    content += `Tags Applied: ${customTags.value || 'None'}\n`;
-    
-    content += `\n=== Import Statistics ===\n`;
-    content += `Total Attendees: ${stats.totalSubscribers}\n`;
-    content += `Successfully Imported: ${stats.successCount}\n`;
-    content += `Failed Imports: ${stats.failureCount}\n`;
-    content += `Success Rate: ${((stats.successCount / stats.totalSubscribers) * 100).toFixed(2)}%\n`;
-    
-    if (stats.errors && stats.errors.length > 0) {
-        content += `\n=== Import Errors ===\n`;
-        stats.errors.forEach((error, index) => {
-            content += `${index + 1}. ${error}\n`;
-        });
-    }
-    
-    if (attendees && attendees.length > 0) {
-        content += `\n=== Successfully Imported Attendees ===\n`;
-        attendees.forEach((attendee, index) => {
-            content += `${index + 1}. ${attendee.first_name || ''} ${attendee.last_name || ''} (${attendee.email_address || 'No email'})\n`;
-        });
-    }
-    
-    content += `\n=== Field Mappings Used ===\n`;
-    content += `First Name: FNAME | MERGE1\n`;
-    content += `Last Name: LNAME | MERGE2\n`;
-    content += `Email Address: EMAIL | MERGE0\n`;
-    content += `Street Address: MMERGE10 | MERGE10\n`;
-    content += `City: CITY | MERGE3\n`;
-    content += `State: STATE | MERGE6\n`;
-    content += `Zip Code: ZIPCODE | MERGE7\n`;
-    content += `Country: COUNTRY | MERGE8\n`;
-    content += `Mobile Number: PHONE | MERGE4\n`;
-    content += `SMS Phone: SMSPHONE | MERGE30\n`;
-    content += `Age: MMERGE14 | MERGE14\n`;
-    content += `Gender: GENDER | MERGE17\n`;
-    
-    return content;
-};
-
-const downloadLogFile = (content, filename) => {
-    const blob = new Blob([content], { type: 'text/plain' });
-    const url = window.URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = filename;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    window.URL.revokeObjectURL(url);
-};
 </script>
 
 <template>
@@ -1588,23 +1571,16 @@ const downloadLogFile = (content, filename) => {
                     <h2 class="text-xl font-semibold leading-tight text-gray-800">
                         Attendees for {{ location.name }} - {{ event.event_name }}
                     </h2>
-                    <!-- Mailchimp Import Status Indicator -->
-                    <div v-if="location.imported_to_mailchimp" class="flex items-center space-x-2">
-                        <div class="flex items-center space-x-2 bg-green-100 text-green-800 px-3 py-1 rounded-full text-sm">
-                        <i class="fa-solid fa-check-circle"></i>
-                        <span>Imported to Mailchimp</span>
-                        </div>
-                        <!-- Mailchimp Import Report Icon (like ticket analytics) -->
-                        <button
-                            type="button"
-                            class="ml-2 text-sm px-3 py-1 rounded-full flex items-center space-x-1"
-                            style="background-color: #16C3D9; color: white;"
-                            @click="lastMailchimpImportResults ? showDetailedResults(lastMailchimpImportResults) : Swal.fire('No Report Yet', 'There is no Mailchimp import report available for this session. Please run an import first.', 'info')"
-                            title="View Mailchimp Import Report"
-                        >
-                            <i class="fa-solid fa-chart-bar"></i>
-                            <span>Report</span>
-                        </button>
+                    <!-- Mailchimp import status: Win data and/or Ticket -->
+                    <div v-if="location.imported_win_to_mailchimp || location.imported_ticket_to_mailchimp" class="flex items-center space-x-2">
+                        <span v-if="location.imported_win_to_mailchimp" class="flex items-center space-x-1.5 bg-teal-100 text-teal-800 px-3 py-1 rounded-full text-sm">
+                            <i class="fa-solid fa-circle-check"></i>
+                            <span>Imported Win data</span>
+                        </span>
+                        <span v-if="location.imported_ticket_to_mailchimp" class="flex items-center space-x-1.5 bg-amber-100 text-amber-800 px-3 py-1 rounded-full text-sm">
+                            <i class="fa-solid fa-circle-check"></i>
+                            <span>Imported Ticket data</span>
+                        </span>
                     </div>
                 </div>
                 <button 
@@ -1940,68 +1916,6 @@ const downloadLogFile = (content, filename) => {
                         </div>
                     </div>
 
-                    <!-- Field mapping: map our data to Mailchimp audience columns (same as Import All) -->
-                    <div class="mb-4 p-4 bg-purple-50 border border-purple-200 rounded-lg">
-                        <button
-                            type="button"
-                            @click="showMappingSection = !showMappingSection"
-                            class="flex items-center gap-2 w-full text-left text-sm font-medium text-gray-800"
-                        >
-                            <i :class="showMappingSection ? 'fa-solid fa-chevron-down' : 'fa-solid fa-chevron-right'" class="text-purple-600"></i>
-                            Field mapping: map our data to Mailchimp audience columns
-                        </button>
-                        <p v-if="!showMappingSection" class="text-xs text-gray-600 mt-1 ml-6">Select which column in our data maps to each Mailchimp field. Use <strong>Address (concatenated)</strong> for full address.</p>
-                        <div v-else class="mt-4">
-                            <p class="text-xs text-gray-600 mb-3">Map each Mailchimp audience column to our sign-up/ticket data. <strong>Address (concatenated)</strong> combines street, city, state, zip, country.</p>
-                            <div v-if="!selectedList" class="text-sm text-gray-500 py-2">Select an audience above to load columns.</div>
-                            <div v-else class="overflow-x-auto max-h-64 overflow-y-auto border rounded">
-                                <table class="w-full text-sm border-collapse">
-                                    <thead class="bg-purple-100 sticky top-0">
-                                        <tr>
-                                            <th class="border border-purple-200 p-2 text-left">Mailchimp field (label)</th>
-                                            <th class="border border-purple-200 p-2 text-left">Map from our column</th>
-                                            <th class="border border-purple-200 p-2 text-left">Validation</th>
-                                            <th class="border border-purple-200 p-2 text-left">Value we'll import (1st row)</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        <tr>
-                                            <td class="border border-purple-200 p-2 font-medium">Email Address</td>
-                                            <td class="border border-purple-200 p-2 text-gray-600">email_address (built-in)</td>
-                                            <td class="border border-purple-200 p-2 text-xs text-gray-600">Required, valid email</td>
-                                            <td class="border border-purple-200 p-2 text-xs text-gray-700 font-mono max-w-[200px] truncate" :title="getMappingPreviewValue('EMAIL')">
-                                                {{ getMappingPreviewValue('EMAIL') }}
-                                            </td>
-                                        </tr>
-                                        <tr v-for="mf in mergeFieldsWithValidation" :key="mf.tag" class="bg-white">
-                                            <td class="border border-purple-200 p-2 font-medium">{{ mf.name || mf.tag }}</td>
-                                            <td class="border border-purple-200 p-2">
-                                                <select
-                                                    :value="fieldMapping[mf.tag]"
-                                                    @change="fieldMapping = { ...fieldMapping, [mf.tag]: $event.target.value }"
-                                                    class="w-full border rounded px-2 py-1 text-sm"
-                                                >
-                                                    <option value="">— Don't map</option>
-                                                    <option v-for="sc in sourceColumns" :key="sc.key" :value="sc.key">{{ sc.label }}</option>
-                                                </select>
-                                            </td>
-                                            <td class="border border-purple-200 p-2 text-xs text-gray-600">
-                                                <span v-if="mf.validation">{{ mf.validation.type }}{{ mf.validation.required ? ', required' : '' }}</span>
-                                                <span v-if="mf.validation?.choices" class="block mt-1">Allowed: {{ mf.validation.choices.slice(0, 5).join(', ') }}{{ mf.validation.choices.length > 5 ? '…' : '' }}</span>
-                                            </td>
-                                            <td class="border border-purple-200 p-2 text-xs text-gray-700 font-mono max-w-[200px] truncate" :title="getMappingPreviewValue(mf.tag, fieldMapping[mf.tag])">
-                                                {{ getMappingPreviewValue(mf.tag, fieldMapping[mf.tag]) }}
-                                            </td>
-                                        </tr>
-                                        <tr v-if="mergeFieldsWithValidation.length === 0 && selectedList">
-                                            <td colspan="4" class="border border-purple-200 p-4 text-gray-500 text-center">Loading audience fields...</td>
-                                        </tr>
-                                    </tbody>
-                                </table>
-                            </div>
-                        </div>
-                    </div>
-
                     <div class="mb-4">
                         <p class="text-sm text-gray-600 mb-2">
                             Using Mailchimp <strong>{{ mailchimpAccount === 'usa' ? 'USA' : 'ANZ' }}</strong> (based on event country: {{ location.country || event.event_country || '—' }}).
@@ -2075,6 +1989,68 @@ const downloadLogFile = (content, filename) => {
                         <div class="text-yellow-800">
                             <i class="fa-solid fa-exclamation-triangle mr-1"></i>
                             <strong>Warning:</strong> Could not load merge fields for this audience. The import may fail if field names don't match.
+                        </div>
+                    </div>
+
+                    <!-- Field mapping: map our data to Mailchimp audience columns (same as Import All) -->
+                    <div class="mb-4 p-4 bg-purple-50 border border-purple-200 rounded-lg">
+                        <button
+                            type="button"
+                            @click="showMappingSection = !showMappingSection"
+                            class="flex items-center gap-2 w-full text-left text-sm font-medium text-gray-800"
+                        >
+                            <i :class="showMappingSection ? 'fa-solid fa-chevron-down' : 'fa-solid fa-chevron-right'" class="text-purple-600"></i>
+                            Field mapping: map our data to Mailchimp audience columns
+                        </button>
+                        <p v-if="!showMappingSection" class="text-xs text-gray-600 mt-1 ml-6">Select which column in our data maps to each Mailchimp field. Use <strong>Address (concatenated)</strong> for full address.</p>
+                        <div v-else class="mt-4">
+                            <p class="text-xs text-gray-600 mb-3">Map each Mailchimp audience column to our sign-up/ticket data. <strong>Address (concatenated)</strong> combines street, city, state, zip, country.</p>
+                            <div v-if="!selectedList" class="text-sm text-gray-500 py-2">Select an audience above to load columns.</div>
+                            <div v-else class="overflow-x-auto max-h-64 overflow-y-auto border rounded">
+                                <table class="w-full text-sm border-collapse">
+                                    <thead class="bg-purple-100 sticky top-0">
+                                        <tr>
+                                            <th class="border border-purple-200 p-2 text-left">Mailchimp field (label)</th>
+                                            <th class="border border-purple-200 p-2 text-left">Map from our column</th>
+                                            <th class="border border-purple-200 p-2 text-left">Validation</th>
+                                            <th class="border border-purple-200 p-2 text-left">Value we'll import (1st row)</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        <tr>
+                                            <td class="border border-purple-200 p-2 font-medium">Email Address</td>
+                                            <td class="border border-purple-200 p-2 text-gray-600">email_address (built-in)</td>
+                                            <td class="border border-purple-200 p-2 text-xs text-gray-600">Required, valid email</td>
+                                            <td class="border border-purple-200 p-2 text-xs text-gray-700 font-mono max-w-[200px] truncate" :title="getMappingPreviewValue('EMAIL')">
+                                                {{ getMappingPreviewValue('EMAIL') }}
+                                            </td>
+                                        </tr>
+                                        <tr v-for="mf in mergeFieldsWithValidation" :key="mf.tag" class="bg-white">
+                                            <td class="border border-purple-200 p-2 font-medium">{{ mf.name || mf.tag }}</td>
+                                            <td class="border border-purple-200 p-2">
+                                                <select
+                                                    :value="fieldMapping[mf.tag]"
+                                                    @change="fieldMapping = { ...fieldMapping, [mf.tag]: $event.target.value }"
+                                                    class="w-full border rounded px-2 py-1 text-sm"
+                                                >
+                                                    <option value="">— Don't map</option>
+                                                    <option v-for="sc in sourceColumns" :key="sc.key" :value="sc.key">{{ sc.label }}</option>
+                                                </select>
+                                            </td>
+                                            <td class="border border-purple-200 p-2 text-xs text-gray-600">
+                                                <span v-if="mf.validation">{{ mf.validation.type }}{{ mf.validation.required ? ', required' : '' }}</span>
+                                                <span v-if="mf.validation?.choices" class="block mt-1">Allowed: {{ mf.validation.choices.slice(0, 5).join(', ') }}{{ mf.validation.choices.length > 5 ? '…' : '' }}</span>
+                                            </td>
+                                            <td class="border border-purple-200 p-2 text-xs text-gray-700 font-mono max-w-[200px] truncate" :title="getMappingPreviewValue(mf.tag, fieldMapping[mf.tag])">
+                                                {{ getMappingPreviewValue(mf.tag, fieldMapping[mf.tag]) }}
+                                            </td>
+                                        </tr>
+                                        <tr v-if="mergeFieldsWithValidation.length === 0 && selectedList">
+                                            <td colspan="4" class="border border-purple-200 p-4 text-gray-500 text-center">Loading audience fields...</td>
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
                         </div>
                     </div>
 
@@ -2155,7 +2131,7 @@ const downloadLogFile = (content, filename) => {
                             :disabled="isFetchingEventbrite"
                         />
                         <p class="text-sm text-gray-500 mt-1">
-                            Paste the Eventbrite event URL. The system will extract the event ID and fetch all attendees.
+                            Paste the Eventbrite event URL. The system will fetch attendees, save them to this location, then open <strong>Import to Mailchimp</strong> so you can send them to Mailchimp right away.
                         </p>
                     </div>
                     <div class="flex justify-end space-x-3">

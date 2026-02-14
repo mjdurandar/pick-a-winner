@@ -91,6 +91,17 @@ class AttendeesController extends Controller
         $prizes = Prize::where('event_id', $eventId)
             ->where('location_id', $locationId)
             ->get();
+
+        // Win vs ticket import to Mailchimp (for header indicators)
+        $location->imported_win_to_mailchimp = MailchimpImportLog::where('location_id', $locationId)
+            ->where('source', 'signup_form')
+            ->exists();
+        $location->imported_ticket_to_mailchimp = MailchimpImportLog::where('location_id', $locationId)
+            ->where(function ($q) {
+                $q->where('source', 'ticket_data')
+                    ->orWhereRaw("(tags IS NOT NULL AND (tags LIKE '%TIX%'))");
+            })
+            ->exists();
         
         return Inertia::render('LocationAttendees', [
             'event' => $event,

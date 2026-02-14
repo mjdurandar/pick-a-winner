@@ -74,7 +74,8 @@ const importAllDefaultTags = ref(''); // Default tags applied to ALL locations (
 const importAllTagsByLocation = ref({}); // { [locationId]: 'SHOW - X; SOURCE - ...' } – tags for ticket data for this location (; separator)
 const importAllFormTagsByLocation = ref({}); // { [locationId]: '...' } – tags for form data, for review (; separator)
 const importAllListId = ref('');
-const importAllSourceYear = ref(new Date().getFullYear()); // Year used in SOURCE tag (e.g. SOURCE - WM LOC COMP 2025)
+// Year used in SOURCE tag (defaults to event's year from events table if set)
+const importAllSourceYear = ref(null);
 
 // Parse tag string: separate by ; so tags like "SHOW - Mammoth, LA" stay as one tag
 const parseTagStr = (s) => (s || '').split(';').map(t => t.trim()).filter(Boolean);
@@ -179,7 +180,7 @@ const tagPreview = computed(() => {
     if (!mailchimpSettings.value.film_tour) return [];
     
     const filmTour = mailchimpSettings.value.film_tour;
-    const year = new Date().getFullYear();
+    const year = props.event?.event_year ?? new Date().getFullYear();
     
     // Sample location names for preview
     const sampleLocations = [
@@ -308,7 +309,7 @@ const formatLocationDateTime = (date, time) => {
 const generateLocationTags = (locationName, stateOptional, countryOptional) => {
     const tags = [];
     const filmTour = mailchimpSettings.value.film_tour;
-    const year = new Date().getFullYear();
+    const year = props.event?.event_year ?? new Date().getFullYear();
     const sourceLoc = locationTagForSource(locationName, stateOptional);
     const showLoc = locationTagForShow(locationName, stateOptional || '', countryOptional || '');
     tags.push(`SHOW - ${showLoc}`);
@@ -346,7 +347,7 @@ const handleMailchimpImport = async () => {
 
         // Generate location-specific tags: SHOW includes state for USA; SOURCE never includes state
         const filmTour = mailchimpSettings.value.film_tour;
-        const year = new Date().getFullYear();
+        const year = props.event?.event_year ?? new Date().getFullYear();
         const sourceLoc = locationTagForSource(selectedLocation.value.name, selectedLocation.value.state);
         const showLoc = locationTagForShow(selectedLocation.value.name, selectedLocation.value.state, props.event?.event_country || selectedLocation.value.country);
         const sourceTag = `SOURCE - ${filmTour.toUpperCase()} ${sourceLoc} COMP ${year}`;
@@ -439,14 +440,6 @@ const handleMailchimpImport = async () => {
         // Close progress modal
         await Swal.close();
         console.log('Progress modal closed');
-        // Generate and download log file (with imported subscribers)
-        await generateImportLog({
-            totalSubscribers,
-            successCount,
-            failureCount,
-            errors
-        }, importedSubscribers);
-        console.log('Log file generated');
         // Show final results with optimized error display
         let errorHtml = '';
         if (errors.length > 0) {
@@ -457,7 +450,7 @@ const handleMailchimpImport = async () => {
         }
         Swal.fire({
             title: 'Import Completed',
-            html: `Successfully imported ${successCount} out of ${totalSubscribers} subscribers.<br>Failed: ${failureCount}${errorHtml}<br><br>Import logs have been saved to the database and a detailed log file has been downloaded.`,
+            html: `Successfully imported ${successCount} out of ${totalSubscribers} subscribers.<br>Failed: ${failureCount}${errorHtml}<br><br>Import logs have been saved to the database.`,
             icon: errors.length > 0 ? 'warning' : 'success'
         });
         console.log('Final results shown'); 
@@ -909,7 +902,7 @@ const openEventbriteMailchimpModal = async () => {
 const generateEventbriteDefaultTags = (settings) => {
     const tags = [];
     const filmTour = settings.film_tour || 'WM';
-    const year = new Date().getFullYear();
+    const year = props.event?.event_year ?? new Date().getFullYear();
     const showLoc = locationTagForShow(selectedLocation.value.name, selectedLocation.value.state, props.event?.event_country || selectedLocation.value.country);
     const sourceLoc = locationTagForSource(selectedLocation.value.name, selectedLocation.value.state);
     tags.push(`SHOW - ${showLoc}`);
@@ -1859,74 +1852,6 @@ const saveMailchimpSettings = async () => {
     }
 };
 
-// Generate import log file
-const generateImportLog = async (stats, subscribers) => {
-    try {
-        const logContent = generateLogContent(stats, subscribers);
-        downloadLogFile(logContent, `mailchimp-import-${selectedLocation.value.name}-${new Date().toISOString().split('T')[0]}.log`);
-    } catch (error) {
-        console.error('Failed to generate log file:', error);
-    }
-};
-
-const generateLogContent = (stats, subscribers) => {
-    const timestamp = new Date().toISOString();
-    const locationName = selectedLocation.value.name;
-    
-    let content = `=== Mailchimp Import Log ===\n`;
-    content += `Timestamp: ${timestamp}\n`;
-    content += `Location: ${locationName}\n`;
-    content += `Mailchimp List ID: ${selectedList.value}\n`;
-    content += `Tags Applied: ${tags.value || 'None'}\n`;
-    content += `\n=== Import Statistics ===\n`;
-    content += `Total Subscribers: ${stats.totalSubscribers}\n`;
-    content += `Successfully Imported: ${stats.successCount}\n`;
-    content += `Failed Imports: ${stats.failureCount}\n`;
-    content += `Success Rate: ${((stats.successCount / stats.totalSubscribers) * 100).toFixed(2)}%\n`;
-    
-    if (stats.errors && stats.errors.length > 0) {
-        content += `\n=== Import Errors ===\n`;
-        stats.errors.forEach((error, index) => {
-            content += `${index + 1}. ${error}\n`;
-        });
-    }
-    
-    if (subscribers && subscribers.length > 0) {
-        content += `\n=== Successfully Imported Subscribers ===\n`;
-        subscribers.forEach((subscriber, index) => {
-            content += `${index + 1}. ${subscriber.first_name || ''} ${subscriber.last_name || ''} (${subscriber.email_address || 'No email'})\n`;
-        });
-    }
-    
-    content += `\n=== Field Mappings Used ===\n`;
-    content += `First Name: FNAME | MERGE1\n`;
-    content += `Last Name: LNAME | MERGE2\n`;
-    content += `Email Address: EMAIL | MERGE0\n`;
-    content += `Street Address: MMERGE10 | MERGE10\n`;
-    content += `City: CITY | MERGE3\n`;
-    content += `State: STATE | MERGE6\n`;
-    content += `Zip Code: ZIPCODE | MERGE7\n`;
-    content += `Country: COUNTRY | MERGE8\n`;
-    content += `Mobile Number: PHONE | MERGE4\n`;
-    content += `SMS Phone: SMSPHONE | MERGE30\n`;
-    content += `Age: MMERGE14 | MERGE14\n`;
-    content += `Gender: GENDER | MERGE17\n`;
-    
-    return content;
-};
-
-const downloadLogFile = (content, filename) => {
-    const blob = new Blob([content], { type: 'text/plain' });
-    const url = window.URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = filename;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    window.URL.revokeObjectURL(url);
-};
-
 // Download CSV file for Eventbrite import
 const downloadEventbriteImportCSV = (attendees, locationName) => {
     try {
@@ -2125,9 +2050,10 @@ const openImportAllModal = async () => {
         const settings = settingsRes.data.settings || {};
         importAllAccount.value = settings.mailchimp_account || 'anz';
         const filmTour = settings.film_tour || 'WM';
+        const eventYear = props.event?.event_year != null && props.event.event_year >= 2020 && props.event.event_year <= 2035 ? props.event.event_year : null;
         const year = typeof importAllSourceYear.value === 'number' && importAllSourceYear.value >= 2020 && importAllSourceYear.value <= 2035
             ? importAllSourceYear.value
-            : new Date().getFullYear();
+            : (eventYear ?? new Date().getFullYear());
         importAllSourceYear.value = year;
         if (settings.default_tags) {
             const arr = Array.isArray(settings.default_tags)
@@ -2741,21 +2667,38 @@ const runImportAll = async () => {
                                                 {{ formatLocationDateTime(location.date, location.time) }}
                                             </div>
                                         </div>
-                                        <div class="flex items-center gap-2 flex-shrink-0">
-                                            <!-- Participants count for this location -->
+                                        <div class="flex items-center gap-2 flex-shrink-0 flex-wrap">
+                                            <!-- Win data imported to Mailchimp -->
                                             <span 
-                                                class="px-2 py-1 rounded text-xs font-medium bg-gray-200 text-gray-700"
-                                                title="Participants (win form) for this location"
+                                                v-if="location.imported_win_to_mailchimp"
+                                                class="px-2 py-1 rounded text-xs font-medium bg-teal-100 text-teal-800"
+                                                title="Win data imported to Mailchimp"
                                             >
-                                                <i class="fa-solid fa-user-group mr-1"></i>{{ location.participants_count ?? 0 }}
+                                                <i class="fa-solid fa-circle-check mr-1"></i>Imported Win data
                                             </span>
-                                            <!-- Category Badge -->
+                                            <!-- Ticket data imported to Mailchimp -->
                                             <span 
-                                                v-if="location.category"
-                                                class="px-3 py-1 rounded-full text-xs font-semibold"
-                                                style="background-color: #16C3D9; color: white;"
+                                                v-if="location.imported_ticket_to_mailchimp"
+                                                class="px-2 py-1 rounded text-xs font-medium bg-amber-100 text-amber-800"
+                                                title="Ticket data imported to Mailchimp"
                                             >
-                                                {{ location.category }}
+                                                <i class="fa-solid fa-circle-check mr-1"></i>Imported Ticket data
+                                            </span>
+                                            <!-- Category + Participant count always together -->
+                                            <span class="inline-flex items-center gap-2">
+                                                <span 
+                                                    class="px-2 py-1 rounded text-xs font-medium bg-gray-200 text-gray-700"
+                                                    title="Participants (win form) for this location"
+                                                >
+                                                    <i class="fa-solid fa-user-group mr-1"></i>{{ location.participants_count ?? 0 }}
+                                                </span>
+                                                <span 
+                                                    v-if="location.category"
+                                                    class="px-3 py-1 rounded-full text-xs font-semibold"
+                                                    style="background-color: #16C3D9; color: white;"
+                                                >
+                                                    {{ location.category }}
+                                                </span>
                                             </span>
                                         </div>
                                     </div>
@@ -3582,7 +3525,7 @@ const runImportAll = async () => {
                         step="1"
                         class="w-24 border border-gray-300 rounded px-3 py-2"
                     />
-                    <p class="text-xs text-gray-600 mt-1">This year is used in SOURCE tags (e.g. <code>SOURCE - WM MELBOURNE COMP 2025</code>, <code>SOURCE - WM MELBOURNE TIX 2025</code>). Changing it updates the year in all per-location tags below.</p>
+                    <p class="text-xs text-gray-600 mt-1">This year is used in SOURCE tags (e.g. <code>SOURCE - WM MELBOURNE COMP 2025</code>). Defaults to this event's year (from event settings). Changing it updates the year in all per-location tags below.</p>
                 </div>
 
                 <!-- Default tags (applied to all locations) -->

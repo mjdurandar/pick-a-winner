@@ -49,18 +49,18 @@ class LocationController extends Controller
             ->where('is_hidden', false)
             ->get();
 
-        // Check which locations have been imported to Mailchimp (from mailchimp_import_logs)
         $locationIds = $locations->pluck('id');
-        $importedLocationIds = DB::table('mailchimp_import_logs')
-            ->whereIn('location_id', $locationIds)
-            ->distinct()
-            ->pluck('location_id');
 
-        // Check which locations have Eventbrite/ticket data imported (source = ticket_data or tags contain TIX)
+        // Check which locations have win (signup form) vs ticket data imported to Mailchimp
         $allLogs = DB::table('mailchimp_import_logs')
             ->whereIn('location_id', $locationIds)
             ->select('location_id', 'tags', 'source')
             ->get();
+
+        $winImportedLocationIds = $allLogs
+            ->filter(fn ($log) => ($log->source ?? '') === 'signup_form')
+            ->pluck('location_id')
+            ->unique();
 
         $eventbriteImportedLocationIds = $allLogs
             ->filter(function ($log) {
@@ -99,9 +99,9 @@ class LocationController extends Controller
         $totalParticipants = array_sum($participantsByLocation);
 
         // Add import status and participants_count to each location
-        $locationsWithImportStatus = $locations->map(function ($location) use ($importedLocationIds, $eventbriteImportedLocationIds, $participantsByLocation) {
-            $location->imported_to_mailchimp = $importedLocationIds->contains($location->id);
-            $location->imported_eventbrite = $eventbriteImportedLocationIds->contains($location->id);
+        $locationsWithImportStatus = $locations->map(function ($location) use ($winImportedLocationIds, $eventbriteImportedLocationIds, $participantsByLocation) {
+            $location->imported_win_to_mailchimp = $winImportedLocationIds->contains($location->id);
+            $location->imported_ticket_to_mailchimp = $eventbriteImportedLocationIds->contains($location->id);
             $location->participants_count = $participantsByLocation[$location->id] ?? 0;
             return $location;
         });
