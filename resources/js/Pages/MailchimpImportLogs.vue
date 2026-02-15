@@ -759,6 +759,18 @@ function buildNormalizedSubscribers(rows, fieldMapping) {
     });
 }
 
+/** Preview value for mapping table: first CSV row value for the given Mailchimp tag's mapped column */
+function getManualImportPreviewValue(tag) {
+    const first = manualImportCsvRows.value[0];
+    if (!first) return '—';
+    const col = manualImportFieldMapping.value[tag];
+    if (!col) return '—';
+    const val = first[col];
+    if (val == null || val === '') return '—';
+    const s = String(val).trim();
+    return s.length > 50 ? s.slice(0, 50) + '…' : s;
+}
+
 const manualImportRun = async () => {
     if (!manualImportListId.value || manualImportCsvRows.value.length === 0) {
         Swal.fire('Error', 'Select an audience and upload a CSV with at least one data row.', 'error');
@@ -1413,7 +1425,7 @@ const exportToCsv = () => {
             </div>
         </div>
 
-        <!-- Manual import modal: CSV upload, account, audience, map columns -->
+        <!-- Manual import modal: same flow as other Mailchimp imports — select audience, upload CSV, map columns, add tags -->
         <div v-if="showManualImportModal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
             <div class="bg-white p-6 rounded-lg shadow-xl max-w-4xl w-full mx-4 max-h-[90vh] overflow-y-auto">
                 <div class="flex justify-between items-center mb-4">
@@ -1422,18 +1434,43 @@ const exportToCsv = () => {
                         <i class="fa-solid fa-times"></i>
                     </button>
                 </div>
-                <p class="text-gray-600 mb-4">Upload a CSV, select account and audience, then map your CSV columns to Mailchimp audience fields.</p>
+                <p class="text-gray-600 mb-4">Select audience first, then upload your CSV so we know what data to map. Map your CSV columns to Mailchimp audience fields, then add tags.</p>
 
-                <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
+                <!-- Step-by-step: what to do next -->
+                <div class="flex flex-wrap items-center gap-2 sm:gap-4 mb-6 py-3 px-4 bg-gray-50 border border-gray-200 rounded-lg text-sm">
+                    <template v-for="(step, idx) in [
+                        { n: 1, label: 'Select audience', done: !!manualImportListId, next: 'Choose account and audience' },
+                        { n: 2, label: 'Upload CSV', done: manualImportCsvRows.length > 0, next: 'Upload file to see columns' },
+                        { n: 3, label: 'Map columns', done: manualImportSourceColumns.length > 0 && manualImportMergeFields.length > 0 && manualImportFieldMapping.EMAIL, next: 'Map CSV columns to Mailchimp fields' },
+                        { n: 4, label: 'Tags & Import', done: false, next: 'Add tags (optional) and run import' }
+                    ]" :key="step.n">
+                        <span v-if="idx > 0" class="text-gray-400 hidden sm:inline">→</span>
+                        <span
+                            class="inline-flex items-center gap-1.5 px-2 py-1 rounded"
+                            :class="step.done ? 'bg-teal-100 text-teal-800' : 'bg-white border border-gray-300 text-gray-600'"
+                        >
+                            <i v-if="step.done" class="fa-solid fa-check text-teal-600"></i>
+                            <span v-else class="w-5 h-5 inline-flex items-center justify-center rounded-full bg-gray-200 text-xs font-medium text-gray-600">{{ step.n }}</span>
+                            <span class="font-medium">{{ step.label }}</span>
+                        </span>
+                    </template>
+                </div>
+                <p class="text-xs text-gray-500 mb-6" v-if="!manualImportListId">Next: select Mailchimp account and audience above.</p>
+                <p class="text-xs text-gray-500 mb-6" v-else-if="manualImportCsvRows.length === 0">Next: upload your CSV file.</p>
+                <p class="text-xs text-gray-500 mb-6" v-else-if="!manualImportFieldMapping.EMAIL">Next: open Field mapping below and map the Email column (required).</p>
+                <p class="text-xs text-gray-500 mb-6" v-else>Ready: add tags if you want, then click Import.</p>
+
+                <!-- Step 1: Select audience (same as Import All / location import) -->
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-6">
                     <div>
-                        <label class="block text-sm font-medium text-gray-700 mb-1">Mailchimp account</label>
+                        <label class="block text-sm font-medium text-gray-700 mb-2">Mailchimp account</label>
                         <select v-model="manualImportAccount" class="w-full border rounded px-3 py-2" @change="loadManualImportLists(manualImportAccount)">
                             <option value="anz">ANZ</option>
                             <option value="usa">USA</option>
                         </select>
                     </div>
                     <div>
-                        <label class="block text-sm font-medium text-gray-700 mb-1">Mailchimp audience</label>
+                        <label class="block text-sm font-medium text-gray-700 mb-2">Mailchimp audience</label>
                         <select
                             v-model="manualImportListId"
                             class="w-full border rounded px-3 py-2"
@@ -1442,28 +1479,59 @@ const exportToCsv = () => {
                         >
                             <option value="">{{ manualImportListsLoading ? 'Loading...' : 'Select audience...' }}</option>
                             <option v-for="list in manualImportLists" :key="list.id" :value="list.id">
-                                {{ list.name }} ({{ list.stats?.member_count ?? 0 }})
+                                {{ list.name }} ({{ list.stats?.member_count ?? 0 }} members)
                             </option>
                         </select>
                     </div>
                 </div>
 
-                <div class="mb-4">
-                    <label class="block text-sm font-medium text-gray-700 mb-1">CSV file</label>
+                <!-- Step 2: Upload CSV (to know what columns to map) -->
+                <div class="mb-6">
+                    <label class="block text-sm font-medium text-gray-700 mb-2">Upload CSV</label>
                     <div class="flex items-center gap-2">
                         <input type="file" accept=".csv,.txt" class="text-sm" @change="onManualImportCsvSelected" />
                         <span v-if="manualImportCsvFile" class="text-sm text-gray-600">{{ manualImportCsvFile }} — {{ manualImportCsvRows.length }} rows</span>
                     </div>
+                    <p class="text-xs text-gray-500 mt-1">Upload your file so we know which columns you can map to Mailchimp fields.</p>
+                    <!-- Preview: first rows of CSV -->
+                    <div v-if="manualImportCsvRows.length > 0 && manualImportSourceColumns.length > 0" class="mt-3 p-3 bg-gray-50 border border-gray-200 rounded-lg">
+                        <p class="text-xs font-medium text-gray-700 mb-2">Preview (first {{ Math.min(5, manualImportCsvRows.length) }} rows)</p>
+                        <div class="overflow-x-auto max-h-40 overflow-y-auto border rounded bg-white">
+                            <table class="w-full text-xs border-collapse">
+                                <thead class="bg-gray-100 sticky top-0">
+                                    <tr>
+                                        <th v-for="sc in manualImportSourceColumns" :key="sc.key" class="border border-gray-200 p-1.5 text-left font-medium">{{ sc.label }}</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <tr v-for="(row, ri) in manualImportCsvRows.slice(0, 5)" :key="ri" class="bg-white">
+                                        <td v-for="sc in manualImportSourceColumns" :key="sc.key" class="border border-gray-200 p-1.5 text-gray-700 max-w-[180px] truncate" :title="(row[sc.key] ?? '')">
+                                            {{ (row[sc.key] ?? '') }}
+                                        </td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
                 </div>
 
-                <div v-if="manualImportSourceColumns.length > 0" class="mb-4 p-4 bg-purple-50 border border-purple-200 rounded-lg">
-                    <button type="button" @click="manualImportShowMapping = !manualImportShowMapping" class="flex items-center gap-2 w-full text-left text-sm font-medium text-gray-800">
+                <!-- Step 3: Field mapping (same UI as Import All: map CSV columns to Mailchimp audience columns) -->
+                <div class="mb-4 p-4 bg-purple-50 border border-purple-200 rounded-lg">
+                    <button
+                        type="button"
+                        @click="manualImportShowMapping = !manualImportShowMapping"
+                        class="flex items-center gap-2 w-full text-left text-sm font-medium text-gray-800"
+                    >
                         <i :class="manualImportShowMapping ? 'fa-solid fa-chevron-down' : 'fa-solid fa-chevron-right'" class="text-purple-600"></i>
                         Field mapping: map CSV columns to Mailchimp audience columns
                     </button>
+                    <p v-if="!manualImportShowMapping && (manualImportSourceColumns.length > 0 || manualImportMergeFields.length > 0)" class="text-xs text-gray-600 mt-1 ml-6">Map each Mailchimp field to a column from your CSV. Email is required.</p>
+                    <p v-else-if="!manualImportListId || manualImportSourceColumns.length === 0" class="text-xs text-gray-600 mt-1 ml-6">Select an audience and upload a CSV above to map columns.</p>
                     <div v-show="manualImportShowMapping" class="mt-4">
                         <p class="text-xs text-gray-600 mb-3">Map each Mailchimp field to a column from your CSV. Email is required.</p>
                         <div v-if="manualImportMergeFieldsLoading" class="text-sm text-gray-500 py-2"><i class="fa-solid fa-spinner fa-spin mr-2"></i> Loading audience fields...</div>
+                        <div v-else-if="!manualImportListId" class="text-sm text-gray-500 py-2">Select a Mailchimp audience above to load fields.</div>
+                        <div v-else-if="manualImportSourceColumns.length === 0" class="text-sm text-gray-500 py-2">Upload a CSV above to see columns to map.</div>
                         <div v-else class="overflow-x-auto max-h-64 overflow-y-auto border rounded">
                             <table class="w-full text-sm border-collapse">
                                 <thead class="bg-purple-100 sticky top-0">
@@ -1471,6 +1539,7 @@ const exportToCsv = () => {
                                         <th class="border border-purple-200 p-2 text-left">Mailchimp field (label)</th>
                                         <th class="border border-purple-200 p-2 text-left">Map from CSV column</th>
                                         <th class="border border-purple-200 p-2 text-left">Validation</th>
+                                        <th class="border border-purple-200 p-2 text-left">Value we'll import (1st row)</th>
                                     </tr>
                                 </thead>
                                 <tbody>
@@ -1487,6 +1556,9 @@ const exportToCsv = () => {
                                             </select>
                                         </td>
                                         <td class="border border-purple-200 p-2 text-xs text-gray-600">Required, valid email</td>
+                                        <td class="border border-purple-200 p-2 text-xs text-gray-700 font-mono max-w-[200px] truncate" :title="getManualImportPreviewValue('EMAIL')">
+                                            {{ getManualImportPreviewValue('EMAIL') }}
+                                        </td>
                                     </tr>
                                     <tr v-for="mf in manualImportMergeFields" :key="mf.tag" class="bg-white">
                                         <td class="border border-purple-200 p-2 font-medium">{{ mf.name || mf.tag }}</td>
@@ -1504,6 +1576,12 @@ const exportToCsv = () => {
                                             <span v-if="mf.validation">{{ mf.validation.type }}{{ mf.validation.required ? ', required' : '' }}</span>
                                             <span v-if="mf.validation?.choices" class="block mt-1">Allowed: {{ mf.validation.choices.slice(0, 5).join(', ') }}{{ mf.validation.choices.length > 5 ? '…' : '' }}</span>
                                         </td>
+                                        <td class="border border-purple-200 p-2 text-xs text-gray-700 font-mono max-w-[200px] truncate" :title="getManualImportPreviewValue(mf.tag)">
+                                            {{ getManualImportPreviewValue(mf.tag) }}
+                                        </td>
+                                    </tr>
+                                    <tr v-if="manualImportMergeFields.length === 0 && manualImportListId">
+                                        <td colspan="4" class="border border-purple-200 p-4 text-gray-500 text-center">No merge fields loaded. Try selecting the audience again.</td>
                                     </tr>
                                 </tbody>
                             </table>
@@ -1511,6 +1589,14 @@ const exportToCsv = () => {
                     </div>
                 </div>
 
+                <!-- Step 4: Add tags -->
+                <div class="mb-4">
+                    <label class="block text-sm font-medium text-gray-700 mb-2">Tags (optional)</label>
+                    <input v-model="manualImportTags" type="text" class="w-full border rounded px-3 py-2" placeholder="Tag1; Tag2; Tag3; Tag4; Tag5; Tag6; Tag7" />
+                    <p class="text-xs text-gray-500 mt-1">Separate with semicolons. Each tag goes in its own column (Tag 1–6). If you add more than 6 tags, the extra ones are shown together in the Tag 6 column (e.g. Tag6, Tag7).</p>
+                </div>
+
+                <!-- Optional: log labels (event / source name) -->
                 <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
                     <div>
                         <label class="block text-sm font-medium text-gray-700 mb-1">Event name (for this log)</label>
@@ -1522,12 +1608,6 @@ const exportToCsv = () => {
                         <input v-model="manualImportSourceName" type="text" class="w-full border rounded px-3 py-2" placeholder="e.g. CSV upload, Partner list" />
                         <p class="text-xs text-gray-500 mt-1">Shown in the import logs table.</p>
                     </div>
-                </div>
-
-                <div class="mb-4">
-                    <label class="block text-sm font-medium text-gray-700 mb-1">Tags (optional)</label>
-                    <input v-model="manualImportTags" type="text" class="w-full border rounded px-3 py-2" placeholder="Tag1; Tag2; Tag3; Tag4; Tag5; Tag6; Tag7" />
-                    <p class="text-xs text-gray-500 mt-1">Separate with semicolons. Each tag goes in its own column (Tag 1–6). If you add more than 6 tags, the extra ones are shown together in the Tag 6 column (e.g. Tag6, Tag7).</p>
                 </div>
 
                 <div class="flex justify-end gap-3 pt-4 border-t">

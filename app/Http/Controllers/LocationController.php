@@ -2774,15 +2774,58 @@ class LocationController extends Controller
             
             // Combine all unique emails
             $allEmails = $ticketEmails->merge($signUpEmails)->unique();
+
+            // Map sign-up form column names to question text for CSV headers
+            $columnToQuestion = [];
+            if ($signUpForm && ! empty($signUpForm->questions)) {
+                $questions = is_array($signUpForm->questions) ? $signUpForm->questions : (json_decode($signUpForm->questions, true) ?? []);
+                foreach ($questions as $q) {
+                    $col = $q['column_name'] ?? null;
+                    $text = $q['text'] ?? null;
+                    if ($col !== null && $text !== null && $text !== '') {
+                        $columnToQuestion[$col] = $text;
+                    }
+                }
+            }
+
+            // Collect all columns from ticket attendees and sign-up table so export includes every column
+            $ticketColumns = ['email', 'first_name', 'last_name', 'phone', 'city', 'state', 'country', 'eventbrite_event_id', 'location_id', 'event_id'];
+            $signUpColumns = [];
+            if ($signUpForm && $signUpForm->table_name && Schema::hasTable($signUpForm->table_name)) {
+                $signUpColumns = Schema::getColumnListing($signUpForm->table_name);
+                $signUpColumns = array_values(array_diff($signUpColumns, ['id', 'created_at', 'updated_at']));
+            }
+            // Preferred header order: common fields first, then ticket-only, then sign-up-only (skip email_address we use email)
+            $columnOrder = ['email', 'first_name', 'last_name', 'phone', 'mobile_number', 'street_address', 'street_address_2', 'city', 'state', 'zip_code', 'postal_code', 'country', 'gender', 'age', 'eventbrite_event_id', 'location_id', 'event_id'];
+            $seen = array_flip($columnOrder);
+            foreach (array_merge($ticketColumns, $signUpColumns) as $col) {
+                if ($col === 'email_address') {
+                    continue; // we output as "email"
+                }
+                if (! isset($seen[$col])) {
+                    $columnOrder[] = $col;
+                    $seen[$col] = true;
+                }
+            }
+            $columnOrder[] = 'tags';
+            // Use question text as header when available (sign-up form), otherwise human-readable column name
+            $csvHeaders = array_map(function ($key) use ($columnToQuestion) {
+                if ($key === 'tags') {
+                    return 'Tags';
+                }
+                if ($key === 'email') {
+                    return $columnToQuestion['email_address'] ?? 'Email';
+                }
+                return $columnToQuestion[$key] ?? ucwords(str_replace('_', ' ', $key));
+            }, $columnOrder);
             
-            // Build export data
+            // Build export data (all columns per row)
             $exportData = [];
             
             foreach ($allEmails as $email) {
                 $isInTickets = $ticketEmails->contains($email);
                 $isInSignUp = $signUpEmails->contains($email);
                 
-                // Get data from tickets (prefer tickets if both exist)
                 $ticketData = null;
                 if ($isInTickets) {
                     $ticketData = $ticketAttendees->first(function ($attendee) use ($email) {
@@ -2790,7 +2833,6 @@ class LocationController extends Controller
                     });
                 }
                 
-                // Get data from sign-up form
                 $signUpData = null;
                 if ($isInSignUp) {
                     $signUpData = $signUpAttendees->first(function ($attendee) use ($email) {
@@ -2798,72 +2840,62 @@ class LocationController extends Controller
                     });
                 }
                 
-                // Prefer ticket data, fallback to sign-up data
-                $rowData = [
-                    'email' => $ticketData ? $ticketData->email : ($signUpData ? ($signUpData->email_address ?? $email) : $email),
-                    'first_name' => $ticketData ? $ticketData->first_name : ($signUpData ? ($signUpData->first_name ?? '') : ''),
-                    'last_name' => $ticketData ? $ticketData->last_name : ($signUpData ? ($signUpData->last_name ?? '') : ''),
-                    'phone' => $ticketData ? $ticketData->phone : ($signUpData ? ($signUpData->mobile_number ?? '') : ''),
-                    'city' => $ticketData ? $ticketData->city : ($signUpData ? ($signUpData->city ?? '') : ''),
-                    'state' => $ticketData ? $ticketData->state : ($signUpData ? ($signUpData->state ?? '') : ''),
-                    'country' => $ticketData ? $ticketData->country : ($signUpData ? ($signUpData->country ?? '') : ''),
-                ];
+                $signUpRow = $signUpData ? (array) $signUpData : [];
+                $rowData = [];
+                foreach ($columnOrder as $key) {
+                    if ($key === 'tags') {
+                        continue;
+                    }
+                    if ($key === 'email') {
+                        $rowData[$key] = $ticketData ? $ticketData->email : ($signUpRow['email_address'] ?? $email);
+                        continue;
+                    }
+                    $fromTicket = $ticketData && in_array($key, $ticketColumns, true) ? ($ticketData->{$key} ?? '') : null;
+                    $fromSignUp = array_key_exists($key, $signUpRow) ? ($signUpRow[$key] ?? '') : null;
+                    if ($fromTicket !== null && $fromTicket !== '') {
+                        $rowData[$key] = $fromTicket;
+                    } elseif ($fromSignUp !== null && $fromSignUp !== '') {
+                        $rowData[$key] = $fromSignUp;
+                    } else {
+                        $rowData[$key] = '';
+                    }
+                }
                 
                 // Generate tags
                 $tags = [];
-                
-                // COUNTRY tag
                 if ($locationCountry) {
                     $tags[] = "COUNTRY - " . strtoupper($locationCountry);
                 }
-                
-                // SHOW tag
                 $tags[] = "SHOW - " . $showTagLocation;
-                
-                // SOURCE tags - include both if email is in both sources
                 if ($isInTickets) {
                     $tags[] = "SOURCE - " . strtoupper($filmTour) . " " . $sourceTagLocation . " TIX " . $year;
                 }
                 if ($isInSignUp) {
                     $tags[] = "SOURCE - " . strtoupper($filmTour) . " " . $sourceTagLocation . " COMP " . $year;
                 }
-                
-                // Add default tags
                 $tags = array_merge($tags, $defaultTags);
-                
-                // Add tags as comma-separated string
                 $rowData['tags'] = implode(', ', $tags);
                 
                 $exportData[] = $rowData;
             }
             
-            // Generate CSV
+            // Generate CSV with all columns
             $filename = 'location_export_' . Str::slug($locationName) . '_' . date('Y-m-d') . '.csv';
             $headers = [
                 'Content-Type' => 'text/csv',
                 'Content-Disposition' => 'attachment; filename="' . $filename . '"',
             ];
             
-            $callback = function() use ($exportData) {
+            $callback = function() use ($exportData, $columnOrder, $csvHeaders) {
                 $file = fopen('php://output', 'w');
-                
-                // Write headers
-                fputcsv($file, ['Email', 'First Name', 'Last Name', 'Phone', 'City', 'State', 'Country', 'Tags']);
-                
-                // Write data
+                fputcsv($file, $csvHeaders);
                 foreach ($exportData as $row) {
-                    fputcsv($file, [
-                        $row['email'],
-                        $row['first_name'],
-                        $row['last_name'],
-                        $row['phone'],
-                        $row['city'],
-                        $row['state'],
-                        $row['country'],
-                        $row['tags']
-                    ]);
+                    $line = [];
+                    foreach ($columnOrder as $key) {
+                        $line[] = $row[$key] ?? '';
+                    }
+                    fputcsv($file, $line);
                 }
-                
                 fclose($file);
             };
             

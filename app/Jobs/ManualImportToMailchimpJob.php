@@ -169,6 +169,8 @@ class ManualImportToMailchimpJob implements ShouldQueue
             'updated' => $results['updated'],
         ]);
 
+        $effectiveFieldMapping = $this->effectiveFieldMappingForLog($fieldMapping);
+
         $log = MailchimpImportLog::create([
             'location_id' => null,
             'imported_by' => $this->userId,
@@ -183,6 +185,7 @@ class ManualImportToMailchimpJob implements ShouldQueue
             'mailchimp_account' => $this->mailchimpAccount,
             'list_id' => $this->listId,
             'list_name' => $this->listName,
+            'field_mapping' => $effectiveFieldMapping,
             'custom_event_name' => $this->customEventName,
             'custom_source' => $this->customSource,
             'status' => 'import',
@@ -205,6 +208,23 @@ class ManualImportToMailchimpJob implements ShouldQueue
             Storage::disk('local')->put('mailchimp_imports/' . $log->id . '.csv', $csv);
             $log->update(['has_import_file' => true]);
         }
+    }
+
+    /**
+     * Build tag => subscriber_key mapping for the log so reimport can use the same mapping.
+     */
+    private function effectiveFieldMappingForLog(?array $fieldMapping): ?array
+    {
+        if (empty($fieldMapping) || ! is_array($fieldMapping)) {
+            return null;
+        }
+        $out = [];
+        foreach ($fieldMapping as $tag => $col) {
+            if (($col !== '' && $col !== null) && isset(self::TAG_TO_KEY[$tag])) {
+                $out[$tag] = self::TAG_TO_KEY[$tag];
+            }
+        }
+        return $out ?: null;
     }
 
     private function buildNormalizedSubscribers(?array $fieldMapping): array

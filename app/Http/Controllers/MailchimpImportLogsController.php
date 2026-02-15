@@ -443,6 +443,24 @@ class MailchimpImportLogsController extends Controller
         $errors = [];
         $failedRows = [];
 
+        // Use the mapping stored with this import when the user chose audience + mapping; fallback for older logs
+        $fieldMapping = is_array($log->field_mapping) && ! empty($log->field_mapping)
+            ? $log->field_mapping
+            : [
+                'FNAME' => 'first_name',
+                'LNAME' => 'last_name',
+                'PHONE' => 'mobile_number',
+                'SMSPHONE' => 'mobile_number',
+                'CITY' => 'city',
+                'STATE' => 'state',
+                'ZIPCODE' => 'zip_code',
+                'COUNTRY' => 'country',
+                'GENDER' => 'gender',
+                'AGE' => 'age',
+                'ADDRESS' => 'street_address',
+                'STREETADD' => 'street_address',
+            ];
+
         foreach ($request->subscribers as $row) {
             $subscriber = [
                 'email_address' => $row['email_address'] ?? '',
@@ -458,8 +476,18 @@ class MailchimpImportLogsController extends Controller
                 'gender' => $row['gender'] ?? '',
                 'age' => $row['age'] ?? '',
             ];
+            if (empty($subscriber['address_full'] ?? '')) {
+                $subscriber['address_full'] = implode(', ', array_filter([
+                    $subscriber['street_address'] ?? '',
+                    $subscriber['street_address_2'] ?? '',
+                    $subscriber['city'] ?? '',
+                    $subscriber['state'] ?? '',
+                    $subscriber['zip_code'] ?? '',
+                    $subscriber['country'] ?? '',
+                ]));
+            }
             try {
-                $result = $mailchimpService->manualImportSubscriber($listId, $subscriber, $tags);
+                $result = $mailchimpService->manualImportSubscriber($listId, $subscriber, $tags, $fieldMapping);
                 if (isset($result['import_type'])) {
                     if ($result['import_type'] === 'new') {
                         $newCount++;

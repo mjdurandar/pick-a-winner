@@ -21,6 +21,7 @@ class MailchimpImportLog extends Model
         'mailchimp_account',
         'list_id',
         'list_name',
+        'field_mapping',
         'custom_event_name',
         'custom_source',
         'status',
@@ -32,6 +33,7 @@ class MailchimpImportLog extends Model
         'tags' => 'array',
         'errors' => 'array',
         'failed_rows' => 'array',
+        'field_mapping' => 'array',
         'has_import_file' => 'boolean',
     ];
 

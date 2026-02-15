@@ -339,17 +339,46 @@ class MailchimpService
             ];
         }
 
-        return [
+        $payload = [
             'email_address' => $subscriber['email_address'],
             'status' => 'subscribed',
             'merge_fields' => $mergeFieldMap,
             'tags' => $tagsData,
         ];
+        $smsStatus = $this->resolveSmsSubscriptionStatus($mergeFieldMap, $subscriber, $fieldMapping);
+        if ($smsStatus !== null) {
+            $payload['sms_subscription'] = ['status' => $smsStatus];
+        }
+        return $payload;
+    }
+
+    /**
+     * Resolve SMS subscription status for API: 'subscribed' | 'not_subscribed' | null.
+     * When we send SMSPHONE we set subscribed so Mailchimp persists the number.
+     * If fieldMapping has SMS_MARKETING_STATUS and subscriber has a value, use that.
+     */
+    private function resolveSmsSubscriptionStatus(array $mergeFields, array $subscriber, ?array $fieldMapping): ?string
+    {
+        if ($fieldMapping && isset($fieldMapping['SMS_MARKETING_STATUS']) && $fieldMapping['SMS_MARKETING_STATUS'] !== '') {
+            $col = $fieldMapping['SMS_MARKETING_STATUS'];
+            $val = isset($subscriber[$col]) ? trim((string) $subscriber[$col]) : '';
+            if (stripos($val, 'subscribed') !== false || $val === '1' || $val === 'yes') {
+                return 'subscribed';
+            }
+            if (stripos($val, 'unsubscribed') !== false || stripos($val, 'not subscribed') !== false || $val === '0' || $val === 'no') {
+                return 'not_subscribed';
+            }
+        }
+        if (isset($mergeFields['SMSPHONE']) && (string) ($mergeFields['SMSPHONE'] ?? '') !== '') {
+            return 'subscribed';
+        }
+        return null;
     }
 
     /**
      * Format phone number to E.164 (international standard) for Mailchimp PHONE/SMSPHONE.
-     * Mailchimp requires "SMS number in the international standard format" (e.g. +61412345678).
+     * Mailchimp requires "SMS number in the international standard format" (e.g. +61412345678, +15551234567).
+     * Uses $this->account (anz vs usa) so ANZ imports default to +61/+64 and USA imports to +1 when ambiguous.
      *
      * @param  string|null  $number
      * @param  string|null  $country  Optional country name/code to choose +61 (AU) vs +64 (NZ) for leading-0 numbers
@@ -363,6 +392,8 @@ class MailchimpService
         if ($digits === '') {
             return '';
         }
+        $account = $this->account ?? 'anz';
+
         // US/Canada: 10 or 11 digits starting with 1
         if (strlen($digits) >= 10 && substr($digits, 0, 1) === '1') {
             return '+1' . substr($digits, -10);
@@ -374,18 +405,24 @@ class MailchimpService
         if (strlen($digits) >= 9 && substr($digits, 0, 2) === '64') {
             return '+' . $digits;
         }
-        // Leading 0: use country hint for AU vs NZ
+
+        // Leading 0: ANZ → +61/+64 from country; USA → treat as US if 0 + 10 digits (e.g. 0555123456)
         if (substr($digits, 0, 1) === '0' && strlen($digits) >= 9) {
+            if ($account === 'usa' && strlen($digits) === 11) {
+                return '+1' . substr($digits, 1);
+            }
             $countryUpper = strtoupper((string) $country);
             if (strpos($countryUpper, 'NEW ZEALAND') !== false || $countryUpper === 'NZ') {
                 return '+64' . substr($digits, 1);
             }
-            return '+61' . substr($digits, 1); // Australia default for ANZ
+            return '+61' . substr($digits, 1);
         }
-        // US/Canada: 10 digits, no leading 0
+
+        // US/Canada: 10 digits, no leading 0 → +1
         if (strlen($digits) === 10 && substr($digits, 0, 1) !== '0') {
             return '+1' . $digits;
         }
+
         // Fallback: 10–15 digits, prepend +
         if (strlen($digits) >= 10 && strlen($digits) <= 15) {
             return '+' . ltrim($digits, '0');
@@ -509,6 +546,7 @@ class MailchimpService
         }
 
         $mergeFields = $mergeFieldMap;
+        $smsSubscriptionStatus = $this->resolveSmsSubscriptionStatus($mergeFields, $subscriber, $fieldMapping);
 
         // Try to get existing member first to determine if it's new or updated
         $emailHash = md5(strtolower($subscriber['email_address']));
@@ -523,20 +561,28 @@ class MailchimpService
             $isExisting = false;
         }
 
-        $doRequest = function ($mergeFieldsToSend) use ($emailHash, $listId, $subscriber, $tagsData) {
+        $doRequest = function ($mergeFieldsToSend) use ($emailHash, $listId, $subscriber, $tagsData, $smsSubscriptionStatus) {
+            $patchBody = [
+                'merge_fields' => $mergeFieldsToSend,
+                'tags' => $tagsData,
+            ];
+            if ($smsSubscriptionStatus !== null) {
+                $patchBody['sms_subscription'] = ['status' => $smsSubscriptionStatus];
+            }
             $response = Http::withBasicAuth('anystring', $this->apiKey)
-                ->patch("{$this->baseUrl}/lists/{$listId}/members/{$emailHash}", [
-                    'merge_fields' => $mergeFieldsToSend,
-                    'tags' => $tagsData
-                ]);
+                ->patch("{$this->baseUrl}/lists/{$listId}/members/{$emailHash}", $patchBody);
             if (! $response->successful() && $response->status() === 404) {
+                $postBody = [
+                    'email_address' => $subscriber['email_address'],
+                    'status' => 'subscribed',
+                    'merge_fields' => $mergeFieldsToSend,
+                    'tags' => $tagsData,
+                ];
+                if ($smsSubscriptionStatus !== null) {
+                    $postBody['sms_subscription'] = ['status' => $smsSubscriptionStatus];
+                }
                 $response = Http::withBasicAuth('anystring', $this->apiKey)
-                    ->post("{$this->baseUrl}/lists/{$listId}/members", [
-                        'email_address' => $subscriber['email_address'],
-                        'status' => 'subscribed',
-                        'merge_fields' => $mergeFieldsToSend,
-                        'tags' => $tagsData
-                    ]);
+                    ->post("{$this->baseUrl}/lists/{$listId}/members", $postBody);
             }
             return $response;
         };
@@ -674,14 +720,17 @@ class MailchimpService
             return $value;
         };
 
-        // Value comes only from the user's mapping: which column they chose for each Mailchimp field (from the audience we fetched via API).
+        // Value comes only from the user's mapping. When user maps a column that is blank, we send empty to Mailchimp (clear that field).
         $getSubscriberValueForTag = function ($tag) use ($subscriber, $fieldMapping) {
-            if ($fieldMapping && isset($fieldMapping[$tag]) && $fieldMapping[$tag] !== '') {
-                $key = $fieldMapping[$tag];
-                $val = $subscriber[$key] ?? null;
-                return $val !== null && $val !== '' ? (string) $val : null;
+            if (! $fieldMapping || ! isset($fieldMapping[$tag]) || $fieldMapping[$tag] === '') {
+                return null;
             }
-            return null;
+            $key = $fieldMapping[$tag];
+            $val = $subscriber[$key] ?? null;
+            if ($val === null || (is_string($val) && trim($val) === '')) {
+                return ''; // Explicitly blank: user mapped this column so we send empty to clear the field in Mailchimp
+            }
+            return (string) $val;
         };
 
         // Process every merge field that exists on the audience (from API). No hardcoded tag list — we only use what Mailchimp returns and what the user mapped.
@@ -696,7 +745,9 @@ class MailchimpService
 
             // Age: special handling when our data has an age value (dropdown/age fields)
             if (in_array($tag, ['AGE', 'AGEWIN', 'MMERGE14', 'MERGE14'], true)) {
-                if ($ageValue !== null) {
+                if ($value === '') {
+                    $mergeFieldMap[$tag] = '';
+                } elseif ($ageValue !== null) {
                     $mergeFieldMap[$tag] = $ageValue;
                 } elseif ($value !== null) {
                     $normalized = $normalizeValue($value, $tag);
@@ -709,58 +760,71 @@ class MailchimpService
                 continue;
             }
 
-            // Phone/SMS: format as E.164 (use field type from API, not tag name)
+            // Phone/SMS: format as E.164, or send empty to clear
             if (in_array($fieldType, ['phone', 'smsphone', 'sms'], true) || (stripos($tag, 'PHONE') !== false || stripos($tag, 'MERGE4') !== false || stripos($tag, 'MERGE30') !== false)) {
-                $rawPhone = $value;
-                if ($rawPhone === null || $rawPhone === '') {
-                    continue;
-                }
-                $country = $subscriber['country'] ?? $subscriber['Country'] ?? '';
-                $formatted = $this->formatPhoneE164($rawPhone, $country);
-                if ($formatted !== '') {
-                    $mergeFieldMap[$tag] = $formatted;
-                }
-                continue;
-            }
-
-            // Address type is handled later (we need to send an object); skip here so main loop doesn't set a string
-            if ($fieldType === 'address') {
-                if ($value !== null && $value !== '') {
-                    $mergeFieldMap[$tag] = trim((string) $value);
-                }
-                continue;
-            }
-
-            // Zip/number: normalize
-            if (in_array($fieldType, ['number'], true) && $value !== null && $value !== '') {
-                $mergeFieldMap[$tag] = is_numeric($value) ? (int) $value : (string) $value;
-                continue;
-            }
-
-            // Dropdown/radio: value must match an allowed choice
-            if (in_array($fieldType, ['dropdown', 'radio']) && isset($info['options']['choices']) && is_array($info['options']['choices'])) {
-                $choices = $info['options']['choices'];
-                $valueStr = $value !== null ? (string) trim($value) : '';
-                $matched = false;
-                foreach ($choices as $choice) {
-                    $choiceStr = is_string($choice) ? $choice : ($choice['value'] ?? (string) $choice);
-                    if (strcasecmp(trim($choiceStr), $valueStr) === 0) {
-                        $mergeFieldMap[$tag] = $choiceStr;
-                        $matched = true;
-                        break;
+                if ($value === '') {
+                    $mergeFieldMap[$tag] = '';
+                } else {
+                    $rawPhone = $value;
+                    if ($rawPhone !== null && $rawPhone !== '') {
+                        $country = $subscriber['country'] ?? $subscriber['Country'] ?? '';
+                        $formatted = $this->formatPhoneE164($rawPhone, $country);
+                        if ($formatted !== '') {
+                            $mergeFieldMap[$tag] = $formatted;
+                        }
                     }
                 }
-                if (! $matched && ! empty($info['required']) && count($choices) > 0) {
-                    $first = $choices[0];
-                    $mergeFieldMap[$tag] = is_string($first) ? $first : ($first['value'] ?? $placeholderForRequired);
+                continue;
+            }
+
+            // Address type is handled later (we need to send an object). Set string here for later use; empty string = clear.
+            if ($fieldType === 'address') {
+                $mergeFieldMap[$tag] = $value === '' ? '' : trim((string) ($value ?? ''));
+                continue;
+            }
+
+            // Zip/number: normalize, or send empty to clear
+            if (in_array($fieldType, ['number'], true)) {
+                if ($value === '') {
+                    $mergeFieldMap[$tag] = '';
+                } elseif ($value !== null && $value !== '') {
+                    $mergeFieldMap[$tag] = is_numeric($value) ? (int) $value : (string) $value;
                 }
                 continue;
             }
 
-            // Text and everything else: use mapped value
-            $normalized = $normalizeValue($value, $tag);
-            if ($normalized !== null) {
-                $mergeFieldMap[$tag] = $normalized;
+            // Dropdown/radio: value must match an allowed choice, or send empty to clear
+            if (in_array($fieldType, ['dropdown', 'radio']) && isset($info['options']['choices']) && is_array($info['options']['choices'])) {
+                if ($value === '') {
+                    $mergeFieldMap[$tag] = '';
+                } else {
+                    $choices = $info['options']['choices'];
+                    $valueStr = $value !== null ? (string) trim($value) : '';
+                    $matched = false;
+                    foreach ($choices as $choice) {
+                        $choiceStr = is_string($choice) ? $choice : ($choice['value'] ?? (string) $choice);
+                        if (strcasecmp(trim($choiceStr), $valueStr) === 0) {
+                            $mergeFieldMap[$tag] = $choiceStr;
+                            $matched = true;
+                            break;
+                        }
+                    }
+                    if (! $matched && ! empty($info['required']) && count($choices) > 0) {
+                        $first = $choices[0];
+                        $mergeFieldMap[$tag] = is_string($first) ? $first : ($first['value'] ?? $placeholderForRequired);
+                    }
+                }
+                continue;
+            }
+
+            // Text and everything else: use mapped value, or send empty to clear
+            if ($value === '') {
+                $mergeFieldMap[$tag] = '';
+            } else {
+                $normalized = $normalizeValue($value, $tag);
+                if ($normalized !== null) {
+                    $mergeFieldMap[$tag] = $normalized;
+                }
             }
         }
 
@@ -776,30 +840,34 @@ class MailchimpService
             ];
         };
 
-        // Handle ADDRESS field only when audience has it as Address type (object). When type is Text (e.g. Adventure Entertainment Newsletter), main loop sends the mapped text value.
+        // Handle ADDRESS field only when audience has it as Address type (object). When type is Text, main loop sends the mapped text value. When user sent blank (clear), use empty object.
         if (in_array('ADDRESS', $availableFieldTags)) {
             $addressFieldType = ($fieldInfoByTag['ADDRESS'] ?? [])['type'] ?? 'text';
             if ($addressFieldType === 'address') {
                 $mappedVal = $mergeFieldMap['ADDRESS'] ?? null;
                 $addr1Source = is_scalar($mappedVal) ? trim((string) $mappedVal) : '';
-                if ($addr1Source === '') {
-                    $addr1Source = $this->getSubscriberField($subscriber, ['address_full', 'street_address', 'address', 'Street Address', 'Address', 'street']);
-                }
-                $addressData = [
-                    'addr1' => $addr1Source !== '' ? $addr1Source : $placeholderForRequired,
-                    'addr2' => $this->getSubscriberField($subscriber, ['street_address_2', 'address_2', 'address_line_2', 'Address Line 2']),
-                    'city' => $this->getSubscriberField($subscriber, ['city', 'City', 'town', 'Town']),
-                    'state' => $this->getSubscriberField($subscriber, ['state', 'State', 'province', 'Province']),
-                    'zip' => $this->getSubscriberField($subscriber, ['zip_code', 'zipcode', 'postal_code', 'postcode', 'Zip Code', 'Postal Code']),
-                    'country' => $this->getSubscriberField($subscriber, ['country', 'Country']),
-                ];
-                foreach (['addr1', 'city', 'state', 'zip', 'country'] as $k) {
-                    if (trim((string) ($addressData[$k] ?? '')) === '') {
-                        $addressData[$k] = $placeholderForRequired;
+                if ($mappedVal === '') {
+                    $mergeFieldMap['ADDRESS'] = ['addr1' => '', 'addr2' => '', 'city' => '', 'state' => '', 'zip' => '', 'country' => ''];
+                } else {
+                    if ($addr1Source === '') {
+                        $addr1Source = $this->getSubscriberField($subscriber, ['address_full', 'street_address', 'address', 'Street Address', 'Address', 'street']);
                     }
+                    $addressData = [
+                        'addr1' => $addr1Source !== '' ? $addr1Source : $placeholderForRequired,
+                        'addr2' => $this->getSubscriberField($subscriber, ['street_address_2', 'address_2', 'address_line_2', 'Address Line 2']),
+                        'city' => $this->getSubscriberField($subscriber, ['city', 'City', 'town', 'Town']),
+                        'state' => $this->getSubscriberField($subscriber, ['state', 'State', 'province', 'Province']),
+                        'zip' => $this->getSubscriberField($subscriber, ['zip_code', 'zipcode', 'postal_code', 'postcode', 'Zip Code', 'Postal Code']),
+                        'country' => $this->getSubscriberField($subscriber, ['country', 'Country']),
+                    ];
+                    foreach (['addr1', 'city', 'state', 'zip', 'country'] as $k) {
+                        if (trim((string) ($addressData[$k] ?? '')) === '') {
+                            $addressData[$k] = $placeholderForRequired;
+                        }
+                    }
+                    $addressData['addr2'] = $addressData['addr2'] ?? '';
+                    $mergeFieldMap['ADDRESS'] = $addressData;
                 }
-                $addressData['addr2'] = $addressData['addr2'] ?? '';
-                $mergeFieldMap['ADDRESS'] = $addressData;
             }
         }
 
@@ -827,7 +895,7 @@ class MailchimpService
 
         // Do NOT force-map fields that don't exist on the audience — sending unknown tags causes "Your merge fields were invalid"
 
-        // Mailchimp Address-type merge fields only accept { addr1, city, state, zip, country }. Use the value the user mapped as addr1; fill rest from subscriber so Mailchimp accepts the object. No hardcoded tag list — we use field type from the API.
+        // Mailchimp Address-type merge fields only accept { addr1, city, state, zip, country }. Use the value the user mapped as addr1; fill rest from subscriber. When user sent blank (clear), use empty strings.
         foreach ($availableMergeFields as $field) {
             $tag = $field['tag'] ?? null;
             if (! $tag) {
@@ -838,22 +906,38 @@ class MailchimpService
                 continue;
             }
             $mappedValue = $mergeFieldMap[$tag] ?? $getSubscriberValueForTag($tag);
-            $addr1 = is_scalar($mappedValue) ? trim((string) $mappedValue) : '';
-            if ($addr1 === '') {
-                $addr1 = $placeholderForRequired;
+            // Already set to empty address object (e.g. by ADDRESS block above)
+            if (is_array($mappedValue) && trim((string) ($mappedValue['addr1'] ?? '')) === '' && trim((string) ($mappedValue['city'] ?? '')) === '') {
+                continue;
             }
-            $addressData = [
-                'addr1' => $addr1,
-                'addr2' => trim((string) $this->getSubscriberField($subscriber, ['street_address_2', 'address_2', 'address_line_2'])),
-                'city' => trim((string) $this->getSubscriberField($subscriber, ['city', 'City', 'town', 'Town'])),
-                'state' => trim((string) $this->getSubscriberField($subscriber, ['state', 'State', 'province', 'Province'])),
-                'zip' => trim((string) $this->getSubscriberField($subscriber, ['zip_code', 'zipcode', 'postal_code', 'postcode'])),
-                'country' => trim((string) $this->getSubscriberField($subscriber, ['country', 'Country'])),
-            ];
-            $addressData['addr2'] = $addressData['addr2'] ?? '';
-            foreach (['city', 'state', 'zip', 'country'] as $k) {
-                if (($addressData[$k] ?? '') === '') {
-                    $addressData[$k] = $placeholderForRequired;
+            $addr1 = is_scalar($mappedValue) ? trim((string) $mappedValue) : '';
+            $isExplicitlyBlank = $addr1 === '' && $mappedValue === '';
+            if ($isExplicitlyBlank) {
+                $addressData = [
+                    'addr1' => '',
+                    'addr2' => '',
+                    'city' => '',
+                    'state' => '',
+                    'zip' => '',
+                    'country' => '',
+                ];
+            } else {
+                if ($addr1 === '') {
+                    $addr1 = $placeholderForRequired;
+                }
+                $addressData = [
+                    'addr1' => $addr1,
+                    'addr2' => trim((string) $this->getSubscriberField($subscriber, ['street_address_2', 'address_2', 'address_line_2'])),
+                    'city' => trim((string) $this->getSubscriberField($subscriber, ['city', 'City', 'town', 'Town'])),
+                    'state' => trim((string) $this->getSubscriberField($subscriber, ['state', 'State', 'province', 'Province'])),
+                    'zip' => trim((string) $this->getSubscriberField($subscriber, ['zip_code', 'zipcode', 'postal_code', 'postcode'])),
+                    'country' => trim((string) $this->getSubscriberField($subscriber, ['country', 'Country'])),
+                ];
+                $addressData['addr2'] = $addressData['addr2'] ?? '';
+                foreach (['city', 'state', 'zip', 'country'] as $k) {
+                    if (($addressData[$k] ?? '') === '') {
+                        $addressData[$k] = $placeholderForRequired;
+                    }
                 }
             }
             $mergeFieldMap[$tag] = $addressData;
