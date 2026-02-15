@@ -1575,11 +1575,11 @@ const showDetailedResults = async (results) => {
                     <div v-if="location.imported_win_to_mailchimp || location.imported_ticket_to_mailchimp" class="flex items-center space-x-2">
                         <span v-if="location.imported_win_to_mailchimp" class="flex items-center space-x-1.5 bg-teal-100 text-teal-800 px-3 py-1 rounded-full text-sm">
                             <i class="fa-solid fa-circle-check"></i>
-                            <span>Imported Win data</span>
+                            <span>Win Data</span>
                         </span>
                         <span v-if="location.imported_ticket_to_mailchimp" class="flex items-center space-x-1.5 bg-amber-100 text-amber-800 px-3 py-1 rounded-full text-sm">
                             <i class="fa-solid fa-circle-check"></i>
-                            <span>Imported Ticket data</span>
+                            <span>Ticket data</span>
                         </span>
                     </div>
                 </div>

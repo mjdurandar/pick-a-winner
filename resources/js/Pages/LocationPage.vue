@@ -2674,7 +2674,7 @@ const runImportAll = async () => {
                                                 class="px-2 py-1 rounded text-xs font-medium bg-teal-100 text-teal-800"
                                                 title="Win data imported to Mailchimp"
                                             >
-                                                <i class="fa-solid fa-circle-check mr-1"></i>Imported Win data
+                                                <i class="fa-solid fa-circle-check mr-1"></i>Win data
                                             </span>
                                             <!-- Ticket data imported to Mailchimp -->
                                             <span 
@@ -2682,7 +2682,7 @@ const runImportAll = async () => {
                                                 class="px-2 py-1 rounded text-xs font-medium bg-amber-100 text-amber-800"
                                                 title="Ticket data imported to Mailchimp"
                                             >
-                                                <i class="fa-solid fa-circle-check mr-1"></i>Imported Ticket data
+                                                <i class="fa-solid fa-circle-check mr-1"></i>Ticket data
                                             </span>
                                             <!-- Category + Participant count always together -->
                                             <span class="inline-flex items-center gap-2">
