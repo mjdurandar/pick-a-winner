@@ -743,19 +743,19 @@ class MailchimpService
             $fieldType = $info['type'] ?? 'text';
             $value = $getSubscriberValueForTag($tag);
 
-            // Age: special handling when our data has an age value (dropdown/age fields)
+            // Age: only include when mapped. If mapped but empty, send empty to clear.
             if (in_array($tag, ['AGE', 'AGEWIN', 'MMERGE14', 'MERGE14'], true)) {
                 if ($value === '') {
                     $mergeFieldMap[$tag] = '';
-                } elseif ($ageValue !== null) {
-                    $mergeFieldMap[$tag] = $ageValue;
                 } elseif ($value !== null) {
-                    $normalized = $normalizeValue($value, $tag);
-                    if ($normalized !== null) {
-                        $mergeFieldMap[$tag] = $normalized;
+                    if ($ageValue !== null) {
+                        $mergeFieldMap[$tag] = $ageValue;
+                    } else {
+                        $normalized = $normalizeValue($value, $tag);
+                        if ($normalized !== null) {
+                            $mergeFieldMap[$tag] = $normalized;
+                        }
                     }
-                } elseif (! empty($info['required'])) {
-                    $mergeFieldMap[$tag] = $placeholderForRequired;
                 }
                 continue;
             }
@@ -777,9 +777,11 @@ class MailchimpService
                 continue;
             }
 
-            // Address type is handled later (we need to send an object). Set string here for later use; empty string = clear.
+            // Address type is handled later. Only set when mapped; unmapped = don't touch field in Mailchimp.
             if ($fieldType === 'address') {
-                $mergeFieldMap[$tag] = $value === '' ? '' : trim((string) ($value ?? ''));
+                if ($value !== null) {
+                    $mergeFieldMap[$tag] = $value === '' ? '' : trim((string) $value);
+                }
                 continue;
             }
 
@@ -793,13 +795,13 @@ class MailchimpService
                 continue;
             }
 
-            // Dropdown/radio: value must match an allowed choice, or send empty to clear
+            // Dropdown/radio: only include when mapped. If mapped but empty, send empty to clear.
             if (in_array($fieldType, ['dropdown', 'radio']) && isset($info['options']['choices']) && is_array($info['options']['choices'])) {
                 if ($value === '') {
                     $mergeFieldMap[$tag] = '';
-                } else {
+                } elseif ($value !== null) {
                     $choices = $info['options']['choices'];
-                    $valueStr = $value !== null ? (string) trim($value) : '';
+                    $valueStr = (string) trim($value);
                     $matched = false;
                     foreach ($choices as $choice) {
                         $choiceStr = is_string($choice) ? $choice : ($choice['value'] ?? (string) $choice);
@@ -817,10 +819,10 @@ class MailchimpService
                 continue;
             }
 
-            // Text and everything else: use mapped value, or send empty to clear
+            // Text and everything else: only include when mapped. If mapped but empty, send empty to clear.
             if ($value === '') {
                 $mergeFieldMap[$tag] = '';
-            } else {
+            } elseif ($value !== null) {
                 $normalized = $normalizeValue($value, $tag);
                 if ($normalized !== null) {
                     $mergeFieldMap[$tag] = $normalized;
@@ -840,15 +842,15 @@ class MailchimpService
             ];
         };
 
-        // Handle ADDRESS field only when audience has it as Address type (object). When type is Text, main loop sends the mapped text value. When user sent blank (clear), use empty object.
+        // Handle ADDRESS field only when audience has it and user mapped it. Unmapped = don't send (leave existing Mailchimp value).
         if (in_array('ADDRESS', $availableFieldTags)) {
+            $addressValue = $getSubscriberValueForTag('ADDRESS');
             $addressFieldType = ($fieldInfoByTag['ADDRESS'] ?? [])['type'] ?? 'text';
-            if ($addressFieldType === 'address') {
-                $mappedVal = $mergeFieldMap['ADDRESS'] ?? null;
-                $addr1Source = is_scalar($mappedVal) ? trim((string) $mappedVal) : '';
-                if ($mappedVal === '') {
+            if ($addressFieldType === 'address' && $addressValue !== null) {
+                if ($addressValue === '') {
                     $mergeFieldMap['ADDRESS'] = ['addr1' => '', 'addr2' => '', 'city' => '', 'state' => '', 'zip' => '', 'country' => ''];
                 } else {
+                    $addr1Source = trim((string) $addressValue);
                     if ($addr1Source === '') {
                         $addr1Source = $this->getSubscriberField($subscriber, ['address_full', 'street_address', 'address', 'Street Address', 'Address', 'street']);
                     }
@@ -871,13 +873,16 @@ class MailchimpService
             }
         }
 
-        // Fill any required merge fields from the audience that we haven't set (USA/ANZ may have different required fields)
+        // Fill required merge fields only when user mapped that field but we didn't set a value (e.g. required dropdown with no match).
         foreach ($availableMergeFields as $field) {
             $tag = $field['tag'] ?? null;
             if (!$tag || !empty($field['required']) === false) {
                 continue;
             }
             if (array_key_exists($tag, $mergeFieldMap)) {
+                continue;
+            }
+            if (!$fieldMapping || !isset($fieldMapping[$tag]) || $fieldMapping[$tag] === '') {
                 continue;
             }
             $type = $field['type'] ?? 'text';
@@ -895,7 +900,7 @@ class MailchimpService
 
         // Do NOT force-map fields that don't exist on the audience — sending unknown tags causes "Your merge fields were invalid"
 
-        // Mailchimp Address-type merge fields only accept { addr1, city, state, zip, country }. Use the value the user mapped as addr1; fill rest from subscriber. When user sent blank (clear), use empty strings.
+        // Other address-type merge fields (e.g. ADDRESSWIN, MMERGE10): only build when user mapped this tag.
         foreach ($availableMergeFields as $field) {
             $tag = $field['tag'] ?? null;
             if (! $tag) {
@@ -905,9 +910,11 @@ class MailchimpService
             if ($fieldType !== 'address') {
                 continue;
             }
-            $mappedValue = $mergeFieldMap[$tag] ?? $getSubscriberValueForTag($tag);
-            // Already set to empty address object (e.g. by ADDRESS block above)
-            if (is_array($mappedValue) && trim((string) ($mappedValue['addr1'] ?? '')) === '' && trim((string) ($mappedValue['city'] ?? '')) === '') {
+            if (array_key_exists($tag, $mergeFieldMap)) {
+                continue;
+            }
+            $mappedValue = $getSubscriberValueForTag($tag);
+            if ($mappedValue === null) {
                 continue;
             }
             $addr1 = is_scalar($mappedValue) ? trim((string) $mappedValue) : '';

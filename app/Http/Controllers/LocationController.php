@@ -1644,9 +1644,22 @@ class LocationController extends Controller
 
     /**
      * GET source columns for Mailchimp import mapping (sign-up form + ticket + concatenated address).
+     * When data_mode=ticket, returns only email, first_name, last_name (ticket data has only those for mapping).
      */
-    public function getImportSourceColumns($eventId)
+    public function getImportSourceColumns(Request $request, $eventId)
     {
+        $dataMode = $request->query('data_mode', '');
+
+        if ($dataMode === 'ticket') {
+            return response()->json([
+                'source_columns' => [
+                    ['key' => 'email', 'label' => 'Email (ticket)'],
+                    ['key' => 'first_name', 'label' => 'First name'],
+                    ['key' => 'last_name', 'label' => 'Last name'],
+                ],
+            ]);
+        }
+
         $signUpForm = SignUpForm::where('event_id', $eventId)->first();
         $formColumns = [];
         if ($signUpForm && $signUpForm->table_name && Schema::hasTable($signUpForm->table_name)) {

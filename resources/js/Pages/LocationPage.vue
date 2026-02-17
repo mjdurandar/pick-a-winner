@@ -2140,8 +2140,8 @@ watch(
 );
 
 watch(
-    () => importAllListId.value,
-    async (listId) => {
+    () => [importAllListId.value, importAllDataMode.value],
+    async ([listId, dataMode]) => {
         if (!listId || !importAllAccount.value || !showImportAllModal.value) {
             importAllMergeFieldsWithValidation.value = [];
             importAllSourceColumns.value = [];
@@ -2152,13 +2152,12 @@ watch(
         try {
             const [mergeRes, sourceRes] = await Promise.all([
                 axios.get(route('location.mailchimpMergeFields'), { params: { list_id: listId, account: importAllAccount.value } }),
-                axios.get(route('event.importSourceColumns', props.event.id))
+                axios.get(route('event.importSourceColumns', props.event.id), { params: { data_mode: dataMode || undefined } })
             ]);
             const mf = mergeRes.data?.merge_fields_with_validation ?? mergeRes.data?.merge_fields ?? [];
             importAllMergeFieldsWithValidation.value = mf;
             importAllSourceColumns.value = sourceRes.data?.source_columns ?? [];
             const mapping = {};
-            // Adventure Entertainment Newsletter (ANZ) - strict field mapping defaults
             const tagToDefault = {
                 FNAME: 'first_name', LNAME: 'last_name',
                 PHONE: 'mobile_number', SMSPHONE: 'mobile_number', MERGE4: 'mobile_number', MERGE30: 'mobile_number',
@@ -2170,11 +2169,19 @@ watch(
                 GENDER: 'gender', MERGE17: 'gender',
                 AGEWIN: 'age', MERGE14: 'age', MMERGE14: 'age'
             };
+            const isTicketMode = dataMode === 'ticket';
             (mergeRes.data?.merge_fields ?? []).forEach((f) => {
                 const tag = f.tag || f;
                 if (tag === 'EMAIL') return;
-                mapping[tag] = tagToDefault[tag] ?? '';
+                if (isTicketMode) {
+                    mapping[tag] = (tag === 'FNAME' || tag === 'LNAME') ? (tagToDefault[tag] ?? '') : '';
+                } else {
+                    mapping[tag] = tagToDefault[tag] ?? '';
+                }
             });
+            if (isTicketMode) {
+                mapping.EMAIL = 'email';
+            }
             importAllFieldMapping.value = mapping;
         } catch (e) {
             importAllMergeFieldsWithValidation.value = [];
