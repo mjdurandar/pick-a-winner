@@ -174,6 +174,7 @@ Route::get('/weekly-report', [App\Http\Controllers\WeeklyReportController::class
 Route::match(['get', 'post'], '/weekly-report/generate', [App\Http\Controllers\WeeklyReportController::class, 'generate'])->name('weekly-report.generate');
 Route::post('/weekly-report/export', [App\Http\Controllers\WeeklyReportController::class, 'export'])->name('weekly-report.export');
 Route::get('/weekly-report/export-demographics-spreadsheet', [App\Http\Controllers\WeeklyReportController::class, 'exportDemographicsSpreadsheet'])->name('weekly-report.export-demographics-spreadsheet');
+Route::get('/weekly-report/demographics-table', [App\Http\Controllers\WeeklyReportController::class, 'getDemographicsTableData'])->name('weekly-report.demographics-table');
 Route::post('/weekly-report/export-pdf', [App\Http\Controllers\WeeklyReportController::class, 'exportPdf'])->name('weekly-report.export-pdf');
 Route::get('/weekly-report/event-breakdown', [App\Http\Controllers\WeeklyReportController::class, 'getEventBreakdown'])->name('weekly-report.event-breakdown');
 Route::post('/weekly-report/event-breakdown/export-pdf', [App\Http\Controllers\WeeklyReportController::class, 'exportEventBreakdownPdf'])->name('weekly-report.event-breakdown.export-pdf');

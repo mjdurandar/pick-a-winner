@@ -720,7 +720,7 @@ class MailchimpService
             return $value;
         };
 
-        // Value comes only from the user's mapping. When user maps a column that is blank, we send empty to Mailchimp (clear that field).
+        // Value comes only from the user's mapping. When user maps a column that is blank, we skip it (don't touch existing Mailchimp data).
         $getSubscriberValueForTag = function ($tag) use ($subscriber, $fieldMapping) {
             if (! $fieldMapping || ! isset($fieldMapping[$tag]) || $fieldMapping[$tag] === '') {
                 return null;
@@ -728,7 +728,7 @@ class MailchimpService
             $key = $fieldMapping[$tag];
             $val = $subscriber[$key] ?? null;
             if ($val === null || (is_string($val) && trim($val) === '')) {
-                return ''; // Explicitly blank: user mapped this column so we send empty to clear the field in Mailchimp
+                return null; // Empty value: skip this field, don't overwrite existing Mailchimp data
             }
             return (string) $val;
         };
@@ -743,11 +743,9 @@ class MailchimpService
             $fieldType = $info['type'] ?? 'text';
             $value = $getSubscriberValueForTag($tag);
 
-            // Age: only include when mapped. If mapped but empty, send empty to clear.
+            // Age: only include when mapped and non-empty.
             if (in_array($tag, ['AGE', 'AGEWIN', 'MMERGE14', 'MERGE14'], true)) {
-                if ($value === '') {
-                    $mergeFieldMap[$tag] = '';
-                } elseif ($value !== null) {
+                if ($value !== null) {
                     if ($ageValue !== null) {
                         $mergeFieldMap[$tag] = $ageValue;
                     } else {
@@ -760,46 +758,37 @@ class MailchimpService
                 continue;
             }
 
-            // Phone/SMS: format as E.164, or send empty to clear
+            // Phone/SMS: format as E.164 when mapped and non-empty. Empty = skip, don't touch existing Mailchimp data.
             if (in_array($fieldType, ['phone', 'smsphone', 'sms'], true) || (stripos($tag, 'PHONE') !== false || stripos($tag, 'MERGE4') !== false || stripos($tag, 'MERGE30') !== false)) {
-                if ($value === '') {
-                    $mergeFieldMap[$tag] = '';
-                } else {
-                    $rawPhone = $value;
-                    if ($rawPhone !== null && $rawPhone !== '') {
-                        $country = $subscriber['country'] ?? $subscriber['Country'] ?? '';
-                        $formatted = $this->formatPhoneE164($rawPhone, $country);
-                        if ($formatted !== '') {
-                            $mergeFieldMap[$tag] = $formatted;
-                        }
+                if ($value !== null && $value !== '') {
+                    $country = $subscriber['country'] ?? $subscriber['Country'] ?? '';
+                    $formatted = $this->formatPhoneE164($value, $country);
+                    if ($formatted !== '') {
+                        $mergeFieldMap[$tag] = $formatted;
                     }
                 }
                 continue;
             }
 
-            // Address type is handled later. Only set when mapped; unmapped = don't touch field in Mailchimp.
+            // Address type is handled later. Only set when mapped and non-empty.
             if ($fieldType === 'address') {
                 if ($value !== null) {
-                    $mergeFieldMap[$tag] = $value === '' ? '' : trim((string) $value);
+                    $mergeFieldMap[$tag] = trim((string) $value);
                 }
                 continue;
             }
 
-            // Zip/number: normalize, or send empty to clear
+            // Zip/number: normalize when mapped and non-empty.
             if (in_array($fieldType, ['number'], true)) {
-                if ($value === '') {
-                    $mergeFieldMap[$tag] = '';
-                } elseif ($value !== null && $value !== '') {
+                if ($value !== null && $value !== '') {
                     $mergeFieldMap[$tag] = is_numeric($value) ? (int) $value : (string) $value;
                 }
                 continue;
             }
 
-            // Dropdown/radio: only include when mapped. If mapped but empty, send empty to clear.
+            // Dropdown/radio: only include when mapped and non-empty.
             if (in_array($fieldType, ['dropdown', 'radio']) && isset($info['options']['choices']) && is_array($info['options']['choices'])) {
-                if ($value === '') {
-                    $mergeFieldMap[$tag] = '';
-                } elseif ($value !== null) {
+                if ($value !== null) {
                     $choices = $info['options']['choices'];
                     $valueStr = (string) trim($value);
                     $matched = false;
@@ -819,10 +808,8 @@ class MailchimpService
                 continue;
             }
 
-            // Text and everything else: only include when mapped. If mapped but empty, send empty to clear.
-            if ($value === '') {
-                $mergeFieldMap[$tag] = '';
-            } elseif ($value !== null) {
+            // Text and everything else: only include when mapped and non-empty.
+            if ($value !== null) {
                 $normalized = $normalizeValue($value, $tag);
                 if ($normalized !== null) {
                     $mergeFieldMap[$tag] = $normalized;
@@ -847,29 +834,25 @@ class MailchimpService
             $addressValue = $getSubscriberValueForTag('ADDRESS');
             $addressFieldType = ($fieldInfoByTag['ADDRESS'] ?? [])['type'] ?? 'text';
             if ($addressFieldType === 'address' && $addressValue !== null) {
-                if ($addressValue === '') {
-                    $mergeFieldMap['ADDRESS'] = ['addr1' => '', 'addr2' => '', 'city' => '', 'state' => '', 'zip' => '', 'country' => ''];
-                } else {
-                    $addr1Source = trim((string) $addressValue);
-                    if ($addr1Source === '') {
-                        $addr1Source = $this->getSubscriberField($subscriber, ['address_full', 'street_address', 'address', 'Street Address', 'Address', 'street']);
-                    }
-                    $addressData = [
-                        'addr1' => $addr1Source !== '' ? $addr1Source : $placeholderForRequired,
-                        'addr2' => $this->getSubscriberField($subscriber, ['street_address_2', 'address_2', 'address_line_2', 'Address Line 2']),
-                        'city' => $this->getSubscriberField($subscriber, ['city', 'City', 'town', 'Town']),
-                        'state' => $this->getSubscriberField($subscriber, ['state', 'State', 'province', 'Province']),
-                        'zip' => $this->getSubscriberField($subscriber, ['zip_code', 'zipcode', 'postal_code', 'postcode', 'Zip Code', 'Postal Code']),
-                        'country' => $this->getSubscriberField($subscriber, ['country', 'Country']),
-                    ];
-                    foreach (['addr1', 'city', 'state', 'zip', 'country'] as $k) {
-                        if (trim((string) ($addressData[$k] ?? '')) === '') {
-                            $addressData[$k] = $placeholderForRequired;
-                        }
-                    }
-                    $addressData['addr2'] = $addressData['addr2'] ?? '';
-                    $mergeFieldMap['ADDRESS'] = $addressData;
+                $addr1Source = trim((string) $addressValue);
+                if ($addr1Source === '') {
+                    $addr1Source = $this->getSubscriberField($subscriber, ['address_full', 'street_address', 'address', 'Street Address', 'Address', 'street']);
                 }
+                $addressData = [
+                    'addr1' => $addr1Source !== '' ? $addr1Source : $placeholderForRequired,
+                    'addr2' => $this->getSubscriberField($subscriber, ['street_address_2', 'address_2', 'address_line_2', 'Address Line 2']),
+                    'city' => $this->getSubscriberField($subscriber, ['city', 'City', 'town', 'Town']),
+                    'state' => $this->getSubscriberField($subscriber, ['state', 'State', 'province', 'Province']),
+                    'zip' => $this->getSubscriberField($subscriber, ['zip_code', 'zipcode', 'postal_code', 'postcode', 'Zip Code', 'Postal Code']),
+                    'country' => $this->getSubscriberField($subscriber, ['country', 'Country']),
+                ];
+                foreach (['addr1', 'city', 'state', 'zip', 'country'] as $k) {
+                    if (trim((string) ($addressData[$k] ?? '')) === '') {
+                        $addressData[$k] = $placeholderForRequired;
+                    }
+                }
+                $addressData['addr2'] = $addressData['addr2'] ?? '';
+                $mergeFieldMap['ADDRESS'] = $addressData;
             }
         }
 
@@ -918,33 +901,21 @@ class MailchimpService
                 continue;
             }
             $addr1 = is_scalar($mappedValue) ? trim((string) $mappedValue) : '';
-            $isExplicitlyBlank = $addr1 === '' && $mappedValue === '';
-            if ($isExplicitlyBlank) {
-                $addressData = [
-                    'addr1' => '',
-                    'addr2' => '',
-                    'city' => '',
-                    'state' => '',
-                    'zip' => '',
-                    'country' => '',
-                ];
-            } else {
-                if ($addr1 === '') {
-                    $addr1 = $placeholderForRequired;
-                }
-                $addressData = [
-                    'addr1' => $addr1,
-                    'addr2' => trim((string) $this->getSubscriberField($subscriber, ['street_address_2', 'address_2', 'address_line_2'])),
-                    'city' => trim((string) $this->getSubscriberField($subscriber, ['city', 'City', 'town', 'Town'])),
-                    'state' => trim((string) $this->getSubscriberField($subscriber, ['state', 'State', 'province', 'Province'])),
-                    'zip' => trim((string) $this->getSubscriberField($subscriber, ['zip_code', 'zipcode', 'postal_code', 'postcode'])),
-                    'country' => trim((string) $this->getSubscriberField($subscriber, ['country', 'Country'])),
-                ];
-                $addressData['addr2'] = $addressData['addr2'] ?? '';
-                foreach (['city', 'state', 'zip', 'country'] as $k) {
-                    if (($addressData[$k] ?? '') === '') {
-                        $addressData[$k] = $placeholderForRequired;
-                    }
+            if ($addr1 === '') {
+                $addr1 = $placeholderForRequired;
+            }
+            $addressData = [
+                'addr1' => $addr1,
+                'addr2' => trim((string) $this->getSubscriberField($subscriber, ['street_address_2', 'address_2', 'address_line_2'])),
+                'city' => trim((string) $this->getSubscriberField($subscriber, ['city', 'City', 'town', 'Town'])),
+                'state' => trim((string) $this->getSubscriberField($subscriber, ['state', 'State', 'province', 'Province'])),
+                'zip' => trim((string) $this->getSubscriberField($subscriber, ['zip_code', 'zipcode', 'postal_code', 'postcode'])),
+                'country' => trim((string) $this->getSubscriberField($subscriber, ['country', 'Country'])),
+            ];
+            $addressData['addr2'] = $addressData['addr2'] ?? '';
+            foreach (['city', 'state', 'zip', 'country'] as $k) {
+                if (($addressData[$k] ?? '') === '') {
+                    $addressData[$k] = $placeholderForRequired;
                 }
             }
             $mergeFieldMap[$tag] = $addressData;

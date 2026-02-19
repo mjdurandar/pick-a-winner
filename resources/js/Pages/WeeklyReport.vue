@@ -121,6 +121,39 @@ const generateReport = async () => {
     }
 };
 
+const demographicsTableData = ref({ headers: [], rows: [] });
+const isLoadingDemographicsTable = ref(false);
+
+const loadDemographicsTable = async () => {
+    if (!selectedEventIdsForSpreadsheet.value || selectedEventIdsForSpreadsheet.value.length === 0) {
+        Swal.fire('Error', 'Please select at least one event to include.', 'error');
+        return;
+    }
+    isLoadingDemographicsTable.value = true;
+    demographicsTableData.value = { headers: [], rows: [] };
+    try {
+        const res = await axios.get(route('weekly-report.demographics-table'), {
+            params: { event_ids: selectedEventIdsForSpreadsheet.value }
+        });
+        demographicsTableData.value = { headers: res.data.headers || [], rows: res.data.rows || [] };
+    } catch (e) {
+        Swal.fire('Error', e.response?.data?.message || 'Failed to load demographics table.', 'error');
+    } finally {
+        isLoadingDemographicsTable.value = false;
+    }
+};
+
+const copyDemographicsTable = () => {
+    const { headers, rows } = demographicsTableData.value;
+    if (!headers.length) return;
+    const tsv = [headers.join('\t'), ...rows.map(row => row.join('\t'))].join('\n');
+    navigator.clipboard.writeText(tsv).then(() => {
+        Swal.fire('Copied', 'Table copied to clipboard. Paste into Excel or Google Sheets and columns will align.', 'success');
+    }).catch(() => {
+        Swal.fire('Error', 'Could not copy. Select the table below and copy manually (Ctrl+C / Cmd+C).', 'error');
+    });
+};
+
 const exportDemographicsSpreadsheet = () => {
     if (!selectedEventIdsForSpreadsheet.value || selectedEventIdsForSpreadsheet.value.length === 0) {
         Swal.fire('Error', 'Please select at least one event to include in the spreadsheet', 'error');
@@ -1044,10 +1077,10 @@ watch(() => eventBreakdown.value, async () => {
                                     </div>
                             </div>
 
-                            <!-- Export demographics spreadsheet: multi-select events -->
+                            <!-- Demographics table: show table to copy and paste (aligns in Sheets/Excel) -->
                             <div class="mt-6 pt-6 border-t border-gray-200">
-                                <h4 class="text-sm font-semibold text-gray-700 mb-2">Export demographics spreadsheet</h4>
-                                <p class="text-sm text-gray-500 mb-3">Select the events to include (one row per event: BRAND, data source, size, then question breakdowns; N/A where a question does not apply).</p>
+                                <h4 class="text-sm font-semibold text-gray-700 mb-2">Demographics table (copy & paste)</h4>
+                                <p class="text-sm text-gray-500 mb-3">Select events, then show the table. Copy it (button or select + Ctrl+C) and paste into Excel or Google Sheets — columns will align. Event, STATUS (current/past), Total signups, then Gender, Age, Household income, Ski spend.</p>
                                 <div class="flex flex-wrap gap-2 mb-3">
                                     <button
                                         type="button"
@@ -1065,12 +1098,21 @@ watch(() => eventBreakdown.value, async () => {
                                     </button>
                                     <button
                                         type="button"
-                                        @click="exportDemographicsSpreadsheet"
-                                        :disabled="!selectedEventIdsForSpreadsheet.length"
+                                        @click="loadDemographicsTable"
+                                        :disabled="!selectedEventIdsForSpreadsheet.length || isLoadingDemographicsTable"
                                         class="px-4 py-2 bg-teal-600 text-white rounded-md hover:bg-teal-700 disabled:opacity-50 disabled:cursor-not-allowed"
                                     >
-                                        Export demographics spreadsheet ({{ selectedEventIdsForSpreadsheet.length }} selected)
+                                        <span v-if="isLoadingDemographicsTable">Loading...</span>
+                                        <span v-else>Show demographics table ({{ selectedEventIdsForSpreadsheet.length }} selected)</span>
                                     </button>
+                                    <a
+                                        v-if="selectedEventIdsForSpreadsheet.length"
+                                        :href="route('weekly-report.export-demographics-spreadsheet') + '?' + selectedEventIdsForSpreadsheet.map(id => 'event_ids[]=' + id).join('&')"
+                                        target="_blank"
+                                        class="px-4 py-2 text-sm border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50"
+                                    >
+                                        Export CSV
+                                    </a>
                                 </div>
                                 <div class="flex flex-wrap gap-x-4 gap-y-2 max-h-40 overflow-y-auto border border-gray-200 rounded p-3 bg-gray-50">
                                     <label
@@ -1086,6 +1128,33 @@ watch(() => eventBreakdown.value, async () => {
                                         />
                                         <span class="text-gray-700">{{ event.event_name }} ({{ event.total_signups }})</span>
                                     </label>
+                                </div>
+                                <!-- Copyable table -->
+                                <div v-if="demographicsTableData.headers.length" class="mt-4">
+                                    <div class="flex items-center gap-2 mb-2">
+                                        <button
+                                            type="button"
+                                            @click="copyDemographicsTable"
+                                            class="px-3 py-1.5 text-sm bg-teal-600 text-white rounded hover:bg-teal-700"
+                                        >
+                                            Copy table
+                                        </button>
+                                        <span class="text-xs text-gray-500">Then paste (Ctrl+V / Cmd+V) into a spreadsheet — columns will align.</span>
+                                    </div>
+                                    <div class="overflow-x-auto border border-gray-200 rounded bg-white">
+                                        <table class="w-full text-sm border-collapse" id="demographics-copy-table">
+                                            <thead>
+                                                <tr>
+                                                    <th v-for="(h, i) in demographicsTableData.headers" :key="i" class="border border-gray-200 bg-gray-100 p-2 text-left font-medium whitespace-nowrap">{{ h }}</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                <tr v-for="(row, ri) in demographicsTableData.rows" :key="ri">
+                                                    <td v-for="(cell, ci) in row" :key="ci" class="border border-gray-200 p-2 whitespace-nowrap">{{ cell }}</td>
+                                                </tr>
+                                            </tbody>
+                                        </table>
+                                    </div>
                                 </div>
                             </div>
                         </div>

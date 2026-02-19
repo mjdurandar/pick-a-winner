@@ -360,11 +360,10 @@ class WeeklyReportController extends Controller
     }
 
     /**
-     * Export demographics spreadsheet: one row per event with BRAND, DATA SOURCE, SIZE OF DATA CAPTURE,
-     * then one column per question (Age, Gender, Where did you hear..., etc.) with breakdown (value = count) or N/A.
-     * Optional date filter; without dates, all events with signup forms are included.
+     * Build demographics table data (headers + rows) for copyable table or CSV export.
+     * Returns ['headers' => [...], 'rows' => [[...], ...]].
      */
-    public function exportDemographicsSpreadsheet(Request $request)
+    private function buildDemographicsTableData(Request $request): array
     {
         $eventIds = $request->input('event_ids', []);
         if (!is_array($eventIds)) {
@@ -400,68 +399,135 @@ class WeeklyReportController extends Controller
             });
         }
 
-        $allQuestionKeys = [];
-        $eventRows = [];
+        $today = Carbon::today();
+        $filterBreakdown = function (array $breakdown): array {
+            return array_values(array_filter($breakdown, function ($q) {
+                return $this->isDemographicsQuestionOnly($q['question_text'] ?? '', $q['column_name'] ?? '');
+            }));
+        };
+
+        $questionColumns = [];
+        $eventDataList = [];
 
         foreach ($events as $event) {
             $data = $this->buildEventBreakdownData($event);
             if (!$data) {
                 continue;
             }
-            $totalSignups = $data['total_signups'];
-            $breakdown = $data['breakdown'];
+            $breakdown = $filterBreakdown($data['breakdown']);
+            $status = $this->eventStatusForDemographics($event, $today);
 
-            $brand = $event->event_name ?? '—';
-            $dataSource = $event->event_name ?? '—';
-
-            $row = [
-                'BRAND' => $brand,
-                'DEMOGRAPHICS DATA SOURCE' => $dataSource,
-                'SIZE OF DATA CAPTURE' => (string) $totalSignups,
+            $eventDataList[] = [
+                'event_name' => $event->event_name ?? '—',
+                'status' => $status,
+                'total_signups' => $data['total_signups'],
+                'breakdown' => $breakdown,
             ];
 
             foreach ($breakdown as $q) {
-                $key = $q['question_text'] ?? $q['column_name'] ?? null;
-                if (!$key) {
+                $questionText = $q['question_text'] ?? $q['column_name'] ?? null;
+                if (!$questionText) {
                     continue;
                 }
-                $allQuestionKeys[$key] = true;
-                $parts = [];
+                $isSkiSpendQuestion = $this->isSkiEquipmentSpendQuestion($questionText, $q['column_name'] ?? '');
                 foreach ($q['responses'] ?? [] as $r) {
-                    $parts[] = ($r['value'] ?? '') . ' = ' . (int) ($r['count'] ?? 0);
-                }
-                $row[$key] = count($parts) > 0 ? implode("\n", $parts) : 'N/A';
-            }
-
-            $eventRows[] = $row;
-        }
-
-        $questionOrder = $this->orderDemographicsQuestionColumns(array_keys($allQuestionKeys));
-        $headers = array_merge(['BRAND', 'DEMOGRAPHICS DATA SOURCE', 'SIZE OF DATA CAPTURE'], $questionOrder);
-
-        foreach ($eventRows as &$eventRow) {
-            foreach ($questionOrder as $col) {
-                if (!array_key_exists($col, $eventRow)) {
-                    $eventRow[$col] = 'N/A';
+                    $val = $r['value'] ?? '';
+                    if ($val === '') {
+                        continue;
+                    }
+                    if ($isSkiSpendQuestion && $this->isIncomeBracketValue($val)) {
+                        continue;
+                    }
+                    if (!isset($questionColumns[$questionText])) {
+                        $questionColumns[$questionText] = [];
+                    }
+                    if (!in_array($val, $questionColumns[$questionText], true)) {
+                        $questionColumns[$questionText][] = $val;
+                    }
                 }
             }
         }
-        unset($eventRow);
+
+        $questionOrder = $this->orderDemographicsQuestionColumns(array_keys($questionColumns));
+        $demographicHeaders = [];
+        foreach ($questionOrder as $qText) {
+            $values = $questionColumns[$qText] ?? [];
+            sort($values);
+            foreach ($values as $v) {
+                $demographicHeaders[] = $v;
+            }
+        }
+
+        $headers = array_merge(['Event', 'STATUS', 'Total signups'], $demographicHeaders);
+        $rows = [];
+
+        foreach ($eventDataList as $item) {
+            $countByQuestionAndValue = [];
+            foreach ($item['breakdown'] as $q) {
+                $questionText = $q['question_text'] ?? $q['column_name'] ?? null;
+                if (!$questionText) {
+                    continue;
+                }
+                foreach ($q['responses'] ?? [] as $r) {
+                    $val = $r['value'] ?? '';
+                    $count = (int) ($r['count'] ?? 0);
+                    if ($val !== '') {
+                        $countByQuestionAndValue[$questionText][$val] = $count;
+                    }
+                }
+            }
+
+            $row = [$item['event_name'], $item['status'], (string) $item['total_signups']];
+            foreach ($questionOrder as $qText) {
+                $values = $questionColumns[$qText] ?? [];
+                sort($values);
+                foreach ($values as $v) {
+                    $count = $countByQuestionAndValue[$qText][$v] ?? 0;
+                    $row[] = $count > 0 ? (string) $count : 'N/A';
+                }
+            }
+            $rows[] = $row;
+        }
+
+        return ['headers' => $headers, 'rows' => $rows];
+    }
+
+    /**
+     * Get demographics table as JSON for copyable table (headers + rows). Same data as export; no file download.
+     */
+    public function getDemographicsTableData(Request $request)
+    {
+        $data = $this->buildDemographicsTableData($request);
+        return response()->json($data);
+    }
+
+    /**
+     * Export demographics spreadsheet: one row per event with Event, STATUS (current/past), Total signups,
+     * then one column per demographic response. STATUS: "current" = ongoing shows; "past" = all shows finished.
+     */
+    public function exportDemographicsSpreadsheet(Request $request)
+    {
+        $data = $this->buildDemographicsTableData($request);
+        $headers = $data['headers'];
+        $rows = $data['rows'];
+
+        $eventIds = $request->input('event_ids', []);
+        if (!is_array($eventIds)) {
+            $eventIds = array_filter([$eventIds]);
+        }
+        $startDate = $request->filled('start_date') ? Carbon::parse($request->start_date)->startOfDay() : null;
+        $endDate = $request->filled('end_date') ? Carbon::parse($request->end_date)->endOfDay() : null;
 
         $filename = 'demographics_report_'
             . (count($eventIds) > 0 ? count($eventIds) . '_events_' : ($startDate && $endDate ? $startDate->format('Y-m-d') . '_to_' . $endDate->format('Y-m-d') . '_' : 'all_events_'))
             . date('Y-m-d') . '.csv';
 
-        $callback = function () use ($headers, $eventRows) {
+        $callback = function () use ($headers, $rows) {
             $file = fopen('php://output', 'w');
             fprintf($file, "\xEF\xBB\xBF");
             fputcsv($file, $headers);
-            foreach ($eventRows as $row) {
-                $ordered = [];
-                foreach ($headers as $h) {
-                    $ordered[] = $row[$h] ?? 'N/A';
-                }
-                fputcsv($file, $ordered);
+            foreach ($rows as $row) {
+                fputcsv($file, $row);
             }
             fclose($file);
         };
@@ -470,6 +536,90 @@ class WeeklyReportController extends Controller
             'Content-Type' => 'text/csv; charset=UTF-8',
             'Content-Disposition' => 'attachment; filename="' . $filename . '"',
         ]);
+    }
+
+    /**
+     * Whether this question is the "ski equipment spend" type (so we can exclude income-bracket values from it).
+     */
+    private function isSkiEquipmentSpendQuestion(string $questionText, string $columnName): bool
+    {
+        $t = mb_strtolower($questionText);
+        $c = mb_strtolower($columnName);
+        if (str_contains($t, 'spend') && (str_contains($t, 'ski') || str_contains($t, 'equipment'))) {
+            return true;
+        }
+        if (str_contains($t, 'ski equipment') || str_contains($c, 'ski_spend') || (str_contains($c, 'spend') && str_contains($c, 'ski'))) {
+            return true;
+        }
+        return false;
+    }
+
+    /**
+     * Whether a response value looks like an income bracket (so we don't put it under "spend on ski equipment").
+     */
+    private function isIncomeBracketValue(string $value): bool
+    {
+        $v = trim($value);
+        if ($v === '') {
+            return false;
+        }
+        if (preg_match('/\$?\s*66[,.]?000|\$?\s*99[,.]?000|\$?\s*100[,.]?000|\$?\s*150[,.]?000/i', $v)) {
+            return true;
+        }
+        if (preg_match('/^[<>]\s*\$?\s*66/i', $v) || preg_match('/^>\s*\$?\s*150/i', $v)) {
+            return true;
+        }
+        return false;
+    }
+
+    /**
+     * Whether this question is one of the four demographics we export: Gender, Age, Combined Household Income, Ski Equipment Spending.
+     */
+    private function isDemographicsQuestionOnly(string $questionText, string $columnName): bool
+    {
+        $t = mb_strtolower($questionText);
+        $c = mb_strtolower($columnName);
+        if (str_contains($t, 'gender') || str_contains($c, 'gender')) {
+            return true;
+        }
+        if (str_contains($t, 'age') || str_contains($c, 'age')) {
+            return true;
+        }
+        if (str_contains($t, 'household income') || str_contains($t, 'combined income') || str_contains($c, 'household_income') || str_contains($c, 'combined_household')) {
+            return true;
+        }
+        if (str_contains($t, 'spend') && (str_contains($t, 'ski') || str_contains($t, 'equipment'))) {
+            return true;
+        }
+        if (str_contains($t, 'ski equipment') || str_contains($c, 'ski_spend') || (str_contains($c, 'spend') && str_contains($c, 'ski'))) {
+            return true;
+        }
+        return false;
+    }
+
+    /**
+     * Event status for demographics export: "current" if any show date is today or in the future; "past" if all shows are finished.
+     */
+    private function eventStatusForDemographics(Events $event, Carbon $today): string
+    {
+        $locations = $event->locations ?? collect();
+        $hasOngoing = false;
+        foreach ($locations as $loc) {
+            $date = $loc->date ?? null;
+            if ($date === null || $date === '' || $date === 'TBA') {
+                continue;
+            }
+            try {
+                $d = Carbon::parse($date)->startOfDay();
+                if ($d->gte($today)) {
+                    $hasOngoing = true;
+                    break;
+                }
+            } catch (\Exception $e) {
+                continue;
+            }
+        }
+        return $hasOngoing ? 'current' : 'past';
     }
 
     /**
