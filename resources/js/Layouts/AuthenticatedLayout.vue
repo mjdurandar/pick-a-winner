@@ -122,6 +122,12 @@ const userRole = computed(() => user.value?.role);
                                         </DropdownLink>
                                         <DropdownLink
                                             v-if="userRole === 'admin' || userRole === 'host'"
+                                            :href="route('mcDashboard.index')"
+                                        >
+                                            MC Dashboard
+                                        </DropdownLink>
+                                        <DropdownLink
+                                            v-if="userRole === 'admin' || userRole === 'host'"
                                             :href="route('mailchimpImportLogs.index')"
                                         >
                                             MC Logs
@@ -265,6 +271,12 @@ const userRole = computed(() => user.value?.role);
                         <div class="mt-3 space-y-1">
                             <ResponsiveNavLink :href="route('profile.edit')">
                                 Profile
+                            </ResponsiveNavLink>
+                            <ResponsiveNavLink
+                                v-if="userRole === 'admin' || userRole === 'host'"
+                                :href="route('mcDashboard.index')"
+                            >
+                                MC Dashboard
                             </ResponsiveNavLink>
                             <ResponsiveNavLink
                                 v-if="userRole === 'admin' || userRole === 'host'"

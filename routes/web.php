@@ -13,6 +13,7 @@ use App\Http\Controllers\LaravelLogsController;
 use App\Http\Controllers\MailchimpImportLogsController;
 use App\Http\Controllers\MailchimpAutoSyncController;
 use App\Http\Controllers\FilmsController;
+use App\Http\Controllers\McDashboardController;
 use Illuminate\Support\Facades\Route;
 use Inertia\Inertia;
 use App\Http\Middleware\RoleMiddleware;
@@ -52,6 +53,11 @@ Route::middleware(['auth', RoleMiddleware::class . ':admin,host'])->group(functi
     //LARAVEL LOGS (view / clear app log)
     Route::get('/laravel-logs', [LaravelLogsController::class, 'index'])->name('laravelLogs.index');
     Route::post('/laravel-logs/clear', [LaravelLogsController::class, 'clear'])->name('laravelLogs.clear');
+
+    //MC DASHBOARD
+    Route::get('/mc-dashboard', [McDashboardController::class, 'index'])->name('mcDashboard.index');
+    Route::post('/mc-dashboard/snapshot', [McDashboardController::class, 'snapshotNow'])->name('mcDashboard.snapshotNow');
+    Route::delete('/mc-dashboard/{snapshot}', [McDashboardController::class, 'destroy'])->name('mcDashboard.destroy');
 
     //MAILCHIMP IMPORT LOGS (dedicated page + export)
     Route::get('/mailchimp-import-logs', [MailchimpImportLogsController::class, 'index'])->name('mailchimpImportLogs.index');

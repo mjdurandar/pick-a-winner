@@ -63,6 +63,25 @@ class MailchimpService
         ];
     }
 
+    public function getListSegments($listId)
+    {
+        if (empty($this->apiKey)) {
+            throw new \Exception("Mailchimp API key not configured for account: {$this->account}");
+        }
+
+        $response = Http::withBasicAuth('anystring', $this->apiKey)
+            ->get("{$this->baseUrl}/lists/{$listId}/segments", [
+                'type' => 'static',
+                'count' => 1000,
+            ]);
+
+        if ($response->successful()) {
+            return $response->json()['segments'] ?? [];
+        }
+
+        throw new \Exception('Failed to fetch Mailchimp segments: ' . $response->body());
+    }
+
     public function getListMergeFields($listId)
     {
         // Request up to 1000 merge fields to ensure we get all audience fields (Mailchimp API paginates by default)
