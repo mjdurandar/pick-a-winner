@@ -151,7 +151,7 @@ function copyTable() {
 
                 <!-- Info -->
                 <div class="mb-4 rounded-md bg-blue-50 p-3 text-sm text-blue-700">
-                    Snapshots are automatically taken every Friday at 9:00 AM. Click "Snapshot Now" to capture current data for both ANZ &amp; USA.
+                    Snapshots are automatically taken every Friday at 5:00 PM (PH time). Click "Snapshot Now" to capture current data for both ANZ &amp; USA.
                 </div>
 
                 <!-- Spreadsheet Table -->
