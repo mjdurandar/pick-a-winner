@@ -17,6 +17,7 @@ const headerText = ref(props.form.heading);
 const descriptionText = ref(props.form.event_description);
 const termsLink = ref(props.form.terms_link);
 const policyLink = ref(props.form.privacy_link);
+const mailchimpSignupUrl = ref(props.form.mailchimp_signup_url || '');
 
 // ✅ Convert existing questions into reactive state
 const questions = ref(JSON.parse(props.form.questions || '[]')); 
@@ -298,6 +299,7 @@ const saveForm = () => {
                 event_description: descriptionText.value,
                 terms_link: termsLink.value,
                 privacy_link: policyLink.value,
+                mailchimp_signup_url: mailchimpSignupUrl.value,
                 questions: questions.value
             }, {
                 onSuccess: () => {
@@ -334,6 +336,10 @@ const saveForm = () => {
 
                 <label class="font-medium">Privacy Policy Link:</label>
                 <input v-model="policyLink" type="text" class="w-full border p-2 rounded mb-2" />
+
+                <label class="font-medium">Mailchimp Signup Form URL:</label>
+                <input v-model="mailchimpSignupUrl" type="text" class="w-full border p-2 rounded mb-2" placeholder="https://adventureentertainment.us1.list-manage.com/subscribe?u=..." />
+                <p class="text-xs text-gray-500 mb-2">Users who are not subscribed will be redirected here to resubscribe before completing the form.</p>
             </div>
         </div>
 

@@ -40,6 +40,7 @@ Route::get('/', function () {
 
 Route::get('/form/{event_uuid}', [SignUpFormController::class, 'embed'])->name('signup.embed');
 Route::post('/form/{event_uuid}', [SignUpFormController::class, 'storeEmbeddedData'])->name('signup.storeEmbedded');
+Route::post('/form/{event_uuid}/check-subscription', [SignUpFormController::class, 'checkSubscription'])->name('signup.checkSubscription');
 
 //SHARED ROUTES
 Route::middleware(['auth', RoleMiddleware::class . ':admin,host'])->group(function () {
