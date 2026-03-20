@@ -24,53 +24,42 @@ const formattedLocations = computed(() => {
 });
 
 // Function to format date to "March 07, 2025" format
+const MONTH_NAMES = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+
+// Format date to "March 07, 2025" using only the date string (no timezone conversion)
 function formatDate(dateString) {
     if (!dateString) return '';
-    
     try {
-        // If date is already in a format like "March 7, 2025", no need to reformat
-        if (dateString.includes(',')) {
-            return dateString;
-        }
-        
-        const date = new Date(dateString);
-        if (isNaN(date.getTime())) return dateString; // Return original if invalid
-        
-        return date.toLocaleDateString('en-US', {
-            month: 'long',
-            day: '2-digit',
-            year: 'numeric'
-        });
+        if (dateString.includes(',')) return dateString;
+        const match = String(dateString).trim().match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+        if (!match) return dateString;
+        const [, y, m, d] = match;
+        const monthIdx = parseInt(m, 10) - 1;
+        if (monthIdx < 0 || monthIdx > 11) return dateString;
+        const day = parseInt(d, 10);
+        const month = MONTH_NAMES[monthIdx];
+        return `${month} ${String(day).padStart(2, '0')}, ${y}`;
     } catch (e) {
         console.error("Error formatting date:", e);
         return dateString;
     }
 }
 
-// Function to format time to "7:00 PM" format
+// Format time to "7:00PM" using only the time string (no timezone conversion)
 function formatTime(timeString) {
     if (!timeString) return '';
-    
     try {
-        // If time is already in a format like "7:00 PM", no need to reformat
         if (timeString.includes('AM') || timeString.includes('PM')) {
-            return timeString;
+            return timeString.replace(/\s+/g, '');
         }
-        
-        // For 24-hour format "HH:MM"
         if (timeString.includes(':')) {
-            const [hours, minutes] = timeString.split(':');
-            const date = new Date();
-            date.setHours(parseInt(hours));
-            date.setMinutes(parseInt(minutes));
-            
-            return date.toLocaleTimeString('en-US', {
-                hour: 'numeric',
-                minute: '2-digit',
-                hour12: true
-            }).replace(' ', ''); // Remove space between time and AM/PM
+            const parts = timeString.split(':');
+            let hours = parseInt(parts[0], 10) || 0;
+            const minutes = parseInt(parts[1], 10) || 0;
+            const ampm = hours >= 12 ? 'PM' : 'AM';
+            hours = hours % 12 || 12;
+            return `${hours}:${String(minutes).padStart(2, '0')}${ampm}`;
         }
-        
         return timeString;
     } catch (e) {
         console.error("Error formatting time:", e);
