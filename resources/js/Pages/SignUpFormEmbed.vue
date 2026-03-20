@@ -38,6 +38,7 @@ const isSubscriptionChecked = ref(false);
 const showResubscribePrompt = ref(false);
 const isComplianceState = ref(false);
 const complianceSignupUrl = ref(null);
+const mailchimpAccount = ref(null); // 'usa' or 'anz'
 const selectedLocation = ref('');
 const isSubmitting = ref(false);
 const selectedLocationData = ref({
@@ -446,6 +447,7 @@ watch(() => formValues.value[emailQuestionText.value], () => {
         showResubscribePrompt.value = false;
         isComplianceState.value = false;
         complianceSignupUrl.value = null;
+        mailchimpAccount.value = null;
     }
 });
 
@@ -515,10 +517,12 @@ const checkEmailSubscription = async () => {
             showResubscribePrompt.value = false;
             isComplianceState.value = false;
             complianceSignupUrl.value = null;
+            mailchimpAccount.value = null;
         } else {
             subscriptionStatus.value = 'not_subscribed';
             isSubscriptionChecked.value = true;
             newsletterAudienceName.value = data.audience || 'the newsletter';
+            mailchimpAccount.value = data.mailchimp_account || null;
 
             // Check if member is in compliance state (self-unsubscribed via Mailchimp)
             if (data.compliance_state) {
@@ -540,6 +544,7 @@ const checkEmailSubscription = async () => {
         showResubscribePrompt.value = false;
         isComplianceState.value = false;
         complianceSignupUrl.value = null;
+        mailchimpAccount.value = null;
     }
 };
 
@@ -562,7 +567,14 @@ const silentMailchimpResub = () => {
         let jsonpUrl = buildMailchimpJsonpUrl(complianceSignupUrl.value);
         const separator = jsonpUrl.includes('?') ? '&' : '?';
         jsonpUrl += separator + 'EMAIL=' + encodeURIComponent(email);
-        jsonpUrl += '&tags=7216898';
+
+        // Use appropriate tag based on Mailchimp account (ANZ vs USA)
+        if (mailchimpAccount.value === 'usa') {
+            // USA Mailchimp account - no tag needed for basic resub
+        } else {
+            // ANZ Mailchimp account
+            jsonpUrl += '&tags=7216898';
+        }
 
         const callbackName = 'mc_resub_callback_' + Date.now();
         jsonpUrl += '&c=' + callbackName;

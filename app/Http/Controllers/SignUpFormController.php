@@ -25,6 +25,9 @@ class SignUpFormController extends Controller
     const ANZ_NEWSLETTER_AUDIENCE = 'Adventure Entertainment Newsletter ANZ';
     const USA_NEWSLETTER_AUDIENCE = 'Fly Fishing Film Tour';
 
+    // Hardcoded Mailchimp embed form URLs for compliance state resub (per account)
+    const USA_COMPLIANCE_SIGNUP_URL = 'https://flyfilmtour.us19.list-manage.com/subscribe/post?u=e2c1a1d1c56dc4e1a61f99090&id=f703c9728c&f_id=00e88fe4f0';
+
     /**
      * Determine the Mailchimp account based on event country.
      * ANZ countries → 'anz', USA countries → 'usa'
@@ -128,9 +131,13 @@ class SignUpFormController extends Controller
                 $form = SignUpForm::where('event_id', $event->id)->first();
                 $mailchimpSignupUrl = $form->mailchimp_signup_url ?? null;
 
-                // If not set, fetch from Mailchimp API
+                // If not set, use hardcoded URL based on account, or fetch from Mailchimp API
                 if (!$mailchimpSignupUrl) {
-                    $mailchimpSignupUrl = $mailchimpService->getListSignupUrl($listId);
+                    if ($account === 'usa') {
+                        $mailchimpSignupUrl = self::USA_COMPLIANCE_SIGNUP_URL;
+                    } else {
+                        $mailchimpSignupUrl = $mailchimpService->getListSignupUrl($listId);
+                    }
                 }
             }
 
@@ -143,6 +150,7 @@ class SignUpFormController extends Controller
                 'audience' => $audienceName,
                 'compliance_state' => $isCompliance,
                 'mailchimp_signup_url' => $mailchimpSignupUrl,
+                'mailchimp_account' => $account,
             ]);
         } catch (\Exception $e) {
             \Illuminate\Support\Facades\Log::error('Mailchimp subscription check failed', [
