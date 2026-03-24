@@ -55,7 +55,8 @@ const form = useForm({
     event_country: '',
     film_id: null,
     is_enabled: false,
-    show_all_locations: false
+    show_all_locations: false,
+    resubscribe: false
 });
 
 // File input reference
@@ -96,6 +97,7 @@ const openEditModal = (event) => {
     form.film_id = event.film_id ? parseInt(event.film_id) : null;
     form.is_enabled = event.is_enabled ? true : false;
     form.show_all_locations = event.show_all_locations ? true : false;
+    form.resubscribe = event.resubscribe ? true : false;
     form.event_banner = null; // Reset file input - new file will override
     form.event_logo = null; // Reset file input - new file will override
     existingBanner.value = event.event_banner; // Store existing banner path
@@ -132,6 +134,7 @@ const saveEvent = () => {
     // Append is_enabled as 1 or 0
     data.append('is_enabled', form.is_enabled ? '1' : '0');
     data.append('show_all_locations', form.show_all_locations ? '1' : '0');
+    data.append('resubscribe', form.resubscribe ? '1' : '0');
 
     if (isEditing.value) {
         data.append('_method', 'PATCH'); // Use PATCH for updating
@@ -718,6 +721,19 @@ const closeSheetsModal = () => {
                                     />
                                     <label class="form-check-label" for="show_all_locations">
                                         Show all locations already
+                                    </label>
+                                </div>
+                            </div>
+                            <div class="mb-3">
+                                <div class="form-check">
+                                    <input
+                                        class="form-check-input"
+                                        type="checkbox"
+                                        v-model="form.resubscribe"
+                                        id="resubscribe"
+                                    />
+                                    <label class="form-check-label" for="resubscribe">
+                                        Implement Resubscribe logic
                                     </label>
                                 </div>
                             </div>

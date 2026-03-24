@@ -113,44 +113,53 @@ class SignUpFormController extends Controller
                 ]);
             }
 
-            // Try to resubscribe now to detect compliance state early
-            $isCompliance = false;
-            try {
-                $resubResult = $mailchimpService->resubscribe($listId, $request->email);
-                if (is_array($resubResult) && ($resubResult['status'] ?? null) === 'compliance_skipped') {
-                    $isCompliance = true;
+            // Only attempt resubscribe if the event has resubscribe enabled
+            if ($event->resubscribe) {
+                // Try to resubscribe now to detect compliance state early
+                $isCompliance = false;
+                try {
+                    $resubResult = $mailchimpService->resubscribe($listId, $request->email);
+                    if (is_array($resubResult) && ($resubResult['status'] ?? null) === 'compliance_skipped') {
+                        $isCompliance = true;
+                    }
+                } catch (\Exception $e) {
+                    // Resubscribe failed for other reasons — not compliance
                 }
-            } catch (\Exception $e) {
-                // Resubscribe failed for other reasons — not compliance
-            }
 
-            // Get the Mailchimp signup URL for compliance state members
-            $mailchimpSignupUrl = null;
-            if ($isCompliance) {
-                // First check if manually set on the form
-                $form = SignUpForm::where('event_id', $event->id)->first();
-                $mailchimpSignupUrl = $form->mailchimp_signup_url ?? null;
+                // Get the Mailchimp signup URL for compliance state members
+                $mailchimpSignupUrl = null;
+                if ($isCompliance) {
+                    // First check if manually set on the form
+                    $form = SignUpForm::where('event_id', $event->id)->first();
+                    $mailchimpSignupUrl = $form->mailchimp_signup_url ?? null;
 
-                // If not set, use hardcoded URL based on account, or fetch from Mailchimp API
-                if (!$mailchimpSignupUrl) {
-                    if ($account === 'usa') {
-                        $mailchimpSignupUrl = self::USA_COMPLIANCE_SIGNUP_URL;
-                    } else {
-                        $mailchimpSignupUrl = $mailchimpService->getListSignupUrl($listId);
+                    // If not set, use hardcoded URL based on account, or fetch from Mailchimp API
+                    if (!$mailchimpSignupUrl) {
+                        if ($account === 'usa') {
+                            $mailchimpSignupUrl = self::USA_COMPLIANCE_SIGNUP_URL;
+                        } else {
+                            $mailchimpSignupUrl = $mailchimpService->getListSignupUrl($listId);
+                        }
                     }
                 }
+
+                // Exists but unsubscribed/cleaned/archived
+                // If compliance state, they must self-subscribe via Mailchimp form
+                // Otherwise, they were auto-resubscribed just now
+                return response()->json([
+                    'subscribed' => !$isCompliance,
+                    'status' => $isCompliance ? 'compliance' : 'resubscribed',
+                    'audience' => $audienceName,
+                    'compliance_state' => $isCompliance,
+                    'mailchimp_signup_url' => $mailchimpSignupUrl,
+                    'mailchimp_account' => $account,
+                ]);
             }
 
-            // Exists but unsubscribed/cleaned/archived
-            // If compliance state, they must self-subscribe via Mailchimp form
-            // Otherwise, they were auto-resubscribed just now
+            // Resubscribe not enabled — treat as unsubscribed, allow through
             return response()->json([
-                'subscribed' => !$isCompliance,
-                'status' => $isCompliance ? 'compliance' : 'resubscribed',
-                'audience' => $audienceName,
-                'compliance_state' => $isCompliance,
-                'mailchimp_signup_url' => $mailchimpSignupUrl,
-                'mailchimp_account' => $account,
+                'subscribed' => true,
+                'status' => 'resubscribe_disabled',
             ]);
         } catch (\Exception $e) {
             \Illuminate\Support\Facades\Log::error('Mailchimp subscription check failed', [
@@ -437,8 +446,8 @@ class SignUpFormController extends Controller
             $this->autoMailchimpService->syncSubscriber($subscriber, $insertData['location_id']);
         }
 
-        // Auto-resubscribe to newsletter if email exists but is unsubscribed
-        if ($email) {
+        // Auto-resubscribe to newsletter if email exists but is unsubscribed (only if event has resubscribe enabled)
+        if ($email && $event->resubscribe) {
             try {
                 $account = $this->getMailchimpAccountForEvent($event);
                 $audienceName = $this->getNewsletterAudienceName($account);

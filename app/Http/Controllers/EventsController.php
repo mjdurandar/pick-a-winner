@@ -37,8 +37,9 @@ class EventsController extends Controller
             'film_id' => 'required|exists:films,id',
             'is_enabled' => 'nullable|boolean',
             'show_all_locations' => 'nullable|boolean',
+            'resubscribe' => 'nullable|boolean',
         ]);
-    
+
         // Store banner file
         $bannerPath = null;
         if ($request->hasFile('event_banner')) {
@@ -71,7 +72,8 @@ class EventsController extends Controller
                 'event_banner' => $bannerPath,
                 'event_logo' => $logoPath,
                 'is_enabled' => $request->has('is_enabled') ? (bool)$request->is_enabled : false,
-                'show_all_locations' => $request->has('show_all_locations') ? (bool)$request->show_all_locations : false
+                'show_all_locations' => $request->has('show_all_locations') ? (bool)$request->show_all_locations : false,
+                'resubscribe' => $request->has('resubscribe') ? (bool)$request->resubscribe : false
             ]
         ));
     
@@ -95,6 +97,7 @@ class EventsController extends Controller
             'film_id' => 'required|exists:films,id',
             'is_enabled' => 'nullable|boolean',
             'show_all_locations' => 'nullable|boolean',
+            'resubscribe' => 'nullable|boolean',
         ]);
 
         // Prepare update data
@@ -103,6 +106,7 @@ class EventsController extends Controller
         // Handle is_enabled checkbox (convert to boolean)
         $updateData['is_enabled'] = $request->has('is_enabled') ? (bool)$request->is_enabled : false;
         $updateData['show_all_locations'] = $request->has('show_all_locations') ? (bool)$request->show_all_locations : false;
+        $updateData['resubscribe'] = $request->has('resubscribe') ? (bool)$request->resubscribe : false;
 
         // Handle banner upload - only update if new file is provided
         if ($request->hasFile('event_banner')) {

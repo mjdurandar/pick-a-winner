@@ -21,7 +21,8 @@ class Events extends Model
         'event_coordinator_email',
         'event_country',
         'event_uuid',
-        'film_id'
+        'film_id',
+        'resubscribe'
     ];
 
     protected static function boot()
