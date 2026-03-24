@@ -2,6 +2,7 @@
 import { ref, computed, watch, onMounted, onUnmounted } from 'vue';
 import { router } from '@inertiajs/vue3';
 import Swal from 'sweetalert2';
+import ScrollDatePicker from '@/Components/ScrollDatePicker.vue';
 
 const props = defineProps({
     form: Object,
@@ -752,7 +753,7 @@ onMounted(() => {
 
                 <template v-if="question.type === 'date'">
                     <div class="pb-3">
-                        <input v-model="formValues[question.text]" type="date" class="form-control w-full border rounded px-3 py-2" required>
+                        <ScrollDatePicker v-model="formValues[question.text]" />
                     </div>
                 </template>
 

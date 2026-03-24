@@ -3,6 +3,7 @@ import Swal from 'sweetalert2';
 import { ref, computed } from 'vue';
 import { useForm, router, usePage } from '@inertiajs/vue3';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout.vue';
+import ScrollDatePicker from '@/Components/ScrollDatePicker.vue';
 import { Head } from '@inertiajs/vue3';
 import axios from 'axios';
 
@@ -661,7 +662,7 @@ const closeSheetsModal = () => {
                             </div>
                             <div class="mb-3">
                                 <label class="form-label">Start Date</label>
-                                <input v-model="form.event_date" type="date" class="form-control" required />
+                                <ScrollDatePicker v-model="form.event_date" :min-year="2015" :max-year="new Date().getFullYear() + 5" />
                             </div>
                             <div class="mb-3">
                                 <label class="form-label">Coordinator Name</label>
