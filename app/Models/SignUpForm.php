@@ -17,6 +17,7 @@ class SignUpForm extends Model
         'heading',
         'event_description',
         'privacy_link',
-        'terms_link'
+        'terms_link',
+        'mailchimp_signup_url'
     ];
 }

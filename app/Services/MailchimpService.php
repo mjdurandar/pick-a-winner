@@ -449,6 +449,101 @@ class MailchimpService
         return '';
     }
 
+    /**
+     * Check a subscriber's status in a Mailchimp list/audience.
+     *
+     * @param  string  $listId  Mailchimp list (audience) ID
+     * @param  string  $email   Email address to check
+     * @return array  ['exists' => bool, 'status' => string|null]  status: subscribed, unsubscribed, cleaned, pending, transactional, archived
+     */
+    public function getSubscriberStatus($listId, $email)
+    {
+        if (empty($this->apiKey)) {
+            throw new \Exception("Mailchimp API key not configured for account: {$this->account}");
+        }
+
+        $emailHash = md5(strtolower(trim($email)));
+
+        $response = Http::withBasicAuth('anystring', $this->apiKey)
+            ->get("{$this->baseUrl}/lists/{$listId}/members/{$emailHash}");
+
+        if ($response->successful()) {
+            $data = $response->json();
+            return [
+                'exists' => true,
+                'status' => $data['status'] ?? null,
+                'compliance_state' => $data['consents_to_one_to_one_messaging'] ?? null,
+            ];
+        }
+
+        if ($response->status() === 404) {
+            return [
+                'exists' => false,
+                'status' => null,
+            ];
+        }
+
+        throw new \Exception('Failed to check subscriber status: ' . $response->body());
+    }
+
+    /**
+     * Get the hosted signup form URL for a Mailchimp list.
+     * Mailchimp returns subscribe_url_long on the list details endpoint.
+     */
+    public function getListSignupUrl($listId)
+    {
+        if (empty($this->apiKey)) {
+            return null;
+        }
+
+        try {
+            $response = Http::withBasicAuth('anystring', $this->apiKey)
+                ->get("{$this->baseUrl}/lists/{$listId}?fields=subscribe_url_long,subscribe_url_short");
+
+            if ($response->successful()) {
+                $data = $response->json();
+                return $data['subscribe_url_long'] ?? $data['subscribe_url_short'] ?? null;
+            }
+        } catch (\Exception $e) {
+            // Fail silently
+        }
+
+        return null;
+    }
+
+    /**
+     * Resubscribe an existing member to a Mailchimp list.
+     * Uses PATCH to update status. If member is in compliance state,
+     * skips silently — they can only resubscribe themselves via Mailchimp form.
+     */
+    public function resubscribe($listId, $email)
+    {
+        if (empty($this->apiKey)) {
+            throw new \Exception("Mailchimp API key not configured for account: {$this->account}");
+        }
+
+        $emailHash = md5(strtolower(trim($email)));
+
+        $response = Http::withBasicAuth('anystring', $this->apiKey)
+            ->patch("{$this->baseUrl}/lists/{$listId}/members/{$emailHash}?skip_merge_validation=true", [
+                'status' => 'subscribed',
+            ]);
+
+        if ($response->successful()) {
+            return $response->json();
+        }
+
+        // Compliance state — nothing we can do via API, skip silently
+        if ($response->status() === 400 && str_contains($response->body(), 'Compliance State')) {
+            \Illuminate\Support\Facades\Log::info('Member in compliance state, skipping resubscribe (must self-subscribe via Mailchimp form)', [
+                'email' => $email,
+            ]);
+            return ['status' => 'compliance_skipped'];
+        }
+
+        throw new \Exception('Failed to resubscribe: ' . $response->body());
+    }
+
     public function addSubscriberToList($listId, $subscriber, $tags = [])
     {
         // Preprocess age value
@@ -503,16 +598,27 @@ class MailchimpService
         // Add MMERGE12 for zip code
         $mergeFields['MMERGE12'] = $subscriber['zip_code'] ?? '';
 
+        // Use PUT (upsert) instead of POST to handle both new and existing members
+        $emailHash = md5(strtolower(trim($subscriber['email_address'])));
+
         $response = Http::withBasicAuth('anystring', $this->apiKey)
-            ->post("{$this->baseUrl}/lists/{$listId}/members", [
+            ->put("{$this->baseUrl}/lists/{$listId}/members/{$emailHash}", [
                 'email_address' => $subscriber['email_address'],
-                'status' => 'subscribed',
+                'status_if_new' => 'subscribed',
                 'merge_fields' => $mergeFields,
                 'tags' => $tagsData
             ]);
 
         if ($response->successful()) {
             return $response->json();
+        }
+
+        // If compliance state, log and return gracefully
+        if ($response->status() === 400 && str_contains($response->body(), 'Compliance State')) {
+            \Illuminate\Support\Facades\Log::info('Member in compliance state during add/update, skipping', [
+                'email' => $subscriber['email_address'],
+            ]);
+            return ['status' => 'compliance_skipped'];
         }
 
         throw new \Exception('Failed to add subscriber to Mailchimp list: ' . $response->body());

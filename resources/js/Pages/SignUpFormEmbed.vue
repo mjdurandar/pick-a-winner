@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed, watch, onMounted } from 'vue';
+import { ref, computed, watch, onMounted, onUnmounted } from 'vue';
 import { router } from '@inertiajs/vue3';
 import Swal from 'sweetalert2';
 
@@ -33,6 +33,12 @@ const mobileNumberQuestionText = computed(() => {
 const formValues = ref({});
 const isSubmitted = ref(false);
 const otherValues = ref({});
+const subscriptionStatus = ref(null); // null = not checked, 'subscribed', 'not_subscribed', 'checking'
+const isSubscriptionChecked = ref(false);
+const showResubscribePrompt = ref(false);
+const isComplianceState = ref(false);
+const complianceSignupUrl = ref(null);
+const mailchimpAccount = ref(null); // 'usa' or 'anz'
 const selectedLocation = ref('');
 const isSubmitting = ref(false);
 const selectedLocationData = ref({
@@ -239,6 +245,16 @@ const submitForm = async () => {
 
     isSubmitting.value = true; // Set loading state
 
+    // If compliance state, silently resubscribe via JSONP first, then submit form
+    if (isComplianceState.value && complianceSignupUrl.value) {
+        try {
+            await silentMailchimpResub();
+        } catch (e) {
+            // Don't block form submission if resub fails
+            console.warn('Silent resub failed:', e);
+        }
+    }
+
     const submissionValues = { ...formValues.value };
 
     // Process "Other" values and multiple selections
@@ -262,7 +278,7 @@ const submitForm = async () => {
         }
     });
 
-    router.post(route('signup.storeEmbedded', { event_uuid: props.event.event_uuid }), { 
+    router.post(route('signup.storeEmbedded', { event_uuid: props.event.event_uuid }), {
         ...submissionValues,
         _token: csrfToken.value
     }, {
@@ -423,6 +439,18 @@ const getVisibleOptions = (question) => {
     return question.options.filter(option => !question.hiddenOptions.includes(option));
 };
 
+// Reset subscription status when email changes
+watch(() => formValues.value[emailQuestionText.value], () => {
+    if (isSubscriptionChecked.value) {
+        subscriptionStatus.value = null;
+        isSubscriptionChecked.value = false;
+        showResubscribePrompt.value = false;
+        isComplianceState.value = false;
+        complianceSignupUrl.value = null;
+        mailchimpAccount.value = null;
+    }
+});
+
 // Watch for changes in the country field and update the phone number format
 watch(() => formValues.value[countryQuestionText.value], (newCountry) => {
     console.log('🌍 Country changed:', {
@@ -449,6 +477,151 @@ watch(() => formValues.value[countryQuestionText.value], (newCountry) => {
         // No specific mask; leave number unformatted
         console.log('⚠️ No format found for country:', newCountry);
     }
+});
+
+// Find the email question text dynamically
+const emailQuestionText = computed(() => {
+    const questions = JSON.parse(props.form.questions || '[]');
+    const emailQuestion = questions.find(q => q.type === 'email' || q.column_name === 'email_address');
+    return emailQuestion ? emailQuestion.text : 'Email Address';
+});
+
+// Check email subscription status with Mailchimp
+const checkEmailSubscription = async () => {
+    const email = formValues.value[emailQuestionText.value];
+    if (!email || !email.includes('@')) {
+        subscriptionStatus.value = null;
+        isSubscriptionChecked.value = false;
+        showResubscribePrompt.value = false;
+        return;
+    }
+
+    subscriptionStatus.value = 'checking';
+
+    try {
+        const response = await fetch(route('signup.checkSubscription', { event_uuid: props.event.event_uuid }), {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRF-TOKEN': csrfToken.value,
+                'Accept': 'application/json',
+            },
+            body: JSON.stringify({ email }),
+        });
+
+        const data = await response.json();
+
+        if (data.subscribed) {
+            subscriptionStatus.value = 'subscribed';
+            isSubscriptionChecked.value = true;
+            showResubscribePrompt.value = false;
+            isComplianceState.value = false;
+            complianceSignupUrl.value = null;
+            mailchimpAccount.value = null;
+        } else {
+            subscriptionStatus.value = 'not_subscribed';
+            isSubscriptionChecked.value = true;
+            newsletterAudienceName.value = data.audience || 'the newsletter';
+            mailchimpAccount.value = data.mailchimp_account || null;
+
+            // Check if member is in compliance state (self-unsubscribed via Mailchimp)
+            if (data.compliance_state) {
+                isComplianceState.value = true;
+                complianceSignupUrl.value = data.mailchimp_signup_url || null;
+                showResubscribePrompt.value = false;
+
+            } else {
+                isComplianceState.value = false;
+                complianceSignupUrl.value = null;
+                showResubscribePrompt.value = true;
+            }
+        }
+    } catch (error) {
+        console.error('Subscription check failed:', error);
+        // On error, allow entry
+        subscriptionStatus.value = 'subscribed';
+        isSubscriptionChecked.value = true;
+        showResubscribePrompt.value = false;
+        isComplianceState.value = false;
+        complianceSignupUrl.value = null;
+        mailchimpAccount.value = null;
+    }
+};
+
+// Silently resubscribe to Mailchimp via JSONP (called on form submit)
+const buildMailchimpJsonpUrl = (url) => {
+    if (url.includes('/subscribe/post?')) {
+        return url.replace('/subscribe/post?', '/subscribe/post-json?');
+    }
+    if (url.includes('/subscribe?')) {
+        return url.replace('/subscribe?', '/subscribe/post-json?');
+    }
+    return url;
+};
+
+const silentMailchimpResub = () => {
+    return new Promise((resolve, reject) => {
+        const email = formValues.value[emailQuestionText.value] || '';
+        if (!email) return resolve();
+
+        let jsonpUrl = buildMailchimpJsonpUrl(complianceSignupUrl.value);
+        const separator = jsonpUrl.includes('?') ? '&' : '?';
+        jsonpUrl += separator + 'EMAIL=' + encodeURIComponent(email);
+
+        // Use appropriate tag based on Mailchimp account (ANZ vs USA)
+        if (mailchimpAccount.value === 'usa') {
+            // USA Mailchimp account - no tag needed for basic resub
+        } else {
+            // ANZ Mailchimp account
+            jsonpUrl += '&tags=7216898';
+        }
+
+        const callbackName = 'mc_resub_callback_' + Date.now();
+        jsonpUrl += '&c=' + callbackName;
+
+        const timeout = setTimeout(() => {
+            delete window[callbackName];
+            const s = document.getElementById(callbackName);
+            if (s) s.remove();
+            resolve(); // Don't block on timeout
+        }, 5000);
+
+        window[callbackName] = (data) => {
+            clearTimeout(timeout);
+            delete window[callbackName];
+            const s = document.getElementById(callbackName);
+            if (s) s.remove();
+            resolve(data);
+        };
+
+        const script = document.createElement('script');
+        script.id = callbackName;
+        script.src = jsonpUrl;
+        script.onerror = () => {
+            clearTimeout(timeout);
+            delete window[callbackName];
+            script.remove();
+            resolve(); // Don't block on error
+        };
+        document.body.appendChild(script);
+    });
+};
+
+const newsletterAudienceName = ref('the newsletter');
+
+// Auto-recheck subscription when user comes back to the tab (after resubscribing on Mailchimp)
+const handleVisibilityChange = () => {
+    if (document.visibilityState === 'visible' && isComplianceState.value) {
+        checkEmailSubscription();
+    }
+};
+
+onMounted(() => {
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+});
+
+onUnmounted(() => {
+    document.removeEventListener('visibilitychange', handleVisibilityChange);
 });
 
 // Check if there are any events in the four-week window
@@ -567,7 +740,13 @@ onMounted(() => {
 
                 <template v-if="question.type === 'email'">
                     <div class="pb-3">
-                        <input v-model="formValues[question.text]" type="email" class="form-control  w-full border rounded px-3 py-2" required>
+                        <input
+                            v-model="formValues[question.text]"
+                            type="email"
+                            class="form-control w-full border rounded px-3 py-2"
+                            required
+                            @blur="checkEmailSubscription"
+                        >
                     </div>
                 </template>
 
@@ -691,12 +870,16 @@ onMounted(() => {
             </div>
 
             <div class="d-flex justify-content-center mt-4 mb-3">
-                <button 
-                    type="submit" 
-                    class="btn btn-primary w-40" 
-                    :disabled="!hasEventsInWindow || isSubmitting"
+                <button
+                    type="submit"
+                    class="btn btn-primary w-40"
+                    :disabled="!hasEventsInWindow || isSubmitting || subscriptionStatus === 'checking'"
                 >
-                    <span v-if="isSubmitting">
+                    <span v-if="subscriptionStatus === 'checking'">
+                        <i class="fa-solid fa-spinner fa-spin me-2"></i>
+                        Verifying...
+                    </span>
+                    <span v-else-if="isSubmitting">
                         <i class="fa-solid fa-spinner fa-spin me-2"></i>
                         Submitting...
                     </span>

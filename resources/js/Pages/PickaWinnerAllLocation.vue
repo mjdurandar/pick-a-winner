@@ -484,7 +484,7 @@ const openPickWinnerModal = (prize) => {
         winnerDisplay.value = `${randomAttendee.first_name} ${randomAttendee.last_name}`;
     }, 100);
 
-    // ✅ Stop Animation After 3 Seconds and Pick Winner
+    // ✅ Stop Animation After 1.5 Seconds and Pick Winner
     setTimeout(() => {
         clearInterval(animationInterval);
         isPicking.value = false;
@@ -492,7 +492,7 @@ const openPickWinnerModal = (prize) => {
         const finalIndex = Math.floor(Math.random() * eligibleAttendees.value.length);
         selectedWinner.value = eligibleAttendees.value[finalIndex];
         winnerDisplay.value = `${selectedWinner.value.first_name} ${selectedWinner.value.last_name}`;
-    }, 3000);
+    }, 500);
 };
 
 // ✅ Save the Winner to the Prize

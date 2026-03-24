@@ -480,7 +480,7 @@ const openPickWinnerModal = () => {
         const finalIndex = Math.floor(Math.random() * eligibleAttendees.value.length);
         selectedWinner.value = eligibleAttendees.value[finalIndex];
         winnerDisplay.value = `${selectedWinner.value.first_name} ${selectedWinner.value.last_name}`;
-    }, 3000);
+    }, 500);
 };
 
 // Add this computed property to find the attendee data (only from current location)
@@ -581,7 +581,7 @@ const pickAgain = () => {
         const finalIndex = Math.floor(Math.random() * eligibleAttendees.value.length);
         selectedWinner.value = eligibleAttendees.value[finalIndex];
         winnerDisplay.value = `${selectedWinner.value.first_name} ${selectedWinner.value.last_name}`;
-    }, 3000);
+    }, 500);
 };
 
 

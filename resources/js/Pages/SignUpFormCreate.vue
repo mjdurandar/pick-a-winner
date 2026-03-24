@@ -161,6 +161,7 @@ const headerText = ref('GET A CHANCE TO WIN AMAZING PRICES!');
 const descriptionText = ref('*By entering the competition you accept the competition terms and conditions and consent to receiving marketing materials related to the offerings of Adventure Entertainment and our partners.');
 const termsLink = ref('#');
 const policyLink = ref('https://adventureentertainment.com/privacy-policy/');
+const mailchimpSignupUrl = ref('');
 
 // ✅ Dragging logic
 const draggedQuestionIndex = ref(null);
@@ -269,7 +270,8 @@ const saveForm = () => {
                 descriptionText: descriptionText.value,
                 termsLink: termsLink.value,
                 policyLink: policyLink.value,
-                questions: questions.value, 
+                mailchimpSignupUrl: mailchimpSignupUrl.value,
+                questions: questions.value,
             }, {
                 onSuccess: () => {
                     Swal.fire('Saved!', 'Sign Up Form has been created.', 'success');
@@ -312,6 +314,10 @@ onMounted(() => {
 
                     <label class="font-medium">Privacy Policy Link:</label>
                     <input v-model="policyLink" type="text" class="w-full border p-2 rounded mb-2" />
+
+                    <label class="font-medium">Mailchimp Signup Form URL:</label>
+                    <input v-model="mailchimpSignupUrl" type="text" class="w-full border p-2 rounded mb-2" placeholder="https://adventureentertainment.us1.list-manage.com/subscribe?u=..." />
+                    <p class="text-xs text-gray-500 mb-2">Users who are not subscribed will be redirected here to resubscribe before completing the form.</p>
                 </div>
             </div>
         </div>
