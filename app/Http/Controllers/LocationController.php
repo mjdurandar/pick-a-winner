@@ -1574,10 +1574,15 @@ class LocationController extends Controller
      * GET preview of how many contacts will be imported (win form counts per location).
      * Used by Import All modal to show "Total contacts to be imported" (frontend adds staged ticket count).
      */
-    public function getEventMailchimpImportPreview($eventId)
+    public function getEventMailchimpImportPreview(Request $request, $eventId)
     {
         $event = Events::findOrFail($eventId);
-        $locations = Location::where('event_id', $eventId)->get();
+        $query = Location::where('event_id', $eventId);
+        if ($request->has('location_ids')) {
+            $locationIds = is_array($request->location_ids) ? $request->location_ids : explode(',', $request->location_ids);
+            $query->whereIn('id', $locationIds);
+        }
+        $locations = $query->get();
         $signUpForm = SignUpForm::where('event_id', $eventId)->first();
         $byLocation = [];
         $totalForm = 0;

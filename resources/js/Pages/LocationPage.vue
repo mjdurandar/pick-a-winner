@@ -586,6 +586,12 @@ watch(
     }
 );
 
+// Computed: locations selected for import (used in Import modal)
+const selectedLocationsForImport = computed(() => {
+    const selectedIds = selectedLocationsForExport.value.map(l => l.id);
+    return (props.locations || []).filter(loc => selectedIds.includes(loc.id));
+});
+
 // ✅ Computed Property to Filter Locations (for backward compatibility)
 const filteredLocations = computed(() => {
     let locations = props.locations;
@@ -2064,7 +2070,7 @@ const openImportAllModal = async () => {
         const ticketTagsByLoc = {};
         const formTagsByLoc = {};
         const eventCountry = props.event?.event_country || '';
-        (props.locations || []).forEach(loc => {
+        selectedLocationsForImport.value.forEach(loc => {
             const showLoc = locationTagForShow(loc.name, loc.state, eventCountry || loc.country);
             const sourceLoc = locationTagForSource(loc.name, loc.state);
             ticketTagsByLoc[loc.id] = [`SHOW - ${showLoc}`, `SOURCE - ${filmTour.toUpperCase()} ${sourceLoc} TIX ${year}`].join('; ');
@@ -2076,7 +2082,8 @@ const openImportAllModal = async () => {
         importAllAccounts.value = settingsRes.data.available_accounts || { anz: { name: 'ANZ', enabled: true }, usa: { name: 'USA', enabled: false } };
         await loadImportAllLists(importAllAccount.value);
         try {
-            const previewRes = await axios.get(route('event.mailchimpImportPreview', props.event.id));
+            const selectedIds = selectedLocationsForImport.value.map(l => l.id);
+            const previewRes = await axios.get(route('event.mailchimpImportPreview', props.event.id), { params: { location_ids: selectedIds } });
             importPreviewFormTotal.value = previewRes.data.total_form ?? 0;
             importPreviewByLocation.value = previewRes.data.by_location ?? [];
             importAllFormPreviewRow.value = previewRes.data.preview_row ?? null;
@@ -2348,10 +2355,10 @@ const runImportAll = async () => {
     }
     // Build payload: one type per run (ticket only or win form only). Locations with no data are skipped by the job and not logged.
     const isTicket = mode === 'ticket';
-    const locationsPayload = (isTicket ? props.locations.filter((loc) => {
+    const locationsPayload = (isTicket ? selectedLocationsForImport.value.filter((loc) => {
         const staged = stagedByLocation.value[loc.id];
         return staged && Array.isArray(staged.attendees) && staged.attendees.length > 0;
-    }) : props.locations)
+    }) : selectedLocationsForImport.value)
         .map((loc) => {
             const locationId = loc.id;
             const countryTag = getLocationCountryTag(locationId);
@@ -2552,19 +2559,20 @@ const runImportAll = async () => {
                                             Clear Filter
                                         </button>
                                         <!-- Export Selected Locations Button -->
-                                        <button 
+                                        <button
                                             v-if="selectedLocationsForExport.length > 0"
-                                            style="background-color: #17a2b8; color: white; border-radius: 5px; padding: 10px 20px; cursor: pointer;"
+                                            style="background-color: #17a2b8; color: white; border-radius: 5px; padding: 6px 14px; font-size: 14px; cursor: pointer;"
                                             @click="exportSelectedLocations"
                                             :title="`Export ${selectedLocationsForExport.length} selected location(s)`"
                                         >
-                                            <i class="fa-solid fa-file-export"></i> Export Selected ({{ selectedLocationsForExport.length }})
+                                            <i class="fa-solid fa-file-export"></i> Export ({{ selectedLocationsForExport.length }})
                                         </button>
                                     </div>
                                 </div>
-                                <!-- Import All + Database - Right -->
-                                <div class="ml-auto flex items-center gap-3">
-                                    <button 
+                                <!-- Import Selected + Database - Right -->
+                                <div class="ml-auto flex items-center gap-2">
+                                    <button
+                                        v-if="selectedLocationsForExport.length > 0"
                                         type="button"
                                         @click="openImportAllModal"
                                         :disabled="isOpeningImportAllModal"
@@ -2572,18 +2580,19 @@ const runImportAll = async () => {
                                             backgroundColor: '#0d9488',
                                             color: 'white',
                                             borderRadius: '5px',
-                                            padding: '10px 20px',
+                                            padding: '6px 14px',
+                                            fontSize: '14px',
                                             cursor: isOpeningImportAllModal ? 'wait' : 'pointer',
                                             opacity: isOpeningImportAllModal ? 0.9 : 1
                                         }"
-                                        title="Import all ticket data for this event in one place (Eventbrite or CSV per location), then import to Mailchimp in one click"
+                                        :title="`Import ${selectedLocationsForExport.length} selected location(s) to Mailchimp`"
                                     >
-                                        <i v-if="isOpeningImportAllModal" class="fa-solid fa-spinner fa-spin mr-2"></i>
-                                        <i v-else class="fa-solid fa-upload"></i> Import All Data
+                                        <i v-if="isOpeningImportAllModal" class="fa-solid fa-spinner fa-spin mr-1"></i>
+                                        <i v-else class="fa-solid fa-upload"></i> Import ({{ selectedLocationsForExport.length }})
                                     </button>
-                                    <button 
+                                    <button
                                         @click="goToAttendeesPage"
-                                        style="background-color: #16C3D9; color: white; border-radius: 5px; padding: 10px 20px; cursor: pointer;"
+                                        style="background-color: #16C3D9; color: white; border-radius: 5px; padding: 6px 14px; font-size: 14px; cursor: pointer;"
                                         title="View Attendees Database"
                                     >
                                         <i class="fa-solid fa-database"></i> Database
@@ -2967,101 +2976,7 @@ const runImportAll = async () => {
             </div>
         </div>
 
-        <!-- Mailchimp Import Modal -->
-        <div v-if="showMailchimpModal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-            <div class="bg-white p-6 rounded-lg shadow-xl max-w-4xl w-full mx-4 max-h-[90vh] overflow-y-auto">
-                <div class="flex justify-between items-center mb-4">
-                    <h3 class="text-lg font-semibold">Import to Mailchimp</h3>
-                    <button @click="showMailchimpModal = false" class="text-gray-500 hover:text-gray-700">
-                        <i class="fa-solid fa-times"></i>
-                    </button>
-                </div>
-                
-                <div class="space-y-4">
-                    <p class="text-gray-600">
-                        Import subscribers from <strong>{{ selectedLocation?.name }}</strong> to Mailchimp
-                    </p>
-
-                    <!-- Field Mapping Information -->
-                    <div class="mb-4 p-4 bg-gray-50 rounded-lg">
-                        <h4 class="font-semibold mb-2">Field Mappings:</h4>
-                        <div class="grid grid-cols-1 md:grid-cols-2 gap-2 text-sm">
-                            <div><strong>First Name:</strong> FNAME | MERGE1</div>
-                            <div><strong>Last Name:</strong> LNAME | MERGE2</div>
-                            <div><strong>Email Address:</strong> EMAIL | MERGE0</div>
-                            <div><strong>Street Address:</strong> MMERGE10 | MERGE10</div>
-                            <div><strong>City:</strong> CITY | MERGE3</div>
-                            <div><strong>State:</strong> STATE | MERGE6</div>
-                            <div><strong>Zip Code:</strong> ZIPCODE | MERGE7</div>
-                            <div><strong>Country:</strong> COUNTRY | MERGE8</div>
-                            <div><strong>Mobile Number:</strong> PHONE | MERGE4</div>
-                            <div><strong>SMS Phone:</strong> SMSPHONE | MERGE30</div>
-                            <div><strong>Age:</strong> MMERGE14 | MERGE14</div>
-                            <div><strong>Gender:</strong> GENDER | MERGE17</div>
-                        </div>
-                    </div>
-
-                    <div class="mb-4">
-                        <label class="block text-sm font-medium text-gray-700 mb-2">
-                            Select Mailchimp Audience
-                        </label>
-                        <select 
-                            v-model="selectedList"
-                            class="w-full border rounded px-3 py-2"
-                            :disabled="isImporting"
-                        >
-                            <option value="">Select an audience...</option>
-                            <option 
-                                v-for="list in mailchimpLists" 
-                                :key="list.id" 
-                                :value="list.id"
-                            >
-                                {{ list.name }} ({{ list.stats.member_count }} members)
-                            </option>
-                        </select>
-                    </div>
-
-                    <div class="mb-4">
-                        <label class="block text-sm font-medium text-gray-700 mb-2">
-                            Add Tags (comma-separated)
-                        </label>
-                        <input 
-                            type="text" 
-                            v-model="tags"
-                            class="w-full border rounded px-3 py-2"
-                            placeholder="e.g., 2025, FILM TOUR - WARREN MILLER, SHOW - MELBOURNE"
-                            :disabled="isImporting"
-                        />
-                        <p class="text-sm text-gray-500 mt-1">
-                            Enter tags separated by commas. Each tag will be added to the subscribers.
-                        </p>
-                    </div>
-
-                    <div class="flex justify-end space-x-3">
-                        <button 
-                            @click="showMailchimpModal = false"
-                            class="px-4 py-2 border rounded text-gray-600 hover:bg-gray-50"
-                            :disabled="isImporting"
-                        >
-                            Cancel
-                        </button>
-                        <button 
-                            @click="handleMailchimpImport"
-                            class="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600"
-                            :disabled="isImporting || !selectedList"
-                        >
-                            <span v-if="isImporting">
-                                <i class="fa-solid fa-spinner fa-spin mr-2"></i>
-                                Importing...
-                            </span>
-                            <span v-else>
-                                Import to Mailchimp
-                            </span>
-                        </button>
-                    </div>
-                </div>
-            </div>
-        </div>
+        <!-- Individual Mailchimp Import Modal removed — use Import Selected flow instead -->
 
         <!-- Mailchimp Settings Modal -->
         <div class="modal fade" :class="{ 'show': showMailchimpSettingsModal }" :style="{ display: showMailchimpSettingsModal ? 'block' : 'none' }" id="mailchimpSettingsModal" tabindex="-1" aria-labelledby="mailchimpSettingsModalLabel" aria-modal="true">
@@ -3276,14 +3191,6 @@ const runImportAll = async () => {
                                     <i class="fa-solid fa-file-export mr-2"></i>
                                     Export CSV
                                 </button>
-                                <button 
-                                    @click="openEventbriteMailchimpModal"
-                                    class="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600"
-                                    :disabled="isImportingEventbrite"
-                                >
-                                    <i class="fa-solid fa-upload mr-2"></i>
-                                    Import to Mailchimp
-                                </button>
                             </div>
                         </div>
                         
@@ -3319,168 +3226,13 @@ const runImportAll = async () => {
         </div>
 
         <!-- Eventbrite Mailchimp Import Modal -->
-        <div v-if="showEventbriteMailchimpModal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-            <div class="bg-white p-6 rounded-lg shadow-xl max-w-4xl w-full mx-4 max-h-[90vh] overflow-y-auto">
-                <div class="flex justify-between items-center mb-4">
-                    <h3 class="text-lg font-semibold">Import Eventbrite Attendees to Mailchimp</h3>
-                    <button @click="closeEventbriteMailchimpModal" class="text-gray-500 hover:text-gray-700">
-                        <i class="fa-solid fa-times"></i>
-                    </button>
-                </div>
-                
-                <div class="space-y-4">
-                    <p class="text-gray-600">
-                        Import <strong>{{ eventbriteAttendees.length }}</strong> attendees from Eventbrite for <strong>{{ selectedLocation?.name }}</strong>
-                    </p>
-
-                    <!-- Mailchimp Account Selection -->
-                    <div class="mb-4">
-                        <label class="block text-sm font-medium text-gray-700 mb-2">
-                            Mailchimp Account
-                        </label>
-                        <select 
-                            v-model="eventbriteMailchimpAccount"
-                            @change="loadEventbriteLists(eventbriteMailchimpAccount)"
-                            class="w-full border rounded px-3 py-2"
-                            :disabled="isLoadingEventbriteLists"
-                        >
-                            <option value="">Select an account...</option>
-                            <option 
-                                v-for="(account, key) in eventbriteAvailableAccounts" 
-                                :key="key" 
-                                :value="key"
-                                :disabled="!account.enabled"
-                            >
-                                {{ account.name }} {{ !account.enabled ? '(Not Configured)' : '' }}
-                            </option>
-                        </select>
-                    </div>
-
-                    <!-- Mailchimp Audience Selection -->
-                    <div class="mb-4">
-                        <label class="block text-sm font-medium text-gray-700 mb-2">
-                            Mailchimp Audience
-                        </label>
-                        <select 
-                            v-model="eventbriteSelectedList"
-                            class="w-full border rounded px-3 py-2"
-                            :disabled="isLoadingEventbriteLists || !eventbriteMailchimpAccount"
-                        >
-                            <option value="">Select an audience...</option>
-                            <option 
-                                v-for="list in eventbriteMailchimpLists" 
-                                :key="list.id" 
-                                :value="list.id"
-                            >
-                                {{ list.name }} ({{ list.stats.member_count }} members)
-                            </option>
-                        </select>
-                        <div v-if="isLoadingEventbriteLists" class="mt-2 text-sm text-gray-500">
-                            <i class="fa-solid fa-spinner fa-spin mr-1"></i>
-                            Loading audiences...
-                        </div>
-                    </div>
-
-                    <!-- Preview of Columns to Import -->
-                    <div v-if="eventbriteAttendees.length > 0" class="mb-4">
-                        <h4 class="text-md font-semibold mb-2">Preview - Columns to Import</h4>
-                        <div class="bg-gray-50 p-4 rounded-lg mb-3">
-                            <p class="text-sm text-gray-600 mb-2">The following columns will be imported:</p>
-                            <div class="flex flex-wrap gap-2">
-                                <span class="px-3 py-1 bg-blue-100 text-blue-800 rounded text-sm font-medium">Email</span>
-                                <span class="px-3 py-1 bg-blue-100 text-blue-800 rounded text-sm font-medium">First Name</span>
-                                <span class="px-3 py-1 bg-blue-100 text-blue-800 rounded text-sm font-medium">Last Name</span>
-                                <span class="px-3 py-1 bg-blue-100 text-blue-800 rounded text-sm font-medium">Phone Number</span>
-                            </div>
-                        </div>
-                        
-                        <div class="bg-white border rounded-lg overflow-hidden">
-                            <div class="max-h-64 overflow-y-auto">
-                                <table class="min-w-full divide-y divide-gray-200">
-                                    <thead class="bg-gray-50 sticky top-0">
-                                        <tr>
-                                            <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Email</th>
-                                            <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">First Name</th>
-                                            <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Last Name</th>
-                                            <th class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase">Phone</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody class="bg-white divide-y divide-gray-200">
-                                        <tr v-for="(attendee, index) in eventbriteAttendees.slice(0, 10)" :key="index" class="hover:bg-gray-50">
-                                            <td class="px-4 py-2 text-sm">{{ attendee.email || '-' }}</td>
-                                            <td class="px-4 py-2 text-sm">{{ attendee.first_name || '-' }}</td>
-                                            <td class="px-4 py-2 text-sm">{{ attendee.last_name || '-' }}</td>
-                                            <td class="px-4 py-2 text-sm">{{ attendee.phone || '-' }}</td>
-                                        </tr>
-                                    </tbody>
-                                </table>
-                            </div>
-                            <div v-if="eventbriteAttendees.length > 10" class="px-4 py-2 bg-gray-50 text-sm text-gray-600 border-t">
-                                Showing first 10 of {{ eventbriteAttendees.length }} attendees
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- Tags Section -->
-                    <div class="mb-4">
-                        <label class="block text-sm font-medium text-gray-700 mb-2">
-                            Tags to Apply
-                        </label>
-                        <div class="bg-gray-50 p-4 rounded-lg mb-3">
-                            <p class="text-sm text-gray-600 mb-2">Default tags (editable):</p>
-                            <div class="flex flex-wrap gap-2 mb-3">
-                                <span 
-                                    v-for="(tag, index) in eventbriteDefaultTags" 
-                                    :key="index"
-                                    class="px-3 py-1 bg-blue-100 text-blue-800 rounded text-sm font-medium"
-                                >
-                                    {{ tag }}
-                                </span>
-                            </div>
-                        </div>
-                        <input 
-                            type="text" 
-                            v-model="eventbriteTags"
-                            class="w-full border rounded px-3 py-2"
-                            placeholder="SHOW - LOCATION, SOURCE - WM LOCATION COMP 2025, EVENTBRITE, ..."
-                        />
-                        <p class="text-sm text-gray-500 mt-1">
-                            Edit tags separated by commas. Default tags are pre-filled but you can add or modify them.
-                        </p>
-                    </div>
-
-                    <div class="flex justify-end space-x-3 mt-6">
-                        <button 
-                            @click="closeEventbriteMailchimpModal"
-                            class="px-4 py-2 border rounded text-gray-600 hover:bg-gray-50"
-                            :disabled="isImportingEventbrite"
-                        >
-                            Cancel
-                        </button>
-                        <button 
-                            @click="importEventbriteToMailchimp"
-                            class="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600"
-                            :disabled="isImportingEventbrite || !eventbriteSelectedList || !eventbriteMailchimpAccount"
-                        >
-                            <span v-if="isImportingEventbrite">
-                                <i class="fa-solid fa-spinner fa-spin mr-2"></i>
-                                Importing...
-                            </span>
-                            <span v-else>
-                                <i class="fa-solid fa-upload mr-2"></i>
-                                Import to Mailchimp
-                            </span>
-                        </button>
-                    </div>
-                </div>
-            </div>
-        </div>
+        <!-- Eventbrite Mailchimp Import Modal removed — use Import Selected flow instead -->
 
         <!-- Import All Data Modal: step 1 = choose type (ticket or win form), step 2 = type-specific form -->
         <div v-if="showImportAllModal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
             <div class="bg-white p-6 rounded-lg shadow-xl max-w-4xl w-full mx-4 max-h-[90vh] overflow-y-auto" @click.stop role="dialog" aria-modal="true">
                 <div class="flex justify-between items-center mb-4">
-                    <h3 class="text-lg font-semibold">{{ importAllDataMode ? (importAllDataMode === 'ticket' ? 'Import All – Ticket data' : 'Import All – Win form data') : 'Import All Data' }}</h3>
+                    <h3 class="text-lg font-semibold">{{ importAllDataMode ? (importAllDataMode === 'ticket' ? 'Import Selected – Ticket data' : 'Import Selected – Win form data') : `Import Selected (${selectedLocationsForImport.length})` }}</h3>
                     <button type="button" @click="importAllDataMode ? (importAllDataMode = '') : closeImportAllModal()" class="text-gray-500 hover:text-gray-700">
                         <i class="fa-solid fa-times"></i>
                     </button>
@@ -3549,7 +3301,7 @@ const runImportAll = async () => {
 
                 <!-- Per-location: ticket-only fields (when ticket mode) or form-only fields (when form mode) -->
                 <div class="space-y-4 mb-6">
-                    <div v-for="loc in locations" :key="loc.id" class="border rounded-lg p-4 bg-gray-50 space-y-4">
+                    <div v-for="loc in selectedLocationsForImport" :key="loc.id" class="border rounded-lg p-4 bg-gray-50 space-y-4">
                         <div class="flex flex-wrap items-center gap-4">
                             <span class="font-medium">{{ loc.name }}</span>
                             <span v-if="importAllDataMode === 'ticket' && stagedByLocation[loc.id]?.attendees?.length" class="text-sm text-green-600 font-medium">

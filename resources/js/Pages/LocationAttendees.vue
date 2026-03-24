@@ -1641,26 +1641,6 @@ const showDetailedResults = async (results) => {
                                 >
                                     <i class="fa-solid fa-trophy"></i> Export winners
                                 </button>
-                                <!-- ✅ Import Ticket Data (Eventbrite or CSV / Event Groove) -->
-                                <button 
-                                    @click="openEventbriteModal" 
-                                    class="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-700"
-                                >
-                                    <i class="fa-solid fa-ticket"></i> Import ticket data
-                                </button>
-                                <!-- ✅ Mailchimp Import Button -->
-                                <button 
-                                    @click="openMailchimpImportModal" 
-                                    class="bg-orange-500 text-white px-4 py-2 rounded hover:bg-orange-700 disabled:opacity-70 disabled:cursor-wait"
-                                    :disabled="isOpeningMailchimpModal"
-                                >
-                                    <span v-if="isOpeningMailchimpModal">
-                                        <i class="fa-solid fa-spinner fa-spin mr-2"></i> Loading...
-                                    </span>
-                                    <span v-else>
-                                        <i class="fa-solid fa-envelope"></i> Import to Mailchimp
-                                    </span>
-                                </button>
                             </div>
                         </div>
 
