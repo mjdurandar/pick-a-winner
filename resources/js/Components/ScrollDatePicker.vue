@@ -8,7 +8,7 @@
             </svg>
         </div>
 
-        <div v-if="isOpen" class="picker-dropdown" ref="dropdownRef">
+        <div v-if="isOpen" class="picker-dropdown" :class="{ 'dropdown-above': dropdownPosition === 'above' }" ref="dropdownRef">
             <div class="picker-header">
                 <button type="button" class="clear-btn" @click="clearDate">Clear</button>
             </div>
@@ -109,6 +109,8 @@ const displayRef = ref(null);
 const dropdownRef = ref(null);
 
 const ITEM_HEIGHT = 40;
+const dropdownPosition = ref('below');
+const DROPDOWN_HEIGHT = 320; // approximate height of the picker dropdown
 
 const daysInMonth = computed(() => {
     return new Date(selectedYear.value, selectedMonth.value + 1, 0).getDate();
@@ -153,10 +155,24 @@ function parseModelValue() {
 
 watch(() => props.modelValue, parseModelValue);
 
+function calculateDropdownPosition() {
+    if (!displayRef.value) return;
+    const rect = displayRef.value.getBoundingClientRect();
+    const spaceBelow = window.innerHeight - rect.bottom;
+    const spaceAbove = rect.top;
+
+    if (spaceBelow < DROPDOWN_HEIGHT && spaceAbove > spaceBelow) {
+        dropdownPosition.value = 'above';
+    } else {
+        dropdownPosition.value = 'below';
+    }
+}
+
 function togglePicker() {
     isOpen.value = !isOpen.value;
     if (isOpen.value) {
         parseModelValue();
+        calculateDropdownPosition();
         nextTick(() => {
             scrollToSelected();
         });
@@ -301,6 +317,11 @@ onBeforeUnmount(() => {
     flex-shrink: 0;
     width: 16px;
     height: 16px;
+}
+
+.picker-dropdown.dropdown-above {
+    top: auto;
+    bottom: calc(100% + 4px);
 }
 
 .picker-dropdown {
