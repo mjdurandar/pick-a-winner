@@ -60,6 +60,9 @@
                 </div>
                 <div class="picker-highlight"></div>
             </div>
+            <div class="picker-footer">
+                <button type="button" class="done-btn" @click="confirmDate">Done</button>
+            </div>
         </div>
     </div>
 </template>
@@ -385,6 +388,28 @@ onBeforeUnmount(() => {
 
 .picker-item:hover:not(.selected) {
     color: #3a3a3c;
+}
+
+.picker-footer {
+    display: flex;
+    justify-content: center;
+    padding: 8px 12px;
+}
+
+.done-btn {
+    background: #007aff;
+    border: none;
+    color: #fff;
+    font-size: 16px;
+    font-weight: 600;
+    cursor: pointer;
+    padding: 8px 32px;
+    border-radius: 8px;
+    width: 100%;
+}
+
+.done-btn:hover {
+    opacity: 0.85;
 }
 
 .picker-highlight {
