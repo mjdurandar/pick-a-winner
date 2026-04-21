@@ -18,7 +18,18 @@ class Location extends Model
         'state',
         'country',
         'category',
-        'is_hidden'
+        'is_hidden',
+        'cinema_contact',
+        'number_of_screenings',
+        'status',
+        'ticketing_type',
+        'booked_by',
+        'date_booking_confirmed',
+        'film_format',
+        'dcp_trailer_sent',
+        'media_kit_sent',
+        'dcp_sent',
+        'specific_deliverable_requests',
     ];
 
     /**

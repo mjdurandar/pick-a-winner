@@ -37,7 +37,7 @@ const handleSearchInput = (event) => {
     currentPage.value = 1; // Reset to first page on search
 };
 
-const excludedExportColumns = ["created_at", "updated_at", "id", "event_id", "location_id", "events_location", "mobile_number_format"];
+const excludedExportColumns = ["created_at", "updated_at", "id", "event_id", "location_id", "events_location", "mobile_number_format", "interest_tags"];
 
 // ✅ Extract column names for display (exclude unwanted columns)
 const columnHeaders = computed(() => {
@@ -422,6 +422,7 @@ const deleteAttendee = (attendeeId, eventId) => {
                                         <th v-for="(col, index) in columnHeaders" :key="index" class="border border-gray-300 p-2 whitespace-nowrap">
                                             {{ getQuestionText(col) }}
                                         </th>
+                                        <th class="border border-gray-300 p-2 whitespace-nowrap">Interest Tags</th>
                                         <th class="border border-gray-300 p-2">Actions</th>
                                     </tr>
                                 </thead>
@@ -429,6 +430,18 @@ const deleteAttendee = (attendeeId, eventId) => {
                                     <tr v-for="(attendee, index) in paginatedAttendees" :key="index" class="text-left even:bg-gray-100">
                                         <td v-for="(col, index) in columnHeaders" :key="index" class="border border-gray-300 p-2 whitespace-nowrap overflow-hidden text-ellipsis">
                                             {{ attendee[col] }}
+                                        </td>
+                                        <td class="border border-gray-300 p-2 whitespace-nowrap">
+                                            <div v-if="attendee.interest_tags && attendee.interest_tags.length" class="flex flex-wrap gap-1">
+                                                <span
+                                                    v-for="tag in attendee.interest_tags"
+                                                    :key="tag"
+                                                    class="inline-block px-2 py-0.5 text-xs font-semibold rounded bg-cyan-100 text-cyan-800 border border-cyan-200"
+                                                >
+                                                    {{ tag }}
+                                                </span>
+                                            </div>
+                                            <span v-else class="text-gray-400 text-sm">—</span>
                                         </td>
                                         <td class="text-center content-center whitespace-nowrap">
                                             <button class="btn btn-danger m-1" @click="deleteAttendee(attendee.id, event.id)">

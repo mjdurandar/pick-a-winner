@@ -45,6 +45,56 @@ class MailchimpService
         throw new \Exception('Failed to fetch Mailchimp lists: ' . $response->body());
     }
 
+    /**
+     * Map a sign-up form "Favorite adventure sport" answer to INT - * tags.
+     * Multi-select answers are stored as a comma-separated string, so this
+     * splits on commas that separate distinct options (not commas inside
+     * parentheses) and returns one tag per selection. Unrecognized or empty
+     * values yield an empty array.
+     *
+     * @return string[]
+     */
+    public static function mapFaveSportToInterestTags(?string $value): array
+    {
+        $raw = trim((string) $value);
+        if ($raw === '') {
+            return [];
+        }
+
+        $map = [
+            'snow sports' => 'INT - SNOWSPORTS',
+            'climbing' => 'INT - CLIMBING',
+            'trail sports' => 'INT - TRAILSPORTS',
+            'skate sports' => 'INT - SKATEBOARDING',
+            'cycling' => 'INT - MTB',
+            'water sports' => 'INT - WATERSPORTS',
+            'outdoor' => 'INT - OUTDOOR',
+            'aerial' => 'INT - ALL',
+            'extreme' => 'INT - ALL',
+            'other' => 'INT - ALL',
+        ];
+
+        // Split on commas that are outside parentheses so option labels like
+        // "Water Sports (Kayaking, Canoeing)" stay intact.
+        $parts = preg_split('/,(?![^()]*\))/', $raw) ?: [$raw];
+
+        $tags = [];
+        foreach ($parts as $part) {
+            $v = strtolower(trim($part));
+            if ($v === '') {
+                continue;
+            }
+            foreach ($map as $prefix => $tag) {
+                if (strpos($v, $prefix) === 0) {
+                    $tags[] = $tag;
+                    break;
+                }
+            }
+        }
+
+        return array_values(array_unique($tags));
+    }
+
     public static function getAvailableAccounts()
     {
         return [
@@ -340,6 +390,10 @@ class MailchimpService
             }
         }
 
+        $interestTags = self::mapFaveSportToInterestTags($subscriber['fave_sport'] ?? null);
+        if (!empty($interestTags)) {
+            $tags = array_merge($tags, $interestTags);
+        }
         $tagsData = array_values(array_unique($tags));
         $rejectedFields = [];
 

@@ -89,12 +89,17 @@ class AutoMailchimpService
             
             $sourceTag = "SOURCE - " . strtoupper($filmTour) . " " . $sourceTagLocation . " COMP " . $year;
             $showTag = "SHOW - " . $showTagLocation;
-            
+
             // Combine with default tags
             $tags = array_merge(
                 [$sourceTag, $showTag],
                 is_array($settings['default_tags']) ? $settings['default_tags'] : []
             );
+
+            $interestTags = MailchimpService::mapFaveSportToInterestTags($subscriber->fave_sport ?? null);
+            if (!empty($interestTags)) {
+                $tags = array_merge($tags, $interestTags);
+            }
 
             // Check if auto-sync is enabled and has default list
             if (!$settings['auto_sync'] || !$settings['default_list_id']) {

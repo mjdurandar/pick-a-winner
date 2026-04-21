@@ -63,6 +63,13 @@ const userRole = computed(() => user.value?.role);
                                 </NavLink>
                                 <NavLink
                                     v-if="userRole === 'admin' || userRole === 'host'"
+                                    :href="route('mastersheet.index')"
+                                    :active="route().current('mastersheet.index')"
+                                >
+                                    Master Sheet
+                                </NavLink>
+                                <NavLink
+                                    v-if="userRole === 'admin' || userRole === 'host'"
                                     :href="route('pickawinner.index')"
                                     :active="route().current('pickawinner.index')"
                                     target="_blank"
@@ -228,6 +235,13 @@ const userRole = computed(() => user.value?.role);
                                     :active="route().current('films.index')"
                                 >
                                     Brands
+                        </ResponsiveNavLink>
+                        <ResponsiveNavLink
+                                v-if="userRole === 'admin' || userRole === 'host'"
+                                    :href="route('mastersheet.index')"
+                                    :active="route().current('mastersheet.index')"
+                                >
+                                    Master Sheet
                         </ResponsiveNavLink>
                         <ResponsiveNavLink
                                 v-if="userRole === 'admin' || userRole === 'host'"

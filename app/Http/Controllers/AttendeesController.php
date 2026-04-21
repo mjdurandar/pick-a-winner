@@ -7,6 +7,7 @@ use App\Models\SignUpForm;
 use App\Models\Location;
 use App\Models\Prize;
 use App\Models\MailchimpImportLog;
+use App\Services\MailchimpService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
@@ -38,6 +39,8 @@ class AttendeesController extends Controller
             ->orderBy("{$tableName}.location_id")
             ->orderBy("{$tableName}.id")
             ->get();
+
+        $attendees = $this->attachInterestTags($attendees, in_array('fave_sport', $signupColumns));
 
         // ✅ Fetch all prizes (winners) for this event with location names for export on Database page
         $locations = Location::where('event_id', $eventId)->get();
@@ -86,6 +89,8 @@ class AttendeesController extends Controller
             ->where("$tableName.event_id", $eventId)
             ->where("$tableName.location_id", $locationId)
             ->get();
+
+        $attendees = $this->attachInterestTags($attendees, Schema::hasColumn($tableName, 'fave_sport'));
 
         // ✅ Fetch prizes/winners for this location
         $prizes = Prize::where('event_id', $eventId)
@@ -259,6 +264,20 @@ class AttendeesController extends Controller
             'Content-Type' => 'text/csv; charset=UTF-8',
             'Content-Disposition' => 'attachment; filename="' . $filename . '"',
         ]);
+    }
+
+    /**
+     * Attach an interest_tags array to each attendee row based on their
+     * fave_sport answer. Returns the (mutated) collection unchanged when the
+     * signup table has no fave_sport column.
+     */
+    private function attachInterestTags($attendees, bool $hasFaveSport)
+    {
+        return $attendees->each(function ($attendee) use ($hasFaveSport) {
+            $attendee->interest_tags = $hasFaveSport
+                ? MailchimpService::mapFaveSportToInterestTags($attendee->fave_sport ?? null)
+                : [];
+        });
     }
 
     private function buildTagsForExport(array $row, $event, string $defaultSourceWord, ?string $manualTagsStr): string

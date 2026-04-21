@@ -51,7 +51,7 @@ class PickaWinnerController extends Controller
         $location = Location::where('id', $locationId)->firstOrFail();
         $event = Events::findOrFail($eventId);
         $prize = Prize::where('event_id', $eventId)->where('location_id', $locationId)->get();
-        
+
         // Get the dynamic table name from the event
         // Query the event's signup form table for attendees from this location
         $attendees = DB::table($tableName)
@@ -60,7 +60,7 @@ class PickaWinnerController extends Controller
         ->where("$tableName.event_id", $eventId)
         ->where("$tableName.location_id", $location->id)
         ->get();
-    
+
         return Inertia::render('PickaWinnerLocationPage', [
             'location' => $location,
             'event' => $event,
@@ -102,7 +102,7 @@ class PickaWinnerController extends Controller
         $prizes = Prize::where('event_id', $eventId)
                ->whereNull('location_id') // ✅ Ensure location_id is NULL
                ->get();
-   
+
         return Inertia::render('PickaWinnerAllLocation', [
             'event' => $event,
             'attendees' => $attendees,

@@ -13,6 +13,7 @@ use App\Http\Controllers\LaravelLogsController;
 use App\Http\Controllers\MailchimpImportLogsController;
 use App\Http\Controllers\MailchimpAutoSyncController;
 use App\Http\Controllers\FilmsController;
+use App\Http\Controllers\MasterSheetController;
 use App\Http\Controllers\McDashboardController;
 use Illuminate\Support\Facades\Route;
 use Inertia\Inertia;
@@ -50,6 +51,10 @@ Route::middleware(['auth', RoleMiddleware::class . ':admin,host'])->group(functi
     //films page
     Route::get('/films', [FilmsController::class, 'index'])->name('films.index');
     Route::get('/films/{film}/report', [FilmsController::class, 'report'])->name('films.report');
+
+    //master sheet page
+    Route::get('/master-sheet', [MasterSheetController::class, 'index'])->name('mastersheet.index');
+    Route::patch('/master-sheet/{location}', [MasterSheetController::class, 'update'])->name('mastersheet.update');
 
     //LARAVEL LOGS (view / clear app log)
     Route::get('/laravel-logs', [LaravelLogsController::class, 'index'])->name('laravelLogs.index');
