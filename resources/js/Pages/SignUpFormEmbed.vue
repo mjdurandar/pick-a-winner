@@ -244,6 +244,19 @@ const submitForm = async () => {
         return;
     }
 
+    // Checkbox groups (allowMultiple dropdowns) have no native `required`, so enforce
+    // at least one selection here to match the "required" behavior of single-select dropdowns.
+    const parsedQuestions = JSON.parse(props.form.questions);
+    for (const question of parsedQuestions) {
+        if (question.type === 'dropdown' && question.allowMultiple) {
+            const selections = formValues.value[question.text];
+            if (!Array.isArray(selections) || selections.length === 0) {
+                Swal.fire('Error!', `Please select at least one option for "${question.text}".`, 'error');
+                return;
+            }
+        }
+    }
+
     isSubmitting.value = true; // Set loading state
 
     // If compliance state, silently resubscribe via JSONP first, then submit form

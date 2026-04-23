@@ -420,12 +420,10 @@ onMounted(() => {
                                     type="checkbox"
                                     :id="`multiple-option-${question.column_name}`"
                                     v-model="question.allowMultiple"
-                                    :disabled="question.column_name === 'fave_sport'"
                                     class="mr-2"
                                 />
                                 <label :for="`multiple-option-${question.column_name}`" class="font-medium">
                                     Allow multiple selection
-                                    <span v-if="question.column_name === 'fave_sport'" class="text-xs text-gray-500 ml-1">(always enabled)</span>
                                 </label>
                             </div>
                             <label class="font-medium">Dropdown Options:</label>
