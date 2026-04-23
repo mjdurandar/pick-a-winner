@@ -200,32 +200,14 @@ function buildAndDownloadCSV(data, form = null) {
     document.body.removeChild(link);
 }
 
-// ✅ Export all data in the table – POST to server which streams the full CSV (no limit, every location)
+// ✅ Export all data in the table – GET to server which streams the full CSV (no limit, every location)
 const exportToCSV = () => {
-    const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '';
-    const form = document.createElement('form');
-    form.method = 'POST';
-    form.action = route('attendees.exportCsv', { eventId: props.event.id });
-    form.target = '_blank';
-    form.style.display = 'none';
-    const tokenInput = document.createElement('input');
-    tokenInput.type = 'hidden';
-    tokenInput.name = '_token';
-    tokenInput.value = csrfToken;
-    form.appendChild(tokenInput);
-    const sourceInput = document.createElement('input');
-    sourceInput.type = 'hidden';
-    sourceInput.name = 'defaultSourceWord';
-    sourceInput.value = defaultSourceWord.value || 'WM';
-    form.appendChild(sourceInput);
-    const tagsInput = document.createElement('input');
-    tagsInput.type = 'hidden';
-    tagsInput.name = 'exportTags';
-    tagsInput.value = exportTags.value || '';
-    form.appendChild(tagsInput);
-    document.body.appendChild(form);
-    form.submit();
-    document.body.removeChild(form);
+    const url = route('attendees.exportCsv', {
+        eventId: props.event.id,
+        defaultSourceWord: defaultSourceWord.value || 'WM',
+        exportTags: exportTags.value || '',
+    });
+    window.open(url, '_blank');
     showExportModal.value = false;
     Swal.fire('Export started', 'Your CSV is downloading. It includes all attendees from every location.', 'success');
 };

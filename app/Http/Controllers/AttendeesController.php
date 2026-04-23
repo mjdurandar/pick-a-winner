@@ -7,6 +7,7 @@ use App\Models\SignUpForm;
 use App\Models\Location;
 use App\Models\Prize;
 use App\Models\MailchimpImportLog;
+use App\Services\AutoMailchimpService;
 use App\Services\MailchimpService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -40,7 +41,7 @@ class AttendeesController extends Controller
             ->orderBy("{$tableName}.id")
             ->get();
 
-        $attendees = $this->attachInterestTags($attendees, in_array('fave_sport', $signupColumns));
+        $attendees = $this->attachInterestTags($attendees, in_array('fave_sport', $signupColumns), $eventId);
 
         // ✅ Fetch all prizes (winners) for this event with location names for export on Database page
         $locations = Location::where('event_id', $eventId)->get();
@@ -90,7 +91,7 @@ class AttendeesController extends Controller
             ->where("$tableName.location_id", $locationId)
             ->get();
 
-        $attendees = $this->attachInterestTags($attendees, Schema::hasColumn($tableName, 'fave_sport'));
+        $attendees = $this->attachInterestTags($attendees, Schema::hasColumn($tableName, 'fave_sport'), $eventId);
 
         // ✅ Fetch prizes/winners for this location
         $prizes = Prize::where('event_id', $eventId)
@@ -269,13 +270,21 @@ class AttendeesController extends Controller
     /**
      * Attach an interest_tags array to each attendee row based on their
      * fave_sport answer. Returns the (mutated) collection unchanged when the
-     * signup table has no fave_sport column.
+     * signup table has no fave_sport column. Uses the admin-configured
+     * interest_tag_map from the event's Mailchimp auto-sync settings so the
+     * displayed tags match what auto-sync and batch imports apply.
      */
-    private function attachInterestTags($attendees, bool $hasFaveSport)
+    private function attachInterestTags($attendees, bool $hasFaveSport, $eventId = null)
     {
-        return $attendees->each(function ($attendee) use ($hasFaveSport) {
+        $map = [];
+        if ($hasFaveSport && $eventId) {
+            $settings = app(AutoMailchimpService::class)->getSettings($eventId);
+            $map = is_array($settings['interest_tag_map'] ?? null) ? $settings['interest_tag_map'] : [];
+        }
+
+        return $attendees->each(function ($attendee) use ($hasFaveSport, $map) {
             $attendee->interest_tags = $hasFaveSport
-                ? MailchimpService::mapFaveSportToInterestTags($attendee->fave_sport ?? null)
+                ? MailchimpService::mapFaveSportToInterestTags($attendee->fave_sport ?? null, $map)
                 : [];
         });
     }

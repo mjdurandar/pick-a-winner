@@ -52,18 +52,28 @@ class MailchimpService
      * parentheses) and returns one tag per selection. Unrecognized or empty
      * values yield an empty array.
      *
+     * When $customMap is provided (admin-configured per-event map from the
+     * Mailchimp settings modal), its entries override the hardcoded default.
+     * Keys are matched case-insensitively: first by exact equality with the
+     * selected option, then by prefix. When a non-empty custom map is given,
+     * the hardcoded defaults are NOT used as a fallback — unmapped answers
+     * produce no tag, so admins can fully control which answers tag and which
+     * do not.
+     *
+     * @param  array<string, string>|null  $customMap  option label → tag string
      * @return string[]
      */
-    public static function mapFaveSportToInterestTags(?string $value): array
+    public static function mapFaveSportToInterestTags(?string $value, ?array $customMap = null): array
     {
         $raw = trim((string) $value);
         if ($raw === '') {
             return [];
         }
 
-        $map = [
+        $defaultMap = [
             'snow sports' => 'INT - SNOWSPORTS',
             'climbing' => 'INT - CLIMBING',
+            'running' => 'INT - RUNNING',
             'trail sports' => 'INT - TRAILSPORTS',
             'skate sports' => 'INT - SKATEBOARDING',
             'cycling' => 'INT - MTB',
@@ -73,6 +83,21 @@ class MailchimpService
             'extreme' => 'INT - ALL',
             'other' => 'INT - ALL',
         ];
+
+        $normalizedCustom = [];
+        if (is_array($customMap)) {
+            foreach ($customMap as $k => $v) {
+                if (!is_string($k) || !is_string($v)) {
+                    continue;
+                }
+                $tagVal = trim($v);
+                if ($tagVal === '') {
+                    continue;
+                }
+                $normalizedCustom[strtolower(trim($k))] = $tagVal;
+            }
+        }
+        $useCustom = !empty($normalizedCustom);
 
         // Split on commas that are outside parentheses so option labels like
         // "Water Sports (Kayaking, Canoeing)" stay intact.
@@ -84,7 +109,22 @@ class MailchimpService
             if ($v === '') {
                 continue;
             }
-            foreach ($map as $prefix => $tag) {
+
+            if ($useCustom) {
+                if (isset($normalizedCustom[$v])) {
+                    $tags[] = $normalizedCustom[$v];
+                    continue;
+                }
+                foreach ($normalizedCustom as $key => $tag) {
+                    if ($key !== '' && strpos($v, $key) === 0) {
+                        $tags[] = $tag;
+                        break;
+                    }
+                }
+                continue;
+            }
+
+            foreach ($defaultMap as $prefix => $tag) {
                 if (strpos($v, $prefix) === 0) {
                     $tags[] = $tag;
                     break;
@@ -370,7 +410,7 @@ class MailchimpService
      * @param  array|null  $availableMergeFields  Optional merge fields from getListMergeFields(); fetched if null.
      * @return array  Body for batch op: email_address, status, merge_fields, tags.
      */
-    public function buildMemberPayloadForBatch(string $listId, array $subscriber, array $tags = [], ?array $fieldMapping = null, ?array $availableMergeFields = null): array
+    public function buildMemberPayloadForBatch(string $listId, array $subscriber, array $tags = [], ?array $fieldMapping = null, ?array $availableMergeFields = null, ?array $interestTagMap = null): array
     {
         $ageValue = null;
         if (isset($subscriber['age'])) {
@@ -390,7 +430,7 @@ class MailchimpService
             }
         }
 
-        $interestTags = self::mapFaveSportToInterestTags($subscriber['fave_sport'] ?? null);
+        $interestTags = self::mapFaveSportToInterestTags($subscriber['fave_sport'] ?? null, $interestTagMap);
         if (!empty($interestTags)) {
             $tags = array_merge($tags, $interestTags);
         }

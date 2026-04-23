@@ -70,7 +70,9 @@ class MailchimpAutoSyncController extends Controller
             'enabled_locations' => 'array',
             'film_tour' => 'required|string',
             'mailchimp_account' => 'required|string|in:anz,usa',
-            'event_id' => 'required|integer'
+            'event_id' => 'required|integer',
+            'interest_tag_map' => 'nullable|array',
+            'interest_tag_map.*' => 'nullable|string',
         ]);
 
         try {

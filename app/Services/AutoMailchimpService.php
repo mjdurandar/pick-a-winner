@@ -22,15 +22,22 @@ class AutoMailchimpService
 
     public function getSettings($eventId)
     {
-        return Cache::get($this->settingsKey . $eventId, [
+        $settings = Cache::get($this->settingsKey . $eventId, [
             'auto_sync' => false,
             'default_list_id' => '',
             'default_tags' => [],
             'enabled_locations' => [],
             'film_tour' => 'WM',
             'mailchimp_account' => 'anz', // Default to ANZ
+            'interest_tag_map' => [],
             'event_id' => $eventId
         ]);
+
+        if (!array_key_exists('interest_tag_map', $settings) || !is_array($settings['interest_tag_map'])) {
+            $settings['interest_tag_map'] = [];
+        }
+
+        return $settings;
     }
 
     public function updateSettings($settings)
@@ -96,7 +103,10 @@ class AutoMailchimpService
                 is_array($settings['default_tags']) ? $settings['default_tags'] : []
             );
 
-            $interestTags = MailchimpService::mapFaveSportToInterestTags($subscriber->fave_sport ?? null);
+            $interestTags = MailchimpService::mapFaveSportToInterestTags(
+                $subscriber->fave_sport ?? null,
+                $settings['interest_tag_map'] ?? []
+            );
             if (!empty($interestTags)) {
                 $tags = array_merge($tags, $interestTags);
             }

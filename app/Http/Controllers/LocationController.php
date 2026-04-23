@@ -106,10 +106,32 @@ class LocationController extends Controller
             return $location;
         });
 
+        $faveSportOptions = [];
+        if ($signUpForm) {
+            $questions = is_string($signUpForm->questions)
+                ? json_decode($signUpForm->questions, true)
+                : ($signUpForm->questions ?? []);
+            if (is_array($questions)) {
+                foreach ($questions as $q) {
+                    if (($q['column_name'] ?? null) === 'fave_sport') {
+                        $opts = $q['options'] ?? [];
+                        if (is_array($opts)) {
+                            $faveSportOptions = array_values(array_filter(array_map(
+                                fn ($o) => is_string($o) ? trim($o) : '',
+                                $opts
+                            ), fn ($o) => $o !== ''));
+                        }
+                        break;
+                    }
+                }
+            }
+        }
+
         return Inertia::render('LocationPage', [
             'event' => $event,
             'locations' => $locationsWithImportStatus,
             'total_participants' => $totalParticipants,
+            'fave_sport_options' => $faveSportOptions,
         ]);
     }
 

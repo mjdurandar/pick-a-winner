@@ -113,7 +113,7 @@ const defaultQuestions = ref([
                 'Water Sports (Kayaking, Canoeing, Surfing, Windsurfing, Fly Fishing, Scuba Diving, Paddleboarding)',
                 'Outdoor Activities (Hiking, Camping)',
                 'Aerial Sports (Paragliding, Hang Gliding)',
-                'Extreme Sports (Bungee Jumping, BASE Jumping)'], hasOtherOption: true, allowMultiple: false },
+                'Extreme Sports (Bungee Jumping, BASE Jumping)'], hasOtherOption: true, allowMultiple: true },
     { text: 'How much would you spend on equipment?', type: 'dropdown', column_name: 'how_much_spend', options: ['Less than $500', '$500-$1,000', 'More than $1,000'], hasOtherOption: false, allowMultiple: false },
     { text: 'How often do you climb? (Specify type)', type: 'dropdown', column_name: 'how_often_climb', options: ['More than once a year', 'Once a year', 'Once every 2 years', 'Never'], hasOtherOption: false, allowMultiple: false },
     { text: 'How often do you climb overseas? (Specify type)', type: 'dropdown', column_name: 'how_often_climb_overseas', options: ['More than once a year', 'Once a year', 'Once every 2 years', 'Never'], hasOtherOption: false, allowMultiple: false },
@@ -157,7 +157,7 @@ watch(collectAddress, (shouldCollect) => {
     removeAddressQuestions();
   }
 });
-const headerText = ref('GET A CHANCE TO WIN AMAZING PRICES!');
+const headerText = ref('GET A CHANCE TO WIN AMAZING PRIZES!');
 const descriptionText = ref('*By entering the competition you accept the competition terms and conditions and consent to receiving marketing materials related to the offerings of Adventure Entertainment and our partners.');
 const termsLink = ref('#');
 const policyLink = ref('https://adventureentertainment.com/privacy-policy/');
@@ -416,14 +416,16 @@ onMounted(() => {
                         <!-- ✅ Dropdown Options -->
                         <div v-if="question.type === 'dropdown'">
                             <div class="mb-3 flex items-center">
-                                <input 
-                                    type="checkbox" 
-                                    :id="`multiple-option-${question.column_name}`" 
-                                    v-model="question.allowMultiple" 
+                                <input
+                                    type="checkbox"
+                                    :id="`multiple-option-${question.column_name}`"
+                                    v-model="question.allowMultiple"
+                                    :disabled="question.column_name === 'fave_sport'"
                                     class="mr-2"
                                 />
                                 <label :for="`multiple-option-${question.column_name}`" class="font-medium">
                                     Allow multiple selection
+                                    <span v-if="question.column_name === 'fave_sport'" class="text-xs text-gray-500 ml-1">(always enabled)</span>
                                 </label>
                             </div>
                             <label class="font-medium">Dropdown Options:</label>

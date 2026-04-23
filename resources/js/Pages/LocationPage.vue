@@ -12,6 +12,7 @@ const props = defineProps({
     event: Object,
     locations: Array,
     total_participants: { type: Number, default: 0 },
+    fave_sport_options: { type: Array, default: () => [] },
     flash: Object
 });
 
@@ -44,6 +45,7 @@ const mailchimpSettings = ref({
     enabled_locations: [],
     film_tour: '',  // Default to WM
     mailchimp_account: 'anz', // Default to ANZ
+    interest_tag_map: {},
     event_id: props.event.id  // Add event_id
 });
 const availableLists = ref([]);
@@ -1788,6 +1790,33 @@ const closeAllPasswordsModal = () => {
     }
 };
 
+// Default Mailchimp tag for a given "Favorite adventure sport?" answer.
+// Matched by lowercase prefix so option labels like
+// "Snow Sports (Skiing, Snowboarding)" still map to INT - SNOWSPORTS.
+// Kept in sync with the PHP fallback in MailchimpService::mapFaveSportToInterestTags.
+const DEFAULT_INTEREST_TAG_MAP = [
+    { prefix: 'snow sports', tag: 'INT - SNOWSPORTS' },
+    { prefix: 'climbing', tag: 'INT - CLIMBING' },
+    { prefix: 'running', tag: 'INT - RUNNING' },
+    { prefix: 'trail sports', tag: 'INT - TRAILSPORTS' },
+    { prefix: 'skate sports', tag: 'INT - SKATEBOARDING' },
+    { prefix: 'cycling', tag: 'INT - MTB' },
+    { prefix: 'water sports', tag: 'INT - WATERSPORTS' },
+    { prefix: 'outdoor', tag: 'INT - OUTDOOR' },
+    { prefix: 'aerial', tag: 'INT - ALL' },
+    { prefix: 'extreme', tag: 'INT - ALL' },
+    { prefix: 'other', tag: 'INT - ALL' },
+];
+
+const defaultInterestTagFor = (option) => {
+    const v = typeof option === 'string' ? option.trim().toLowerCase() : '';
+    if (!v) return '';
+    for (const { prefix, tag } of DEFAULT_INTEREST_TAG_MAP) {
+        if (v.startsWith(prefix)) return tag;
+    }
+    return '';
+};
+
 const openMailchimpSettingsModal = async () => {
     isSettingsLoading.value = true;
     try {
@@ -1798,11 +1827,21 @@ const openMailchimpSettingsModal = async () => {
         });
         const { settings, available_lists, available_accounts } = response.data;
         
+        const savedMap = (settings && typeof settings.interest_tag_map === 'object' && settings.interest_tag_map !== null)
+            ? settings.interest_tag_map
+            : {};
+        const seededMap = {};
+        (props.fave_sport_options || []).forEach((opt) => {
+            const saved = typeof savedMap[opt] === 'string' ? savedMap[opt].trim() : '';
+            seededMap[opt] = saved !== '' ? saved : defaultInterestTagFor(opt);
+        });
+
         mailchimpSettings.value = {
             ...settings,
             film_tour: settings.film_tour,
             default_tags: Array.isArray(settings.default_tags) ? settings.default_tags.join(', ') : '',
             mailchimp_account: settings.mailchimp_account || 'anz',
+            interest_tag_map: seededMap,
             event_id: props.event.id
         };
         availableLists.value = available_lists;
@@ -1834,14 +1873,24 @@ const loadListsForAccount = async (account) => {
 
 const saveMailchimpSettings = async () => {
     try {
+        const rawMap = mailchimpSettings.value.interest_tag_map || {};
+        const cleanedMap = {};
+        Object.keys(rawMap).forEach((key) => {
+            const val = typeof rawMap[key] === 'string' ? rawMap[key].trim() : '';
+            if (val !== '') {
+                cleanedMap[key] = val;
+            }
+        });
+
         const settings = {
             ...mailchimpSettings.value,
             film_tour: mailchimpSettings.value.film_tour,
             default_tags: mailchimpSettings.value.default_tags.split(',').map(tag => tag.trim()).filter(tag => tag),
-            enabled_locations: Array.isArray(mailchimpSettings.value.enabled_locations) 
-                ? mailchimpSettings.value.enabled_locations 
+            enabled_locations: Array.isArray(mailchimpSettings.value.enabled_locations)
+                ? mailchimpSettings.value.enabled_locations
                 : [],
             mailchimp_account: mailchimpSettings.value.mailchimp_account,
+            interest_tag_map: cleanedMap,
             event_id: props.event.id
         };
 
@@ -3062,14 +3111,41 @@ const runImportAll = async () => {
 
                         <div class="mb-4">
                             <label class="form-label">Default Tags</label>
-                            <input 
-                                type="text" 
+                            <input
+                                type="text"
                                 v-model="mailchimpSettings.default_tags"
                                 class="form-control"
                                 placeholder="e.g., 2025, FILM TOUR - WARREN MILLER, SHOW - MELBOURNE"
                             >
                             <div class="form-text">
                                 Enter tags separated by commas. Each tag will be added to the subscribers.
+                            </div>
+                        </div>
+
+                        <div class="mb-4">
+                            <label class="form-label">Interest Tags (by adventure sport)</label>
+                            <div class="form-text mb-2">
+                                Choose the tag to apply for each answer to the "Favorite adventure sport?" question.
+                                Leave a field empty to skip tagging for that answer.
+                            </div>
+                            <div v-if="!fave_sport_options || fave_sport_options.length === 0" class="text-muted small">
+                                The sign-up form for this event has no "Favorite adventure sport?" question, so there are no answers to map.
+                            </div>
+                            <div v-else class="border rounded p-2">
+                                <div
+                                    v-for="option in fave_sport_options"
+                                    :key="option"
+                                    class="d-flex align-items-center gap-2 mb-2"
+                                >
+                                    <div class="flex-grow-1 small text-break">{{ option }}</div>
+                                    <input
+                                        type="text"
+                                        class="form-control form-control-sm"
+                                        style="max-width: 260px;"
+                                        :placeholder="'e.g., INT - SNOWSPORTS'"
+                                        v-model="mailchimpSettings.interest_tag_map[option]"
+                                    />
+                                </div>
                             </div>
                         </div>
 

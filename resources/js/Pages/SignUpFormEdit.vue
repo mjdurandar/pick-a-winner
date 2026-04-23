@@ -34,6 +34,11 @@ questions.value.forEach((question) => {
     if (question.allowMultiple === undefined) {
         question.allowMultiple = false;
     }
+
+    // "Favorite adventure sport?" should always allow multiple selections.
+    if (question.column_name === 'fave_sport') {
+        question.allowMultiple = true;
+    }
 });
 
 const ADDRESS_COLUMNS = ['street_address','street_address_2','city','state','zip_code','country'];
@@ -421,14 +426,16 @@ const saveForm = () => {
                         <!-- ✅ Dropdown Options -->
                         <div v-if="question.type === 'dropdown'">
                             <div class="mb-3 flex items-center">
-                                <input 
-                                    type="checkbox" 
-                                    :id="`multiple-option-${question.column_name}`" 
-                                    v-model="question.allowMultiple" 
+                                <input
+                                    type="checkbox"
+                                    :id="`multiple-option-${question.column_name}`"
+                                    v-model="question.allowMultiple"
+                                    :disabled="question.column_name === 'fave_sport'"
                                     class="mr-2"
                                 />
                                 <label :for="`multiple-option-${question.column_name}`" class="font-medium">
                                     Allow multiple selection
+                                    <span v-if="question.column_name === 'fave_sport'" class="text-xs text-gray-500 ml-1">(always enabled)</span>
                                 </label>
                             </div>
                             <label class="font-medium">Dropdown Options:</label>

@@ -42,6 +42,9 @@ class EventImportAllToMailchimpJob implements ShouldQueue
     /** Progress for failure logging (set during run; not serialized in original payload so failed() uses cache). */
     public array $progressForLogging = [];
 
+    /** Admin-configured fave_sport → tag map, loaded from auto-sync settings at run time. */
+    private array $interestTagMap = [];
+
     public function __construct(
         public int $eventId,
         public string $listId,
@@ -244,6 +247,9 @@ class EventImportAllToMailchimpJob implements ShouldQueue
             throw $e;
         }
 
+        $autoSyncSettings = app(\App\Services\AutoMailchimpService::class)->getSettings($this->eventId);
+        $this->interestTagMap = is_array($autoSyncSettings['interest_tag_map'] ?? null) ? $autoSyncSettings['interest_tag_map'] : [];
+
         $locationsToProcess = $this->locationsPayload;
         if ($this->skipAlreadyImported) {
             $alreadyImportedLocationIds = MailchimpImportLog::where('list_id', $this->listId)
@@ -422,7 +428,8 @@ class EventImportAllToMailchimpJob implements ShouldQueue
         string $listId,
         array $subscribers,
         array $tags,
-        ?array $fieldMapping
+        ?array $fieldMapping,
+        ?array $interestTagMap = null
     ): array {
         $totalSuccess = 0;
         $totalFailed = 0;
@@ -447,7 +454,7 @@ class EventImportAllToMailchimpJob implements ShouldQueue
                 }
                 $emailHash = md5($email);
                 $path = "/lists/{$listId}/members/{$emailHash}";
-                $body = $mailchimpService->buildMemberPayloadForBatch($listId, $subscriber, $tags, $fieldMapping, $availableMergeFields);
+                $body = $mailchimpService->buildMemberPayloadForBatch($listId, $subscriber, $tags, $fieldMapping, $availableMergeFields, $interestTagMap);
                 $operations[] = [
                     'method' => 'PUT',
                     'path' => $path,
@@ -615,7 +622,7 @@ class EventImportAllToMailchimpJob implements ShouldQueue
             ]);
         }
 
-        $batchResult = $this->runBatchImport($mailchimpService, $listId, $subscribersToImport, $tags, $this->fieldMapping);
+        $batchResult = $this->runBatchImport($mailchimpService, $listId, $subscribersToImport, $tags, $this->fieldMapping, $this->interestTagMap);
         $locSuccess = $batchResult['success'];
         $batchFailed = $batchResult['failed'];
         $locFailed = $batchFailed + $skippedNoEmail;
@@ -745,7 +752,7 @@ class EventImportAllToMailchimpJob implements ShouldQueue
             );
         }
 
-        $batchResult = $this->runBatchImport($mailchimpService, $listId, $subscribersToImport, $formTags, $this->fieldMapping);
+        $batchResult = $this->runBatchImport($mailchimpService, $listId, $subscribersToImport, $formTags, $this->fieldMapping, $this->interestTagMap);
         $locFormSuccess = $batchResult['success'];
         $locFormFailed = $batchResult['failed'];
         $failedOperations = $batchResult['failed_operations'] ?? [];

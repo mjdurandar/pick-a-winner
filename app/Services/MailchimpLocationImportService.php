@@ -71,12 +71,14 @@ class MailchimpLocationImportService
 
         $mailchimpService = new MailchimpService($mailchimpAccount);
         $logService = new MailchimpLogService;
+        $autoSyncSettings = app(AutoMailchimpService::class)->getSettings($eventId);
+        $interestTagMap = is_array($autoSyncSettings['interest_tag_map'] ?? null) ? $autoSyncSettings['interest_tag_map'] : [];
         $total = 0;
         if ($runTicket) {
-            $total += $this->importTicketData($mailchimpService, $listId, $listName, $mailchimpAccount, $userId, $fieldMapping, $location, $attendees, $tags);
+            $total += $this->importTicketData($mailchimpService, $listId, $listName, $mailchimpAccount, $userId, $fieldMapping, $location, $attendees, $tags, $interestTagMap);
         }
         if ($runForm) {
-            $total += $this->importFormData($mailchimpService, $eventId, $listId, $listName, $mailchimpAccount, $userId, $fieldMapping, $location, $formTags);
+            $total += $this->importFormData($mailchimpService, $eventId, $listId, $listName, $mailchimpAccount, $userId, $fieldMapping, $location, $formTags, $interestTagMap);
         }
 
         return ['imported' => $total, 'skipped' => false];
@@ -87,7 +89,8 @@ class MailchimpLocationImportService
         string $listId,
         array $subscribers,
         array $tags,
-        ?array $fieldMapping
+        ?array $fieldMapping,
+        ?array $interestTagMap = null
     ): array {
         $totalSuccess = 0;
         $totalFailed = 0;
@@ -112,7 +115,7 @@ class MailchimpLocationImportService
                 }
                 $emailHash = md5($email);
                 $path = "/lists/{$listId}/members/{$emailHash}";
-                $body = $mailchimpService->buildMemberPayloadForBatch($listId, $subscriber, $tags, $fieldMapping, $availableMergeFields);
+                $body = $mailchimpService->buildMemberPayloadForBatch($listId, $subscriber, $tags, $fieldMapping, $availableMergeFields, $interestTagMap);
                 $operations[] = [
                     'method' => 'PUT',
                     'path' => $path,
@@ -217,7 +220,8 @@ class MailchimpLocationImportService
         ?array $fieldMapping,
         Location $location,
         array $attendees,
-        array $tags
+        array $tags,
+        ?array $interestTagMap = null
     ): int {
         $locationId = $location->id;
 
@@ -271,7 +275,7 @@ class MailchimpLocationImportService
             return 0;
         }
 
-        $batchResult = $this->runBatchImport($mailchimpService, $listId, $subscribersToImport, $tags, $fieldMapping);
+        $batchResult = $this->runBatchImport($mailchimpService, $listId, $subscribersToImport, $tags, $fieldMapping, $interestTagMap);
         $locSuccess = $batchResult['success'];
         $batchFailed = $batchResult['failed'];
         $failedOperations = $batchResult['failed_operations'] ?? [];
@@ -349,7 +353,8 @@ class MailchimpLocationImportService
         int $userId,
         ?array $fieldMapping,
         Location $location,
-        array $formTags
+        array $formTags,
+        ?array $interestTagMap = null
     ): int {
         $locationId = $location->id;
         $signUpForm = SignUpForm::where('event_id', $eventId)->first();
@@ -401,7 +406,7 @@ class MailchimpLocationImportService
             return 0;
         }
 
-        $batchResult = $this->runBatchImport($mailchimpService, $listId, $subscribersToImport, $formTags, $fieldMapping);
+        $batchResult = $this->runBatchImport($mailchimpService, $listId, $subscribersToImport, $formTags, $fieldMapping, $interestTagMap);
         $locFormSuccess = $batchResult['success'];
         $locFormFailed = $batchResult['failed'];
         $failedOperations = $batchResult['failed_operations'] ?? [];
