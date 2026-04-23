@@ -61,13 +61,13 @@ const userRole = computed(() => user.value?.role);
                                 >
                                     Brands
                                 </NavLink>
-                                <NavLink
+                                <!-- <NavLink
                                     v-if="userRole === 'admin' || userRole === 'host'"
                                     :href="route('mastersheet.index')"
                                     :active="route().current('mastersheet.index')"
                                 >
                                     Master Sheet
-                                </NavLink>
+                                </NavLink> -->
                                 <NavLink
                                     v-if="userRole === 'admin' || userRole === 'host'"
                                     :href="route('pickawinner.index')"
@@ -236,13 +236,13 @@ const userRole = computed(() => user.value?.role);
                                 >
                                     Brands
                         </ResponsiveNavLink>
-                        <ResponsiveNavLink
+                        <!-- <ResponsiveNavLink
                                 v-if="userRole === 'admin' || userRole === 'host'"
                                     :href="route('mastersheet.index')"
                                     :active="route().current('mastersheet.index')"
                                 >
                                     Master Sheet
-                        </ResponsiveNavLink>
+                        </ResponsiveNavLink> -->
                         <ResponsiveNavLink
                                 v-if="userRole === 'admin' || userRole === 'host'"
                                     :href="route('pickawinner.index')"
