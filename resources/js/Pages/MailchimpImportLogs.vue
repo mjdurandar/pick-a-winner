@@ -48,7 +48,9 @@ const props = defineProps({
     events: { type: Array, default: () => [] },
     filterEventId: { type: Number, default: null },
     filterSource: { type: String, default: null }, // 'signup_form' | 'ticket_data' | null
-    searchKeyword: { type: String, default: null }
+    searchKeyword: { type: String, default: null },
+    sortBy: { type: String, default: null },
+    sortDir: { type: String, default: null } // 'asc' | 'desc' | null
 });
 
 const formatImportDate = (dateStr) => {
@@ -415,7 +417,9 @@ const buildLogsQuery = (opts = {}) => {
         source = props.filterSource,
         per_page = props.perPage,
         page = 1,
-        search = props.searchKeyword
+        search = props.searchKeyword,
+        sort_by = props.sortBy,
+        sort_dir = props.sortDir
     } = opts;
     const params = new URLSearchParams();
     if (eventId) params.set('event_id', eventId);
@@ -423,6 +427,10 @@ const buildLogsQuery = (opts = {}) => {
     if (per_page) params.set('per_page', per_page);
     if (per_page && per_page !== 'all' && page > 1) params.set('page', String(page));
     if (search && search.trim()) params.set('search', search.trim());
+    if (sort_by) {
+        params.set('sort_by', sort_by);
+        params.set('sort_dir', sort_dir === 'asc' ? 'asc' : 'desc');
+    }
     return params.toString();
 };
 
@@ -436,31 +444,61 @@ const visitLogs = (opts = {}) => {
     router.visit(q ? `/mailchimp-import-logs?${q}` : '/mailchimp-import-logs');
 };
 
+const baseVisitOpts = () => ({
+    eventId: props.filterEventId || '',
+    source: props.filterSource || '',
+    per_page: props.perPage,
+    search: props.searchKeyword || '',
+    sort_by: props.sortBy || '',
+    sort_dir: props.sortDir || ''
+});
+
 const applyEventFilter = (value) => {
     const eventId = value === '' || value == null ? null : Number(value);
-    visitLogs({ eventId, source: props.filterSource || '', per_page: props.perPage, page: 1, search: props.searchKeyword || '' });
+    visitLogs({ ...baseVisitOpts(), eventId, page: 1 });
 };
 
 const applySourceFilter = (value) => {
     const source = value === '' || value == null ? null : value;
-    visitLogs({ eventId: props.filterEventId || '', source, per_page: props.perPage, page: 1, search: props.searchKeyword || '' });
+    visitLogs({ ...baseVisitOpts(), source, page: 1 });
 };
 
 const applyPerPage = (value) => {
     const per_page = value === '' || value == null ? '10' : value;
-    visitLogs({ eventId: props.filterEventId || '', source: props.filterSource || '', per_page, page: 1, search: props.searchKeyword || '' });
+    visitLogs({ ...baseVisitOpts(), per_page, page: 1 });
 };
 
 const goToPage = (page) => {
     if (page < 1 || (props.pagination && page > props.pagination.last_page)) return;
-    visitLogs({ eventId: props.filterEventId || '', source: props.filterSource || '', per_page: props.perPage, page, search: props.searchKeyword || '' });
+    visitLogs({ ...baseVisitOpts(), page });
 };
 
 const searchKeywordInput = ref(props.searchKeyword ?? '');
 watch(() => props.searchKeyword, (v) => { searchKeywordInput.value = v ?? ''; }, { immediate: true });
 const applySearch = () => {
     const search = (searchKeywordInput.value || '').trim();
-    visitLogs({ eventId: props.filterEventId || '', source: props.filterSource || '', per_page: props.perPage, page: 1, search });
+    visitLogs({ ...baseVisitOpts(), search, page: 1 });
+};
+
+// Click-to-sort: first click = asc, second click on same column = desc, third = clear sort
+const sortableColumns = ['event_name', 'location_name', 'created_at', 'imported_by_name', 'mailchimp_account', 'list_name', 'source', 'status', 'total_data', 'new_contacts', 'updated_data', 'data_with_error'];
+const applySort = (column) => {
+    if (!sortableColumns.includes(column)) return;
+    let nextBy = column;
+    let nextDir = 'asc';
+    if (props.sortBy === column) {
+        if (props.sortDir === 'asc') {
+            nextDir = 'desc';
+        } else {
+            nextBy = '';
+            nextDir = '';
+        }
+    }
+    visitLogs({ ...baseVisitOpts(), sort_by: nextBy, sort_dir: nextDir, page: 1 });
+};
+const sortIcon = (column) => {
+    if (props.sortBy !== column) return 'fa-solid fa-sort text-gray-300';
+    return props.sortDir === 'asc' ? 'fa-solid fa-sort-up text-teal-600' : 'fa-solid fa-sort-down text-teal-600';
 };
 
 const sourceLabel = (source) => {
@@ -1047,18 +1085,18 @@ const exportToCsv = () => {
                             <table class="w-full border-collapse border border-gray-300 text-sm">
                                 <thead class="bg-gray-100">
                                     <tr>
-                                        <th class="border border-gray-300 p-2 text-left whitespace-nowrap">Event</th>
-                                        <th class="border border-gray-300 p-2 text-left whitespace-nowrap">Location</th>
-                                        <th class="border border-gray-300 p-2 text-left whitespace-nowrap">Imported Date</th>
-                                        <th class="border border-gray-300 p-2 text-left whitespace-nowrap">Imported By</th>
-                                        <th class="border border-gray-300 p-2 text-left whitespace-nowrap">Mailchimp Account</th>
-                                        <th class="border border-gray-300 p-2 text-left whitespace-nowrap">Audience</th>
-                                        <th class="border border-gray-300 p-2 text-left whitespace-nowrap">Source</th>
-                                        <th class="border border-gray-300 p-2 text-left whitespace-nowrap">Status</th>
-                                        <th class="border border-gray-300 p-2 text-right whitespace-nowrap">Total Data</th>
-                                        <th class="border border-gray-300 p-2 text-right whitespace-nowrap">New Contacts</th>
-                                        <th class="border border-gray-300 p-2 text-right whitespace-nowrap">Updated Data</th>
-                                        <th class="border border-gray-300 p-2 text-right whitespace-nowrap">Data with Error</th>
+                                        <th class="border border-gray-300 p-2 text-left whitespace-nowrap cursor-pointer select-none hover:bg-gray-200" @click="applySort('event_name')" :title="'Sort by Event'">Event <i :class="sortIcon('event_name')" class="ml-1 text-xs"></i></th>
+                                        <th class="border border-gray-300 p-2 text-left whitespace-nowrap cursor-pointer select-none hover:bg-gray-200" @click="applySort('location_name')" :title="'Sort by Location'">Location <i :class="sortIcon('location_name')" class="ml-1 text-xs"></i></th>
+                                        <th class="border border-gray-300 p-2 text-left whitespace-nowrap cursor-pointer select-none hover:bg-gray-200" @click="applySort('created_at')" :title="'Sort by Imported Date'">Imported Date <i :class="sortIcon('created_at')" class="ml-1 text-xs"></i></th>
+                                        <th class="border border-gray-300 p-2 text-left whitespace-nowrap cursor-pointer select-none hover:bg-gray-200" @click="applySort('imported_by_name')" :title="'Sort by Imported By'">Imported By <i :class="sortIcon('imported_by_name')" class="ml-1 text-xs"></i></th>
+                                        <th class="border border-gray-300 p-2 text-left whitespace-nowrap cursor-pointer select-none hover:bg-gray-200" @click="applySort('mailchimp_account')" :title="'Sort by Mailchimp Account'">Mailchimp Account <i :class="sortIcon('mailchimp_account')" class="ml-1 text-xs"></i></th>
+                                        <th class="border border-gray-300 p-2 text-left whitespace-nowrap cursor-pointer select-none hover:bg-gray-200" @click="applySort('list_name')" :title="'Sort by Audience'">Audience <i :class="sortIcon('list_name')" class="ml-1 text-xs"></i></th>
+                                        <th class="border border-gray-300 p-2 text-left whitespace-nowrap cursor-pointer select-none hover:bg-gray-200" @click="applySort('source')" :title="'Sort by Source'">Source <i :class="sortIcon('source')" class="ml-1 text-xs"></i></th>
+                                        <th class="border border-gray-300 p-2 text-left whitespace-nowrap cursor-pointer select-none hover:bg-gray-200" @click="applySort('status')" :title="'Sort by Status'">Status <i :class="sortIcon('status')" class="ml-1 text-xs"></i></th>
+                                        <th class="border border-gray-300 p-2 text-right whitespace-nowrap cursor-pointer select-none hover:bg-gray-200" @click="applySort('total_data')" :title="'Sort by Total Data'">Total Data <i :class="sortIcon('total_data')" class="ml-1 text-xs"></i></th>
+                                        <th class="border border-gray-300 p-2 text-right whitespace-nowrap cursor-pointer select-none hover:bg-gray-200" @click="applySort('new_contacts')" :title="'Sort by New Contacts'">New Contacts <i :class="sortIcon('new_contacts')" class="ml-1 text-xs"></i></th>
+                                        <th class="border border-gray-300 p-2 text-right whitespace-nowrap cursor-pointer select-none hover:bg-gray-200" @click="applySort('updated_data')" :title="'Sort by Updated Data'">Updated Data <i :class="sortIcon('updated_data')" class="ml-1 text-xs"></i></th>
+                                        <th class="border border-gray-300 p-2 text-right whitespace-nowrap cursor-pointer select-none hover:bg-gray-200" @click="applySort('data_with_error')" :title="'Sort by Data with Error'">Data with Error <i :class="sortIcon('data_with_error')" class="ml-1 text-xs"></i></th>
                                         <th class="border border-gray-300 p-2 text-left whitespace-nowrap">Errors</th>
                                         <th class="border border-gray-300 p-2 text-left whitespace-nowrap">Imported data</th>
                                         <th v-for="i in tagColumnIndices" :key="i" class="border border-gray-300 p-2 text-left whitespace-nowrap">Tag {{ i + 1 }}</th>

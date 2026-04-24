@@ -22,7 +22,6 @@ class Events extends Model
         'event_country',
         'event_uuid',
         'film_id',
-        'resubscribe'
     ];
 
     protected static function boot()

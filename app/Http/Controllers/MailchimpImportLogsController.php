@@ -49,6 +49,25 @@ class MailchimpImportLogsController extends Controller
             ? (int) $perPageParam
             : 'all';
 
+        // Whitelist of sortable columns -> raw SQL expression used for ORDER BY
+        $sortMap = [
+            'event_name' => "COALESCE(mailchimp_import_logs.custom_event_name, events.event_name, '')",
+            'location_name' => "COALESCE(locations.name, 'Manual import')",
+            'created_at' => 'mailchimp_import_logs.created_at',
+            'imported_by_name' => 'users.name',
+            'mailchimp_account' => 'mailchimp_import_logs.mailchimp_account',
+            'list_name' => 'COALESCE(mailchimp_import_logs.list_name, mailchimp_import_logs.list_id)',
+            'source' => "COALESCE(mailchimp_import_logs.custom_source, mailchimp_import_logs.source)",
+            'status' => 'mailchimp_import_logs.status',
+            'total_data' => 'mailchimp_import_logs.total_data',
+            'new_contacts' => 'mailchimp_import_logs.new_contacts',
+            'updated_data' => 'mailchimp_import_logs.updated_data',
+            'data_with_error' => 'mailchimp_import_logs.data_with_error',
+        ];
+        $sortByParam = $request->query('sort_by');
+        $sortBy = is_string($sortByParam) && isset($sortMap[$sortByParam]) ? $sortByParam : null;
+        $sortDir = strtolower((string) $request->query('sort_dir')) === 'asc' ? 'asc' : 'desc';
+
         $applySearch = function ($q) use ($search) {
             if ($search === '') {
                 return;
@@ -117,8 +136,17 @@ class MailchimpImportLogsController extends Controller
             ->when($eventId, fn ($q) => $q->where(function ($q) use ($eventId) {
                 $q->where('locations.event_id', $eventId)->orWhereNull('mailchimp_import_logs.location_id');
             }))
-            ->when($source && in_array($source, ['signup_form', 'ticket_data', 'manual_csv']), fn ($q) => $q->where('mailchimp_import_logs.source', $source))
-            ->orderByDesc('mailchimp_import_logs.created_at');
+            ->when($source && in_array($source, ['signup_form', 'ticket_data', 'manual_csv']), fn ($q) => $q->where('mailchimp_import_logs.source', $source));
+
+        if ($sortBy !== null) {
+            $query->orderByRaw($sortMap[$sortBy] . ' ' . strtoupper($sortDir));
+            if ($sortBy !== 'created_at') {
+                $query->orderByDesc('mailchimp_import_logs.created_at');
+            }
+        } else {
+            $query->orderByDesc('mailchimp_import_logs.created_at');
+        }
+
         $applySearch($query);
 
         $normalizeLog = function ($log) {
@@ -144,10 +172,12 @@ class MailchimpImportLogsController extends Controller
                 'filterEventId' => $eventId ? (int) $eventId : null,
                 'filterSource' => $source && in_array($source, ['signup_form', 'ticket_data', 'manual_csv']) ? $source : null,
                 'searchKeyword' => $search !== '' ? $search : null,
+                'sortBy' => $sortBy,
+                'sortDir' => $sortBy ? $sortDir : null,
             ]);
         }
 
-        $paginator = $query->paginate($perPage)->through($normalizeLog);
+        $paginator = $query->paginate($perPage)->withQueryString()->through($normalizeLog);
         $events = Events::orderBy('event_name')->get(['id', 'event_name']);
         return Inertia::render('MailchimpImportLogs', [
             'mailchimpImportLogs' => $paginator->items(),
@@ -166,6 +196,8 @@ class MailchimpImportLogsController extends Controller
             'filterEventId' => $eventId ? (int) $eventId : null,
             'filterSource' => $source && in_array($source, ['signup_form', 'ticket_data', 'manual_csv']) ? $source : null,
             'searchKeyword' => $search !== '' ? $search : null,
+            'sortBy' => $sortBy,
+            'sortDir' => $sortBy ? $sortDir : null,
         ]);
     }
 
