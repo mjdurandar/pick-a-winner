@@ -83,6 +83,8 @@ Route::middleware(['auth', RoleMiddleware::class . ':admin,host'])->group(functi
     Route::get('/attendees/{eventId}', [AttendeesController::class, 'index'])->name('attendees.index');
     Route::get('/attendees/{eventId}/export-all', [AttendeesController::class, 'exportAll'])->name('attendees.exportAll');
     Route::get('/attendees/{eventId}/export-csv', [AttendeesController::class, 'exportCsv'])->name('attendees.exportCsv');
+    Route::get('/attendees/{eventId}/export-tickets', [AttendeesController::class, 'exportTickets'])->name('attendees.exportTickets');
+    Route::get('/attendees/{eventId}/export-all-win-tix', [AttendeesController::class, 'exportAllWinTix'])->name('attendees.exportAllWinTix');
     Route::get('/attendees/{eventId}/location/{locationId}', [AttendeesController::class, 'locationAttendees'])->name('attendees.location');
     Route::put('/attendees/{id}', [AttendeesController::class, 'update'])->name('attendees.update');
     Route::delete('/attendee/{attendee}/event/{event}', [AttendeesController::class, 'destroy'])->name('attendees.destroy');

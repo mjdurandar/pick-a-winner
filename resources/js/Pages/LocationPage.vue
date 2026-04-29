@@ -1798,13 +1798,13 @@ const DEFAULT_INTEREST_TAG_MAP = [
     { prefix: 'snow sports', tag: 'INT - SNOWSPORTS' },
     { prefix: 'climbing', tag: 'INT - CLIMBING' },
     { prefix: 'running', tag: 'INT - RUNNING' },
-    { prefix: 'trail sports', tag: 'INT - TRAILSPORTS' },
+    { prefix: 'trail sports', tag: 'INT - TRAILSPORTS, INT - RUNNING' },
     { prefix: 'skate sports', tag: 'INT - SKATEBOARDING' },
     { prefix: 'cycling', tag: 'INT - MTB' },
     { prefix: 'water sports', tag: 'INT - WATERSPORTS' },
     { prefix: 'outdoor', tag: 'INT - OUTDOOR' },
-    { prefix: 'aerial', tag: 'INT - ALL' },
-    { prefix: 'extreme', tag: 'INT - ALL' },
+    { prefix: 'aerial', tag: 'INT - OUTDOOR, INT - ENVIRONMENT' },
+    { prefix: 'extreme', tag: 'INT - OUTDOOR, INT - ENVIRONMENT' },
     { prefix: 'other', tag: 'INT - ALL' },
 ];
 

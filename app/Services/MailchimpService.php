@@ -74,13 +74,13 @@ class MailchimpService
             'snow sports' => 'INT - SNOWSPORTS',
             'climbing' => 'INT - CLIMBING',
             'running' => 'INT - RUNNING',
-            'trail sports' => 'INT - TRAILSPORTS',
+            'trail sports' => 'INT - TRAILSPORTS, INT - RUNNING',
             'skate sports' => 'INT - SKATEBOARDING',
             'cycling' => 'INT - MTB',
             'water sports' => 'INT - WATERSPORTS',
             'outdoor' => 'INT - OUTDOOR',
-            'aerial' => 'INT - ALL',
-            'extreme' => 'INT - ALL',
+            'aerial' => 'INT - OUTDOOR, INT - ENVIRONMENT',
+            'extreme' => 'INT - OUTDOOR, INT - ENVIRONMENT',
             'other' => 'INT - ALL',
         ];
 
@@ -112,12 +112,12 @@ class MailchimpService
 
             if ($useCustom) {
                 if (isset($normalizedCustom[$v])) {
-                    $tags[] = $normalizedCustom[$v];
+                    $tags = array_merge($tags, self::splitTagString($normalizedCustom[$v]));
                     continue;
                 }
                 foreach ($normalizedCustom as $key => $tag) {
                     if ($key !== '' && strpos($v, $key) === 0) {
-                        $tags[] = $tag;
+                        $tags = array_merge($tags, self::splitTagString($tag));
                         break;
                     }
                 }
@@ -126,13 +126,23 @@ class MailchimpService
 
             foreach ($defaultMap as $prefix => $tag) {
                 if (strpos($v, $prefix) === 0) {
-                    $tags[] = $tag;
+                    $tags = array_merge($tags, self::splitTagString($tag));
                     break;
                 }
             }
         }
 
         return array_values(array_unique($tags));
+    }
+
+    /**
+     * Split a comma-separated tag string into individual trimmed tags.
+     * Lets a single mapping value (e.g. "INT - OUTDOOR, INT - ENVIRONMENT")
+     * apply multiple Mailchimp tags from one fave_sport answer.
+     */
+    private static function splitTagString(string $value): array
+    {
+        return array_values(array_filter(array_map('trim', explode(',', $value)), fn ($t) => $t !== ''));
     }
 
     public static function getAvailableAccounts()

@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed } from 'vue';
+import { ref, computed, onMounted, onBeforeUnmount } from 'vue';
 import Swal from 'sweetalert2';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout.vue';
 import { Head, router } from '@inertiajs/vue3';
@@ -23,7 +23,6 @@ const itemsPerPage = 20;
 const showExportModal = ref(false);
 const exportTags = ref('');
 const defaultSourceWord = ref('WM'); // Default word for SOURCE tag
-const isExporting = ref(false); // Loading state when fetching all for export
 
 // Debounce the search to prevent excessive filtering
 const updateDebouncedSearch = debounce((value) => {
@@ -46,24 +45,6 @@ const columnHeaders = computed(() => {
         return columns;
     }
     return [];
-});
-
-// ✅ Export: use all columns that appear in ANY attendee so we don't miss data
-const exportColumnHeaders = computed(() => {
-    if (props.attendees.length === 0) return [];
-    const allKeys = new Set();
-    props.attendees.forEach(attendee => {
-        Object.keys(attendee).forEach(key => {
-            if (!excludedExportColumns.includes(key)) allKeys.add(key);
-        });
-    });
-    // Stable order: use first row's key order as base, then append any extra keys from other rows
-    const firstRowKeys = Object.keys(props.attendees[0]).filter(col => !excludedExportColumns.includes(col));
-    const ordered = [...firstRowKeys];
-    allKeys.forEach(key => {
-        if (!ordered.includes(key)) ordered.push(key);
-    });
-    return ordered;
 });
 
 // ✅ Get question text for a column name
@@ -139,77 +120,77 @@ const goToPage = (page) => {
     }
 };
 
-// ✅ Show export modal
-const showExportModalDialog = () => {
-    if (filteredAttendees.value.length === 0) {
-        Swal.fire('No Data', 'No attendees found to export.', 'warning');
-        return;
+// ✅ Open a server-side export URL in a new tab (browser triggers the download)
+const openExportUrl = (url) => {
+    window.open(url, '_blank');
+};
+
+// Export dropdown state
+const showExportDropdown = ref(false);
+const exportDropdownRef = ref(null);
+
+const toggleExportDropdown = () => {
+    showExportDropdown.value = !showExportDropdown.value;
+};
+const closeExportDropdown = () => {
+    showExportDropdown.value = false;
+};
+const handleExportDropdownOutsideClick = (e) => {
+    if (exportDropdownRef.value && !exportDropdownRef.value.contains(e.target)) {
+        closeExportDropdown();
     }
+};
+onMounted(() => document.addEventListener('mousedown', handleExportDropdownOutsideClick));
+onBeforeUnmount(() => document.removeEventListener('mousedown', handleExportDropdownOutsideClick));
+
+// Tracks which export the modal is configuring: 'all' | 'win' | 'tix'
+const pendingExportType = ref(null);
+
+const openExportModal = (type) => {
+    pendingExportType.value = type;
     exportTags.value = '';
-    defaultSourceWord.value = 'WM'; // Reset to default
+    defaultSourceWord.value = 'WM';
     showExportModal.value = true;
 };
 
-// ✅ Build column headers for export from an attendees array (and optional form for labels)
-function getExportColumns(attendees, form = null) {
-    if (!attendees.length) return [];
-    const allKeys = new Set();
-    attendees.forEach(a => {
-        Object.keys(a).forEach(key => {
-            if (!excludedExportColumns.includes(key)) allKeys.add(key);
-        });
-    });
-    const firstRowKeys = Object.keys(attendees[0]).filter(col => !excludedExportColumns.includes(col));
-    const ordered = [...firstRowKeys];
-    allKeys.forEach(key => { if (!ordered.includes(key)) ordered.push(key); });
-    return ordered;
-}
+const exportTypeLabel = computed(() => {
+    if (pendingExportType.value === 'all') return 'All Data (Win/Tix)';
+    if (pendingExportType.value === 'tix') return 'Tix Data';
+    if (pendingExportType.value === 'win') return 'Win Data';
+    return '';
+});
 
-// ✅ Get question text for a column (optionally pass form from export response)
-function getQuestionTextForExport(columnName, form = null) {
-    const f = form || props.form;
-    if (!f?.questions) return formatHeader(columnName);
-    const questions = typeof f.questions === 'string' ? JSON.parse(f.questions) : f.questions;
-    const q = questions.find(x => x.column_name === columnName);
-    return q ? q.text : formatHeader(columnName);
-}
+// Wrappers used by dropdown items so the menu closes after a selection
+const exportAllWinTix = () => {
+    closeExportDropdown();
+    openExportModal('all');
+};
+const exportWinDataCsv = () => {
+    closeExportDropdown();
+    openExportModal('win');
+};
+const exportTixDataCsv = () => {
+    closeExportDropdown();
+    openExportModal('tix');
+};
+const exportWinnersFiltered = () => {
+    closeExportDropdown();
+    exportWinnersToCSV();
+};
 
-// ✅ Build and download CSV from an attendees array (used for both in-memory and API export)
-function buildAndDownloadCSV(data, form = null) {
-    const cols = getExportColumns(data, form);
-    const headers = [
-        ...cols.map(col => `"${getQuestionTextForExport(col, form)}"`),
-        '"Opt In Date"',
-        '"Tags"'
-    ];
-    let csvContent = "data:text/csv;charset=utf-8," + headers.join(",") + "\n";
-    const manualTags = exportTags.value.split(',').map(tag => tag.trim().toUpperCase()).filter(Boolean);
-    data.forEach(attendee => {
-        const dataRow = cols.map(col => `"${(attendee[col] ?? '').toString().replace(/"/g, '""')}"`);
-        dataRow.push(`"${formatOptInDate(attendee.created_at)}"`);
-        const automatedTags = generateAutomatedTags(attendee);
-        const finalTags = [...automatedTags, ...manualTags].join(', ');
-        dataRow.push(`"${finalTags.replace(/"/g, '""')}"`);
-        csvContent += dataRow.join(",") + "\n";
-    });
-    const link = document.createElement("a");
-    link.setAttribute("href", encodeURI(csvContent));
-    link.setAttribute("download", `attendees_${props.event?.event_name || 'event'}.csv`);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-}
-
-// ✅ Export all data in the table – GET to server which streams the full CSV (no limit, every location)
-const exportToCSV = () => {
-    const url = route('attendees.exportCsv', {
+// Triggered by the modal's confirm button — routes to the right endpoint with tag config
+const confirmExport = () => {
+    const params = {
         eventId: props.event.id,
         defaultSourceWord: defaultSourceWord.value || 'WM',
         exportTags: exportTags.value || '',
-    });
-    window.open(url, '_blank');
-    showExportModal.value = false;
-    Swal.fire('Export started', 'Your CSV is downloading. It includes all attendees from every location.', 'success');
+    };
+    let routeName = 'attendees.exportCsv';
+    if (pendingExportType.value === 'all') routeName = 'attendees.exportAllWinTix';
+    else if (pendingExportType.value === 'tix') routeName = 'attendees.exportTickets';
+    openExportUrl(route(routeName, params));
+    closeExportModal();
+    Swal.fire('Export started', 'Your CSV is downloading.', 'success');
 };
 
 // ✅ Close export modal
@@ -251,84 +232,6 @@ const exportWinnersToCSV = () => {
     link.click();
     document.body.removeChild(link);
     Swal.fire('Exported', `Exported ${prizes.length} winner(s) to CSV.`, 'success');
-};
-
-// ✅ Extract location name from Location Name column
-const extractLocationName = (locationName) => {
-    if (!locationName) return '';
-    // Get the part before the dash and trim whitespace
-    const parts = locationName.split(' - ');
-    return parts[0] ? parts[0].trim() : locationName.trim();
-};
-
-// ✅ Generate automated tags based on location and default word
-const generateAutomatedTags = (attendee) => {
-    const locationName = attendee.location_name || '';
-    const extractedLocation = extractLocationName(locationName);
-    const eventYear = props.event?.event_year || new Date().getFullYear();
-    
-    const automatedTags = [];
-    
-    if (extractedLocation) {
-        // Check if event country is USA or CANADA
-        const eventCountry = (props.event?.event_country || '').toUpperCase();
-        const isUsaOrCanada = ['USA', 'CANADA', 'USA & CANADA'].includes(eventCountry);
-        
-        // Extract state from location (last 2-3 letter word) for USA/CANADA
-        let state = '';
-        let locationWithoutState = extractedLocation.toUpperCase();
-        
-        if (isUsaOrCanada) {
-            const locationParts = extractedLocation.toUpperCase().split(' ').filter(Boolean);
-            if (locationParts.length > 1) {
-                const lastPart = locationParts[locationParts.length - 1];
-                // Check if last part is a state code (2-3 uppercase letters)
-                if (/^[A-Z]{2,3}$/.test(lastPart)) {
-                    state = lastPart;
-                    locationWithoutState = locationParts.slice(0, -1).join(' ').trim();
-                }
-            }
-        }
-        
-        // Format tags
-        const showTagLocation = isUsaOrCanada && state 
-            ? `${locationWithoutState}, ${state}` 
-            : extractedLocation.toUpperCase();
-        const sourceTagLocation = isUsaOrCanada && state 
-            ? locationWithoutState 
-            : extractedLocation.toUpperCase();
-        
-        // Add SHOW - {LOCATION} tag
-        automatedTags.push(`SHOW - ${showTagLocation}`);
-        
-        // Add SOURCE - {DEFAULT_WORD} {LOCATION} COMP {YEAR} tag (without state)
-        automatedTags.push(`SOURCE - ${defaultSourceWord.value.toUpperCase()} ${sourceTagLocation} COMP ${eventYear}`);
-    }
-    
-    return automatedTags;
-};
-
-// ✅ Format created_at date as Opt In Date with time
-const formatOptInDate = (dateString) => {
-    if (!dateString) return '';
-    
-    try {
-        const date = new Date(dateString);
-        if (isNaN(date.getTime())) return dateString; // Return original if invalid
-        
-        // Format as YYYY-MM-DD HH:MM:SS (standard date and time format)
-        const year = date.getFullYear();
-        const month = String(date.getMonth() + 1).padStart(2, '0');
-        const day = String(date.getDate()).padStart(2, '0');
-        const hours = String(date.getHours()).padStart(2, '0');
-        const minutes = String(date.getMinutes()).padStart(2, '0');
-        const seconds = String(date.getSeconds()).padStart(2, '0');
-        
-        return `${year}-${month}-${day} ${hours}:${minutes}:${seconds}`;
-    } catch (e) {
-        console.error("Error formatting opt in date:", e);
-        return dateString;
-    }
 };
 
 // ✅ Delete Attendee with Confirmation
@@ -376,24 +279,55 @@ const deleteAttendee = (attendeeId, eventId) => {
                                 @input="handleSearchInput"
                             />
                             <div class="flex gap-2">
-                                <!-- ✅ Export Winners Button (inside Database page) -->
-                                <button 
-                                    v-if="(prizes || []).length > 0"
-                                    @click="exportWinnersToCSV"
-                                    class="bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700"
-                                    title="Export all winners to CSV"
-                                >
-                                    <i class="fa-solid fa-trophy"></i> Export winners
-                                </button>
-                                <!-- ✅ Export Attendees CSV Button -->
-                                <button 
-                                    @click="showExportModalDialog" 
-                                    class="bg-green-500 text-white px-4 py-2 rounded hover:bg-green-700"
-                                    title="Export all data from the table below (CSV with tags)"
-                                >
-                                    Export Attendees
-                                    <i class="fa-solid fa-file-csv"></i>
-                                </button>
+                                <!-- ✅ Export Dropdown (consolidates all export options) -->
+                                <div ref="exportDropdownRef" class="relative">
+                                    <button
+                                        @click="toggleExportDropdown"
+                                        class="bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700 inline-flex items-center gap-2"
+                                        title="Choose what to export"
+                                    >
+                                        <i class="fa-solid fa-file-export"></i>
+                                        Export
+                                        <i class="fa-solid fa-chevron-down text-xs"></i>
+                                    </button>
+                                    <div
+                                        v-if="showExportDropdown"
+                                        class="absolute right-0 mt-2 w-72 bg-white border border-gray-200 rounded-md shadow-lg z-50 py-1"
+                                    >
+                                        <button
+                                            @click="exportAllWinTix"
+                                            class="w-full text-left px-4 py-2 hover:bg-gray-100 text-sm flex items-center gap-2"
+                                            title="Combined sign-up + ticket data, deduplicated by email"
+                                        >
+                                            <i class="fa-solid fa-file-csv text-purple-600 w-4"></i>
+                                            <span>All Data (Win/Tix) — CSV</span>
+                                        </button>
+                                        <button
+                                            @click="exportWinDataCsv"
+                                            class="w-full text-left px-4 py-2 hover:bg-gray-100 text-sm flex items-center gap-2"
+                                        >
+                                            <i class="fa-solid fa-file-csv text-amber-600 w-4"></i>
+                                            <span>Win Data — CSV</span>
+                                        </button>
+                                        <button
+                                            @click="exportTixDataCsv"
+                                            class="w-full text-left px-4 py-2 hover:bg-gray-100 text-sm flex items-center gap-2"
+                                        >
+                                            <i class="fa-solid fa-file-csv text-sky-600 w-4"></i>
+                                            <span>Tix Data — CSV</span>
+                                        </button>
+                                        <div class="border-t border-gray-100 my-1"></div>
+                                        <button
+                                            v-if="(prizes || []).length > 0"
+                                            @click="exportWinnersFiltered"
+                                            class="w-full text-left px-4 py-2 hover:bg-gray-100 text-sm flex items-center gap-2"
+                                            title="Only winners that have an email"
+                                        >
+                                            <i class="fa-solid fa-trophy text-green-600 w-4"></i>
+                                            <span>Winners with email — CSV</span>
+                                        </button>
+                                    </div>
+                                </div>
                             </div>
                         </div>
 
@@ -512,30 +446,30 @@ const deleteAttendee = (attendeeId, eventId) => {
         <div v-if="showExportModal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
             <div class="bg-white p-6 rounded-lg shadow-xl max-w-md w-full mx-4">
                 <div class="flex justify-between items-center mb-4">
-                    <h3 class="text-lg font-semibold">Export all attendees (CSV with tags)</h3>
+                    <h3 class="text-lg font-semibold">Export {{ exportTypeLabel }} — Film Tour Code &amp; Tags</h3>
                     <button @click="closeExportModal" class="text-gray-500 hover:text-gray-700">
                         <i class="fa-solid fa-times"></i>
                     </button>
                 </div>
-                
+
                 <div class="space-y-4">
                     <p class="text-gray-600">
-                        This will export <strong>all attendees</strong> from the table below (all locations). Configure tags for the CSV file.
+                        Configure the tags that will be added to the <strong>{{ exportTypeLabel }}</strong> CSV.
                     </p>
 
-                    <!-- Default Source Word Input -->
+                    <!-- Film Tour Code Input -->
                     <div class="mb-4">
                         <label class="block text-sm font-medium text-gray-700 mb-2">
-                            Default Source Word
+                            Film Tour Code
                         </label>
-                        <input 
-                            type="text" 
+                        <input
+                            type="text"
                             v-model="defaultSourceWord"
                             class="w-full border rounded px-3 py-2"
                             placeholder="e.g., WM, RUNNATION, etc."
                         />
                         <p class="text-sm text-gray-500 mt-1">
-                            This will be used in the SOURCE tag: SOURCE - {WORD} {LOCATION} COMP {{ props.event?.event_year || new Date().getFullYear() }}
+                            Used in the SOURCE tag: SOURCE - {CODE} {LOCATION} COMP {{ props.event?.event_year || new Date().getFullYear() }}
                         </p>
                     </div>
 
@@ -543,56 +477,49 @@ const deleteAttendee = (attendeeId, eventId) => {
                     <div class="mb-4 p-3 bg-blue-50 rounded-lg">
                         <h4 class="font-semibold text-blue-800 mb-2">Automated Tags Preview:</h4>
                         <div class="text-sm text-blue-700">
-                            <div v-if="props.attendees.length > 0">
-                                <div class="mb-1">
-                                    <strong>SHOW - {LOCATION}</strong> (extracted from Location Name before the dash)
-                                </div>
-                                <div class="mb-1">
-                                    <strong>SOURCE - {{ defaultSourceWord.toUpperCase() }} {LOCATION} COMP {{ props.event?.event_year || new Date().getFullYear() }}</strong>
-                                </div>
-                                <div class="text-xs text-blue-600 mt-2">
-                                    Example: If Location Name is "Melbourne - Classic Cinema", it will generate:
-                                    <br>• SHOW - MELBOURNE
-                                    <br>• SOURCE - {{ defaultSourceWord.toUpperCase() }} MELBOURNE COMP {{ props.event?.event_year || new Date().getFullYear() }}
-                                </div>
+                            <div class="mb-1">
+                                <strong>SHOW - {LOCATION}</strong> (extracted from Location Name before the dash)
                             </div>
-                            <div v-else class="text-gray-500">
-                                No attendees found to preview
+                            <div class="mb-1">
+                                <strong>SOURCE - {{ defaultSourceWord.toUpperCase() }} {LOCATION} COMP {{ props.event?.event_year || new Date().getFullYear() }}</strong>
+                            </div>
+                            <div class="text-xs text-blue-600 mt-2">
+                                Example: If Location Name is "Melbourne - Classic Cinema", it will generate:
+                                <br>• SHOW - MELBOURNE
+                                <br>• SOURCE - {{ defaultSourceWord.toUpperCase() }} MELBOURNE COMP {{ props.event?.event_year || new Date().getFullYear() }}
                             </div>
                         </div>
                     </div>
 
-                    <!-- Manual Tags Input -->
+                    <!-- Default Tags Input -->
                     <div class="mb-4">
                         <label class="block text-sm font-medium text-gray-700 mb-2">
-                            Additional Manual Tags (comma-separated)
+                            Default Tags (comma-separated)
                         </label>
-                        <input 
-                            type="text" 
+                        <input
+                            type="text"
                             v-model="exportTags"
                             class="w-full border rounded px-3 py-2"
                             placeholder="e.g., 2025, FILM TOUR - WARREN MILLER, SPECIAL EVENT"
                         />
                         <p class="text-sm text-gray-500 mt-1">
-                            Enter additional tags separated by commas. These will be added to the automated tags.
+                            Tags added to every row in addition to the automated ones above.
                         </p>
                     </div>
 
                     <div class="flex justify-end space-x-3">
-                        <button 
+                        <button
                             @click="closeExportModal"
                             class="px-4 py-2 border rounded text-gray-600 hover:bg-gray-50"
                         >
                             Cancel
                         </button>
-                        <button 
-                            @click="exportToCSV"
-                            :disabled="isExporting"
-                            class="px-4 py-2 bg-green-500 text-white rounded hover:bg-green-600 disabled:opacity-50 disabled:cursor-not-allowed"
+                        <button
+                            @click="confirmExport"
+                            class="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700"
                         >
-                            <i v-if="isExporting" class="fa-solid fa-spinner fa-spin mr-2"></i>
-                            <i v-else class="fa-solid fa-file-csv mr-2"></i>
-                            {{ isExporting ? 'Exporting...' : 'Export attendees' }}
+                            <i class="fa-solid fa-file-csv mr-2"></i>
+                            Export
                         </button>
                     </div>
                 </div>
