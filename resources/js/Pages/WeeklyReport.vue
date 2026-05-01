@@ -336,8 +336,17 @@ const doExportEndOfFilmTourPdf = async (lastFilmSignups, lastFilmYear) => {
         body: JSON.stringify(body)
     });
     if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || 'PDF export failed');
+        const text = await response.text();
+        let message = `PDF export failed (HTTP ${response.status})`;
+        try {
+            const errorData = JSON.parse(text);
+            if (errorData?.error) message = errorData.error;
+            else if (errorData?.message) message = errorData.message;
+        } catch (_) {
+            const stripped = text.replace(/<[^>]*>/g, '').trim().slice(0, 300);
+            if (stripped) message = `${message}: ${stripped}`;
+        }
+        throw new Error(message);
     }
     const blob = await response.blob();
     const url = window.URL.createObjectURL(blob);

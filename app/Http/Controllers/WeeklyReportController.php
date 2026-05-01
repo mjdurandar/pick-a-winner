@@ -9,6 +9,7 @@ use App\Models\SignUpForm;
 use App\Models\TicketAttendee;
 use Inertia\Inertia;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 use Carbon\Carbon;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Illuminate\Support\Facades\Log;
@@ -1663,17 +1664,24 @@ class WeeklyReportController extends Controller
             return response()->json(['error' => 'Validation failed: ' . $e->getMessage()], 400);
         }
 
-        $event = Events::with(['signUpForm', 'locations', 'film'])->findOrFail($request->event_id);
-        $lastFilmSignups = $request->filled('last_film_signups') ? (int) $request->last_film_signups : null;
-        $lastFilmYear = $request->filled('last_film_year') ? (int) $request->last_film_year : null;
+        try {
+            $event = Events::with(['signUpForm', 'locations', 'film'])->findOrFail($request->event_id);
+            $lastFilmSignups = $request->filled('last_film_signups') ? (int) $request->last_film_signups : null;
+            $lastFilmYear = $request->filled('last_film_year') ? (int) $request->last_film_year : null;
 
-        if (!$event->signUpForm || !$event->signUpForm->table_name) {
-            return response()->json([
-                'error' => 'This event does not have a signup form'
-            ], 404);
-        }
+            if (!$event->signUpForm || !$event->signUpForm->table_name) {
+                return response()->json([
+                    'error' => 'This event does not have a signup form'
+                ], 404);
+            }
 
-        $tableName = $event->signUpForm->table_name;
+            $tableName = $event->signUpForm->table_name;
+
+            if (!Schema::hasTable($tableName)) {
+                return response()->json([
+                    'error' => "Signup form table '{$tableName}' does not exist"
+                ], 404);
+            }
         $questions = json_decode($event->signUpForm->questions, true) ?? [];
         $allSignups = DB::table($tableName)->where('event_id', $event->id)->get();
         $totalSignups = $allSignups->count();
@@ -1852,14 +1860,19 @@ class WeeklyReportController extends Controller
 
         $film = $event->film;
 
-        try {
             $pdf = Pdf::loadView('reports.end-of-film-tour-pdf', compact('event', 'film', 'totalSignups', 'totalTickets', 'breakdown', 'locationBreakdown', 'lastFilmSignups', 'lastFilmYear'));
             $pdf->setPaper('A4', 'portrait');
             $filename = 'end_of_film_tour_' . Str::slug($event->event_name) . '_' . date('Y-m-d') . '.pdf';
             return $pdf->download($filename);
-        } catch (\Exception $e) {
-            Log::error('End of Film Tour PDF Generation Error: ' . $e->getMessage());
-            return response()->json(['error' => 'PDF generation failed: ' . $e->getMessage()], 500);
+        } catch (\Throwable $e) {
+            Log::error('End of Film Tour PDF Export Error: ' . $e->getMessage(), [
+                'file' => $e->getFile(),
+                'line' => $e->getLine(),
+                'trace' => $e->getTraceAsString(),
+            ]);
+            return response()->json([
+                'error' => 'Export failed: ' . $e->getMessage(),
+            ], 500);
         }
     }
 }
