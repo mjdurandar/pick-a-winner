@@ -44,7 +44,7 @@ const props = defineProps({
     mailchimpImportLogs: { type: Array, default: () => [] },
     pagination: { type: Object, default: null }, // { current_page, last_page, per_page, total, from, to, links }
     perPage: { type: String, default: '10' }, // '10' | '50' | '100' | 'all'
-    totalsFiltered: { type: Object, default: null }, // { totalImports, totalData, newContacts, updatedData, dataWithError } – all matching logs (event/source filter only)
+    totalsFiltered: { type: Object, default: null }, // { totalImports, totalData, newContacts, updatedData, dataWithError, totalResubscribed } – all matching logs (event/source filter only)
     events: { type: Array, default: () => [] },
     filterEventId: { type: Number, default: null },
     filterSource: { type: String, default: null }, // 'signup_form' | 'ticket_data' | null
@@ -481,7 +481,7 @@ const applySearch = () => {
 };
 
 // Click-to-sort: first click = asc, second click on same column = desc, third = clear sort
-const sortableColumns = ['event_name', 'location_name', 'created_at', 'imported_by_name', 'mailchimp_account', 'list_name', 'source', 'status', 'total_data', 'new_contacts', 'updated_data', 'data_with_error'];
+const sortableColumns = ['event_name', 'location_name', 'created_at', 'imported_by_name', 'mailchimp_account', 'list_name', 'source', 'status', 'total_data', 'new_contacts', 'updated_data', 'data_with_error', 'total_resubscribed'];
 const applySort = (column) => {
     if (!sortableColumns.includes(column)) return;
     let nextBy = column;
@@ -505,6 +505,7 @@ const sourceLabel = (source) => {
     if (!source) return '—';
     if (source === 'ticket_data') return 'Ticket data';
     if (source === 'manual_csv') return 'Manual CSV';
+    if (source === 'signup_form_resub') return 'Newsletter resubscribe';
     return 'Signup form';
 };
 
@@ -524,6 +525,7 @@ const totalsBreakdown = computed(() => {
             newContacts: t.newContacts ?? 0,
             updatedData: t.updatedData ?? 0,
             dataWithError: t.dataWithError ?? 0,
+            totalResubscribed: t.totalResubscribed ?? 0,
         };
     }
     const logs = filteredLogs.value;
@@ -533,6 +535,7 @@ const totalsBreakdown = computed(() => {
         newContacts: logs.reduce((s, l) => s + (l.new_contacts ?? 0), 0),
         updatedData: logs.reduce((s, l) => s + (l.updated_data ?? 0), 0),
         dataWithError: logs.reduce((s, l) => s + (l.data_with_error ?? 0), 0),
+        totalResubscribed: logs.reduce((s, l) => s + (l.total_resubscribed ?? 0), 0),
     };
 });
 
@@ -909,7 +912,7 @@ const deleteAllLogs = () => {
 const exportToCsv = () => {
     const n = maxTagColumns.value;
     const headers = [
-        'Event', 'Location', 'Imported Date', 'Imported By', 'Source', 'Status', 'Total Data', 'New Contacts', 'Updated Data', 'Data with Error', 'Errors', 'Imported data file',
+        'Event', 'Location', 'Imported Date', 'Imported By', 'Source', 'Status', 'Total Data', 'New Contacts', 'Updated Data', 'Data with Error', 'Resubscribed', 'Errors', 'Imported data file',
         ...Array.from({ length: n }, (_, i) => `Tag ${i + 1}`)
     ];
     const escape = (v) => {
@@ -928,6 +931,7 @@ const exportToCsv = () => {
             log.new_contacts ?? 0,
             log.updated_data ?? 0,
             log.data_with_error ?? 0,
+            log.total_resubscribed ?? 0,
             formatErrors(log.errors),
             log.has_import_file ? 'Yes' : 'No'
         ];
@@ -988,6 +992,7 @@ const exportToCsv = () => {
                                         <option value="signup_form">Signup form</option>
                                         <option value="ticket_data">Ticket data</option>
                                         <option value="manual_csv">Manual CSV</option>
+                                        <option value="signup_form_resub">Newsletter resubscribe</option>
                                     </select>
                                 </div>
                                 <div class="flex items-center gap-2">
@@ -1097,6 +1102,7 @@ const exportToCsv = () => {
                                         <th class="border border-gray-300 p-2 text-right whitespace-nowrap cursor-pointer select-none hover:bg-gray-200" @click="applySort('new_contacts')" :title="'Sort by New Contacts'">New Contacts <i :class="sortIcon('new_contacts')" class="ml-1 text-xs"></i></th>
                                         <th class="border border-gray-300 p-2 text-right whitespace-nowrap cursor-pointer select-none hover:bg-gray-200" @click="applySort('updated_data')" :title="'Sort by Updated Data'">Updated Data <i :class="sortIcon('updated_data')" class="ml-1 text-xs"></i></th>
                                         <th class="border border-gray-300 p-2 text-right whitespace-nowrap cursor-pointer select-none hover:bg-gray-200" @click="applySort('data_with_error')" :title="'Sort by Data with Error'">Data with Error <i :class="sortIcon('data_with_error')" class="ml-1 text-xs"></i></th>
+                                        <th class="border border-gray-300 p-2 text-right whitespace-nowrap cursor-pointer select-none hover:bg-gray-200" @click="applySort('total_resubscribed')" :title="'Sort by Resubscribed'">Resubscribed <i :class="sortIcon('total_resubscribed')" class="ml-1 text-xs"></i></th>
                                         <th class="border border-gray-300 p-2 text-left whitespace-nowrap">Errors</th>
                                         <th class="border border-gray-300 p-2 text-left whitespace-nowrap">Imported data</th>
                                         <th v-for="i in tagColumnIndices" :key="i" class="border border-gray-300 p-2 text-left whitespace-nowrap">Tag {{ i + 1 }}</th>
@@ -1134,6 +1140,7 @@ const exportToCsv = () => {
                                         <td class="border border-gray-300 p-2 text-right whitespace-nowrap">{{ log.new_contacts ?? 0 }}</td>
                                         <td class="border border-gray-300 p-2 text-right whitespace-nowrap">{{ log.updated_data ?? 0 }}</td>
                                         <td class="border border-gray-300 p-2 text-right whitespace-nowrap">{{ log.data_with_error ?? 0 }}</td>
+                                        <td class="border border-gray-300 p-2 text-right whitespace-nowrap">{{ log.total_resubscribed ?? 0 }}</td>
                                         <td class="border border-gray-300 p-2 text-gray-600 max-w-xs whitespace-nowrap overflow-hidden">
                                             <span v-if="!hasErrorsToShow(log)">—</span>
                                             <span v-else class="inline-flex items-baseline gap-1 max-w-full">
@@ -1237,7 +1244,7 @@ const exportToCsv = () => {
                             <!-- Totals: all matching logs (filtered by event/source only, not by page) -->
                             <div v-if="totalsBreakdown.totalImports > 0" class="mt-4 p-4 bg-gray-50 rounded-lg border border-gray-200">
                                 <h4 class="text-sm font-semibold text-gray-800 mb-3">Totals{{ filterEventId || filterSource ? ' (filtered by event/source)' : '' }}</h4>
-                                <div class="grid grid-cols-2 sm:grid-cols-5 gap-4 text-sm">
+                                <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4 text-sm">
                                     <div class="bg-white p-3 rounded border border-gray-200">
                                         <div class="text-gray-500">Import sessions</div>
                                         <div class="font-semibold text-gray-900">{{ totalsBreakdown.totalImports }}</div>
@@ -1257,6 +1264,10 @@ const exportToCsv = () => {
                                     <div class="bg-white p-3 rounded border border-red-100">
                                         <div class="text-gray-500">Rejected / with error</div>
                                         <div class="font-semibold text-red-700">{{ totalsBreakdown.dataWithError }}</div>
+                                    </div>
+                                    <div class="bg-white p-3 rounded border border-purple-100">
+                                        <div class="text-gray-500">Resubscribed</div>
+                                        <div class="font-semibold text-purple-700">{{ totalsBreakdown.totalResubscribed }}</div>
                                     </div>
                                 </div>
                             </div>

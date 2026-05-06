@@ -3,14 +3,16 @@
 namespace App\Http\Controllers;
 
 use App\Models\Events;
-use Illuminate\Http\Request;
+use App\Models\Location;
+use App\Models\MailchimpImportLog;
 use App\Models\SignUpForm;
-use Illuminate\Support\Str;
+use App\Services\MailchimpService;
+use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
-use Illuminate\Database\Schema\Blueprint;
-use App\Models\Location;
-use App\Services\MailchimpService;
+use Illuminate\Support\Str;
 
 class SignUpFormController extends Controller
 {
@@ -23,6 +25,7 @@ class SignUpFormController extends Controller
 
     // Newsletter audience names per MC account
     const ANZ_NEWSLETTER_AUDIENCE = 'Adventure Entertainment Newsletter ANZ';
+
     const USA_NEWSLETTER_AUDIENCE = 'Fly Fishing Film Tour';
 
     // Hardcoded Mailchimp embed form URLs for compliance state resub (per account)
@@ -35,6 +38,7 @@ class SignUpFormController extends Controller
     private function getMailchimpAccountForEvent(Events $event): string
     {
         $usaCountries = ['USA', 'USA & CANADA', 'Canada'];
+
         return in_array($event->event_country, $usaCountries) ? 'usa' : 'anz';
     }
 
@@ -44,6 +48,50 @@ class SignUpFormController extends Controller
     private function getNewsletterAudienceName(string $account): string
     {
         return $account === 'usa' ? self::USA_NEWSLETTER_AUDIENCE : self::ANZ_NEWSLETTER_AUDIENCE;
+    }
+
+    /**
+     * Cache key holding pending newsletter resubscribes for an email until the
+     * user submits the form and we know which location they picked.
+     */
+    private function pendingResubCacheKey(int $eventId, string $email): string
+    {
+        return 'newsletter_resub_pending:'.$eventId.':'.md5(strtolower(trim($email)));
+    }
+
+    /**
+     * Increment a per-location, per-day Mailchimp import log row tracking
+     * how many newsletter resubscribes happened on the signup form.
+     */
+    private function recordNewsletterResubscribe(?int $locationId, array $info): void
+    {
+        if (! $locationId) {
+            return;
+        }
+        $log = MailchimpImportLog::where('location_id', $locationId)
+            ->where('source', 'signup_form_resub')
+            ->where('list_id', $info['list_id'] ?? null)
+            ->whereDate('created_at', now()->toDateString())
+            ->first();
+        if ($log) {
+            $log->increment('total_resubscribed');
+            $log->increment('total_data');
+
+            return;
+        }
+        MailchimpImportLog::create([
+            'location_id' => $locationId,
+            'source' => 'signup_form_resub',
+            'mailchimp_account' => $info['account'] ?? null,
+            'list_id' => $info['list_id'] ?? null,
+            'list_name' => $info['list_name'] ?? null,
+            'status' => 'import',
+            'total_data' => 1,
+            'new_contacts' => 0,
+            'updated_data' => 0,
+            'data_with_error' => 0,
+            'total_resubscribed' => 1,
+        ]);
     }
 
     /**
@@ -57,6 +105,7 @@ class SignUpFormController extends Controller
                 return $list['id'];
             }
         }
+
         return null;
     }
 
@@ -84,11 +133,12 @@ class SignUpFormController extends Controller
         try {
             $listId = $this->findNewsletterListId($mailchimpService, $audienceName);
 
-            if (!$listId) {
+            if (! $listId) {
                 \Illuminate\Support\Facades\Log::warning('Newsletter audience not found', [
                     'account' => $account,
                     'audience_name' => $audienceName,
                 ]);
+
                 return response()->json([
                     'subscribed' => true,
                     'status' => 'audience_not_found',
@@ -98,7 +148,7 @@ class SignUpFormController extends Controller
             $result = $mailchimpService->getSubscriberStatus($listId, $request->email);
 
             // Email not in the audience at all → new user, allow through
-            if (!$result['exists']) {
+            if (! $result['exists']) {
                 return response()->json([
                     'subscribed' => true,
                     'status' => 'new_user',
@@ -115,13 +165,30 @@ class SignUpFormController extends Controller
 
             // Try to resubscribe now to detect compliance state early
             $isCompliance = false;
+            $resubSucceeded = false;
             try {
                 $resubResult = $mailchimpService->resubscribe($listId, $request->email);
                 if (is_array($resubResult) && ($resubResult['status'] ?? null) === 'compliance_skipped') {
                     $isCompliance = true;
+                } else {
+                    $resubSucceeded = true;
                 }
             } catch (\Exception $e) {
                 // Resubscribe failed for other reasons — not compliance
+            }
+
+            // Stash a pending resub so storeEmbeddedData can attribute it to the
+            // location the user picks before they submit the form.
+            if ($resubSucceeded) {
+                Cache::put(
+                    $this->pendingResubCacheKey($event->id, $request->email),
+                    [
+                        'account' => $account,
+                        'list_id' => $listId,
+                        'list_name' => $audienceName,
+                    ],
+                    now()->addMinutes(60)
+                );
             }
 
             // Get the Mailchimp signup URL for compliance state members
@@ -132,7 +199,7 @@ class SignUpFormController extends Controller
                 $mailchimpSignupUrl = $form->mailchimp_signup_url ?? null;
 
                 // If not set, use hardcoded URL based on account, or fetch from Mailchimp API
-                if (!$mailchimpSignupUrl) {
+                if (! $mailchimpSignupUrl) {
                     if ($account === 'usa') {
                         $mailchimpSignupUrl = self::USA_COMPLIANCE_SIGNUP_URL;
                     } else {
@@ -145,7 +212,7 @@ class SignUpFormController extends Controller
             // If compliance state, they must self-subscribe via Mailchimp form
             // Otherwise, they were auto-resubscribed just now
             return response()->json([
-                'subscribed' => !$isCompliance,
+                'subscribed' => ! $isCompliance,
                 'status' => $isCompliance ? 'compliance' : 'resubscribed',
                 'audience' => $audienceName,
                 'compliance_state' => $isCompliance,
@@ -170,36 +237,39 @@ class SignUpFormController extends Controller
 
     // Show the signup form page
     public function index($eventId)
-    {   
+    {
         $eventId = (int) $eventId;
         // Find the signup form for the given event
         $form = SignUpForm::where('event_id', $eventId)->first();
         $eventValues = Events::where('id', $eventId)->first();
         $locations = Location::where('event_id', $eventId)->get();
+
         return inertia('SignUpForm', [
             'eventId' => $eventId,
             'eventValues' => $eventValues,
             'form' => $form, // ✅ Pass the form data to Vue
-            'locations' => $locations // ✅ Pass locations to Vue
+            'locations' => $locations, // ✅ Pass locations to Vue
         ]);
     }
 
-    public function create($eventId){
+    public function create($eventId)
+    {
         $eventId = (int) $eventId;
         $event = Events::where('id', $eventId)->first();
         $locations = Location::where('event_id', $eventId)->get();
-        return inertia('SignUpFormCreate', ['events' => $eventId , 'locations' => $locations, 'eventValues' => $event]);
+
+        return inertia('SignUpFormCreate', ['events' => $eventId, 'locations' => $locations, 'eventValues' => $event]);
     }
 
     // Generate a new sign up form with default questions
     public function generate(Request $request, $eventId)
-    {   
+    {
         // dd($request->all());
         // Fetch event details
         $event = DB::table('events')->where('id', $eventId)->first();
         // Format the table name: `event_name_date_created`
         $eventName = Str::slug($event->event_name, '_');
-        $tableName = $eventName . "_" . now()->format('Y_m_d');
+        $tableName = $eventName.'_'.now()->format('Y_m_d');
 
         $questions = $request->questions;
 
@@ -239,7 +309,7 @@ class SignUpFormController extends Controller
                 }
             }
         });
-     
+
         // Create the signup form
         SignUpForm::create([
             'event_id' => $eventId,
@@ -249,7 +319,7 @@ class SignUpFormController extends Controller
             'heading' => $request->headerText,
             'table_name' => $tableName,
             'questions' => json_encode($questions),
-            'mailchimp_signup_url' => $request->mailchimpSignupUrl
+            'mailchimp_signup_url' => $request->mailchimpSignupUrl,
         ]);
 
         // ✅ Extract Location Names from the form (if any)
@@ -262,39 +332,40 @@ class SignUpFormController extends Controller
 
         // ✅ Store unique locations in the `locations` table
         $locationNames = array_unique($locationNames);
-       
+
         foreach ($locationNames as $name) {
-            $password = Str::random(10); 
+            $password = Str::random(10);
             Location::create([
                 'event_id' => $eventId,
                 'name' => $name,
-                'password' => $password
+                'password' => $password,
             ]);
         }
 
         return redirect()->route('signup.index', ['eventId' => $eventId]);
     }
-    
+
     // Show the edit page
     public function edit($formId)
-    {   
+    {
         $form = SignUpForm::findOrFail($formId);
         $events = Events::findOrFail($form->event_id);
         $locations = Location::where('event_id', $form->event_id)->get();
+
         return inertia('SignUpFormEdit', ['form' => $form, 'events' => $events, 'locations' => $locations]);
     }
 
     // Update form
     public function update(Request $request, $eventId)
-    {   
+    {
         $eventId = (int) $eventId;
         $form = SignUpForm::where('event_id', $eventId)->firstOrFail();
         $tableName = $form->table_name;
-    
+
         // ✅ Decode existing questions from database
         $oldQuestions = json_decode($form->questions, true);
         $newQuestions = $request->questions;
-    
+
         $form->update([
             'heading' => $request->heading,
             'event_description' => $request->event_description,
@@ -303,16 +374,16 @@ class SignUpFormController extends Controller
             'mailchimp_signup_url' => $request->mailchimp_signup_url,
             'questions' => json_encode($request->questions),
         ]);
-    
+
         // ✅ Extract old and new column names
         $oldColumns = collect($oldQuestions)->pluck('column_name')->toArray();
         $newColumns = collect($newQuestions)->pluck('column_name')->toArray();
-    
+
         // ✅ Find new questions that were added
         $columnsToAdd = array_diff($newColumns, $oldColumns);
-    
+
         // ✅ Add new columns to the database table
-        if (!empty($columnsToAdd)) {
+        if (! empty($columnsToAdd)) {
             Schema::table($tableName, function (Blueprint $table) use ($columnsToAdd, $newQuestions) {
                 foreach ($newQuestions as $question) {
                     if (in_array($question['column_name'], $columnsToAdd)) {
@@ -346,35 +417,34 @@ class SignUpFormController extends Controller
                 }
             });
         }
-    
+
         return redirect()->route('signup.index', ['eventId' => $eventId])
             ->with('success', 'Form updated successfully. Locations updated.');
     }
-    
-    
-    //EMBED FUNCTIONS
+
+    // EMBED FUNCTIONS
     public function embed($event_uuid)
     {
         // Fetch the form details
         $event = Events::where('event_uuid', $event_uuid)->firstOrFail();
         $form = SignUpForm::where('event_id', $event->id)->firstOrFail();
         $locations = Location::where('event_id', $event->id)->get();
-        
+
         return inertia('SignUpFormEmbed', [
             'form' => $form,
             'event' => $event,
-            'locations' => $locations
+            'locations' => $locations,
         ]);
     }
 
     public function storeEmbeddedData(Request $request, $event_uuid)
-    {   
+    {
         $event = Events::where('event_uuid', $event_uuid)->firstOrFail();
         $form = SignUpForm::where('event_id', $event->id)->firstOrFail();
         $tableName = $form->table_name; // Ensure correct table
         // Get Email Address from Request
         $email = $request->input('Email Address'); // Make sure this matches the form input name
- 
+
         // If email already exists in the form table, update the existing row instead of blocking
         $existingEntry = null;
         if ($email) {
@@ -384,7 +454,7 @@ class SignUpFormController extends Controller
         }
 
         // Ensure table exists before inserting
-        if (!Schema::hasTable($tableName)) {
+        if (! Schema::hasTable($tableName)) {
             return response()->json(['error' => 'Table does not exist'], 400);
         }
 
@@ -404,16 +474,16 @@ class SignUpFormController extends Controller
 
         $questions = json_decode($form->questions, true);
         $questionMap = collect($questions)->pluck('column_name', 'text')->toArray();
-        
+
         foreach ($request->except(['_token', 'events_location']) as $key => $value) {
             // Find the corresponding column name from the questions
             $columnName = $questionMap[$key] ?? null;
-            
+
             if ($columnName && in_array($columnName, $validColumns)) {
                 $insertData[$columnName] = $value;
             }
         }
-   
+
         // Insert or update the data in the form table
         if ($existingEntry) {
             $insertData['updated_at'] = now();
@@ -431,7 +501,7 @@ class SignUpFormController extends Controller
         if (isset($insertData['location_id'])) {
             \Illuminate\Support\Facades\Log::info('New subscriber added, attempting auto-sync', [
                 'email' => $subscriber->email_address ?? 'no email',
-                'location_id' => $insertData['location_id']
+                'location_id' => $insertData['location_id'],
             ]);
 
             $this->autoMailchimpService->syncSubscriber($subscriber, $insertData['location_id']);
@@ -439,6 +509,15 @@ class SignUpFormController extends Controller
 
         // Auto-resubscribe to newsletter if email exists but is unsubscribed
         if ($email) {
+            $locationId = $insertData['location_id'] ?? null;
+
+            // If checkSubscription already resubbed this email, attribute it to the picked location
+            $pendingKey = $this->pendingResubCacheKey($event->id, $email);
+            if (Cache::has($pendingKey)) {
+                $pendingInfo = Cache::pull($pendingKey);
+                $this->recordNewsletterResubscribe($locationId, $pendingInfo);
+            }
+
             try {
                 $account = $this->getMailchimpAccountForEvent($event);
                 $audienceName = $this->getNewsletterAudienceName($account);
@@ -456,6 +535,11 @@ class SignUpFormController extends Controller
                                 'audience' => $audienceName,
                             ]);
                         } else {
+                            $this->recordNewsletterResubscribe($locationId, [
+                                'account' => $account,
+                                'list_id' => $listId,
+                                'list_name' => $audienceName,
+                            ]);
                             \Illuminate\Support\Facades\Log::info('Auto-resubscribed to newsletter on form submit', [
                                 'email' => $email,
                                 'account' => $account,

@@ -3,10 +3,10 @@
 namespace App\Http\Controllers;
 
 use App\Models\Events;
-use App\Models\SignUpForm;
 use App\Models\Location;
-use App\Models\Prize;
 use App\Models\MailchimpImportLog;
+use App\Models\Prize;
+use App\Models\SignUpForm;
 use App\Services\AutoMailchimpService;
 use App\Services\MailchimpService;
 use Illuminate\Http\Request;
@@ -18,12 +18,12 @@ use Symfony\Component\HttpFoundation\StreamedResponse;
 class AttendeesController extends Controller
 {
     public function index($eventId)
-    {   
+    {
         // ✅ Fetch the event object
         $event = Events::findOrFail($eventId);
         // ✅ Get the signup form for the event
         $signupForm = SignUpForm::where('event_id', $eventId)->first();
-        if (!$signupForm) {
+        if (! $signupForm) {
             return redirect()->route('signup.index', $eventId);
         }
         $tableName = $signupForm->table_name;
@@ -51,24 +51,37 @@ class AttendeesController extends Controller
                 $prize->location_name = $prize->location_id
                     ? ($locationById->get($prize->location_id)->name ?? 'Unknown')
                     : 'National Tour Wide';
+
                 return $prize;
             });
 
-        // Mailchimp import history (session logs) for this event
-        $mailchimpImportLogs = MailchimpImportLog::query()
-            ->select('mailchimp_import_logs.*', 'locations.name as location_name', 'users.name as imported_by_name')
-            ->join('locations', 'locations.id', '=', 'mailchimp_import_logs.location_id')
-            ->leftJoin('users', 'users.id', '=', 'mailchimp_import_logs.imported_by')
-            ->where('locations.event_id', $eventId)
-            ->orderByDesc('mailchimp_import_logs.created_at')
-            ->get();
-        
+        // Newsletter resubscribes summed per location (every location of this event,
+        // including ones with 0 resubs, so the table is complete).
+        $resubByLocation = MailchimpImportLog::query()
+            ->selectRaw('location_id, SUM(total_resubscribed) as total_resubscribed')
+            ->whereIn('location_id', $locations->pluck('id'))
+            ->groupBy('location_id')
+            ->pluck('total_resubscribed', 'location_id');
+
+        $resubBreakdown = $locations
+            ->map(fn ($loc) => [
+                'location_id' => $loc->id,
+                'location_name' => $loc->name,
+                'total_resubscribed' => (int) ($resubByLocation[$loc->id] ?? 0),
+            ])
+            ->sortByDesc('total_resubscribed')
+            ->values()
+            ->all();
+
+        $totalResubscribed = array_sum(array_column($resubBreakdown, 'total_resubscribed'));
+
         return Inertia::render('Attendees', [
             'event' => $event,  // ✅ Pass the full event object instead of just ID
             'attendees' => $attendees,
             'form' => $signupForm, // Pass the form data to get access to questions
             'prizes' => $prizes,
-            'mailchimpImportLogs' => $mailchimpImportLogs,
+            'resubBreakdown' => $resubBreakdown,
+            'totalResubscribed' => $totalResubscribed,
         ]);
     }
 
@@ -77,10 +90,10 @@ class AttendeesController extends Controller
         // ✅ Fetch the event and location objects
         $event = Events::findOrFail($eventId);
         $location = Location::findOrFail($locationId);
-        
+
         // ✅ Get the signup form for the event
         $signupForm = SignUpForm::where('event_id', $eventId)->first();
-        if (!$signupForm) {
+        if (! $signupForm) {
             return redirect()->route('signup.index', $eventId);
         }
         $tableName = $signupForm->table_name;
@@ -108,13 +121,13 @@ class AttendeesController extends Controller
                     ->orWhereRaw("(tags IS NOT NULL AND (tags LIKE '%TIX%'))");
             })
             ->exists();
-        
+
         return Inertia::render('LocationAttendees', [
             'event' => $event,
             'location' => $location,
             'attendees' => $attendees,
             'prizes' => $prizes,
-            'form' => $signupForm
+            'form' => $signupForm,
         ]);
     }
 
@@ -122,58 +135,58 @@ class AttendeesController extends Controller
     {
         // ✅ Get the signup form for the event
         $signupForm = SignUpForm::where('event_id', $event)->first();
-    
-        if (!$signupForm) {
+
+        if (! $signupForm) {
             return redirect()->back()->with('error', 'Sign-up form not found for this event.');
         }
-    
+
         $tableName = $signupForm->table_name;
-    
+
         // ✅ Check if attendee exists in the dynamic table before deleting
         $exists = DB::table($tableName)->where('id', $attendee)->exists();
-    
-        if (!$exists) {
+
+        if (! $exists) {
             return redirect()->route('attendees.index', ['eventId' => $event])
-                             ->with('error', 'Attendee not found.');
+                ->with('error', 'Attendee not found.');
         }
-    
+
         // ✅ Delete the attendee from the dynamic table
         DB::table($tableName)
             ->where('id', $attendee)
             ->delete();
-    
+
         // ✅ Redirect back to attendees list for the same event
         return redirect()->route('attendees.index', ['eventId' => $event])
-                         ->with('success', 'Attendee deleted successfully.');
+            ->with('success', 'Attendee deleted successfully.');
     }
 
     public function destroyFromLocation($attendee, $event, $location)
     {
         // ✅ Get the signup form for the event
         $signupForm = SignUpForm::where('event_id', $event)->first();
-    
-        if (!$signupForm) {
+
+        if (! $signupForm) {
             return redirect()->back()->with('error', 'Sign-up form not found for this event.');
         }
-    
+
         $tableName = $signupForm->table_name;
-    
+
         // ✅ Check if attendee exists in the dynamic table before deleting
         $exists = DB::table($tableName)->where('id', $attendee)->exists();
-    
-        if (!$exists) {
+
+        if (! $exists) {
             return redirect()->route('attendees.location', ['eventId' => $event, 'locationId' => $location])
-                             ->with('error', 'Attendee not found.');
+                ->with('error', 'Attendee not found.');
         }
-    
+
         // ✅ Delete the attendee from the dynamic table
         DB::table($tableName)
             ->where('id', $attendee)
             ->delete();
-    
+
         // ✅ Redirect back to location attendees page
         return redirect()->route('attendees.location', ['eventId' => $event, 'locationId' => $location])
-                         ->with('success', 'Attendee deleted successfully.');
+            ->with('success', 'Attendee deleted successfully.');
     }
 
     /**
@@ -183,7 +196,7 @@ class AttendeesController extends Controller
     {
         $event = Events::findOrFail($eventId);
         $signupForm = SignUpForm::where('event_id', $eventId)->first();
-        if (!$signupForm) {
+        if (! $signupForm) {
             return response()->json(['success' => false, 'error' => 'Sign-up form not found'], 404);
         }
         $tableName = $signupForm->table_name;
@@ -214,7 +227,7 @@ class AttendeesController extends Controller
     {
         $event = Events::findOrFail($eventId);
         $signupForm = SignUpForm::where('event_id', $eventId)->first();
-        if (!$signupForm) {
+        if (! $signupForm) {
             abort(404, 'Sign-up form not found');
         }
 
@@ -226,15 +239,16 @@ class AttendeesController extends Controller
 
         $excluded = ['id', 'event_id', 'location_id', 'updated_at', 'events_location', 'mobile_number_format'];
         $signupColumns = Schema::getColumnListing($tableName);
-        $exportCols = array_values(array_filter($signupColumns, fn ($c) => !in_array($c, $excluded)));
+        $exportCols = array_values(array_filter($signupColumns, fn ($c) => ! in_array($c, $excluded)));
         $exportCols[] = 'location_name';
 
-        $filename = 'attendees_' . preg_replace('/[^a-zA-Z0-9_-]/', '_', $event->event_name ?? 'event') . '.csv';
+        $filename = 'attendees_'.preg_replace('/[^a-zA-Z0-9_-]/', '_', $event->event_name ?? 'event').'.csv';
 
         return new StreamedResponse(function () use ($tableName, $eventId, $event, $exportCols, $questionByColumn, $defaultSourceWord, $exportTags) {
             $handle = fopen('php://output', 'w');
             $headerLabels = array_map(function ($col) use ($questionByColumn) {
                 $q = $questionByColumn->get($col);
+
                 return (is_array($q) && isset($q['text'])) ? $q['text'] : ucfirst(str_replace('_', ' ', $col));
             }, $exportCols);
             fputcsv($handle, array_merge($headerLabels, ['Opt In Date', 'Tags']));
@@ -263,7 +277,7 @@ class AttendeesController extends Controller
             fclose($handle);
         }, 200, [
             'Content-Type' => 'text/csv; charset=UTF-8',
-            'Content-Disposition' => 'attachment; filename="' . $filename . '"',
+            'Content-Disposition' => 'attachment; filename="'.$filename.'"',
         ]);
     }
 
@@ -299,7 +313,7 @@ class AttendeesController extends Controller
         $event = Events::findOrFail($eventId);
         $defaultSourceWord = $request->input('defaultSourceWord', 'WM');
         $exportTags = $request->input('exportTags', '');
-        $filename = 'tix_' . preg_replace('/[^a-zA-Z0-9_-]/', '_', $event->event_name ?? 'event') . '.csv';
+        $filename = 'tix_'.preg_replace('/[^a-zA-Z0-9_-]/', '_', $event->event_name ?? 'event').'.csv';
 
         return new StreamedResponse(function () use ($event, $eventId, $defaultSourceWord, $exportTags) {
             $handle = fopen('php://output', 'w');
@@ -335,14 +349,14 @@ class AttendeesController extends Controller
                     $rowArr['state'] ?? '',
                     $rowArr['country'] ?? '',
                     $rowArr['eventbrite_event_id'] ?? '',
-                    !empty($rowArr['created_at']) ? date('Y-m-d H:i:s', strtotime($rowArr['created_at'])) : '',
+                    ! empty($rowArr['created_at']) ? date('Y-m-d H:i:s', strtotime($rowArr['created_at'])) : '',
                     $this->buildTagsForExport($rowArr, $event, $defaultSourceWord, $exportTags),
                 ]);
             }
             fclose($handle);
         }, 200, [
             'Content-Type' => 'text/csv; charset=UTF-8',
-            'Content-Disposition' => 'attachment; filename="' . $filename . '"',
+            'Content-Disposition' => 'attachment; filename="'.$filename.'"',
         ]);
     }
 
@@ -358,14 +372,14 @@ class AttendeesController extends Controller
         $defaultSourceWord = $request->input('defaultSourceWord', 'WM');
         $exportTags = $request->input('exportTags', '');
         $signupForm = SignUpForm::where('event_id', $eventId)->first();
-        if (!$signupForm) {
+        if (! $signupForm) {
             abort(404, 'Sign-up form not found for this event');
         }
 
         $tableName = $signupForm->table_name;
         $excluded = ['id', 'event_id', 'location_id', 'updated_at', 'events_location', 'mobile_number_format'];
         $signupColumns = Schema::getColumnListing($tableName);
-        $exportSignupCols = array_values(array_filter($signupColumns, fn ($c) => !in_array($c, $excluded)));
+        $exportSignupCols = array_values(array_filter($signupColumns, fn ($c) => ! in_array($c, $excluded)));
 
         $questions = is_string($signupForm->questions) ? json_decode($signupForm->questions, true) : ($signupForm->questions ?? []);
         $questionByColumn = collect($questions)->keyBy('column_name');
@@ -386,7 +400,9 @@ class AttendeesController extends Controller
             $rowArr = (array) $row;
             $email = strtolower(trim($rowArr['email'] ?? ''));
             if ($email !== '') {
-                if (!isset($signupByEmail[$email])) $signupByEmail[$email] = $rowArr;
+                if (! isset($signupByEmail[$email])) {
+                    $signupByEmail[$email] = $rowArr;
+                }
             } else {
                 $signupNoEmail[] = $rowArr;
             }
@@ -416,13 +432,15 @@ class AttendeesController extends Controller
             $rowArr = (array) $row;
             $email = strtolower(trim($rowArr['email'] ?? ''));
             if ($email !== '') {
-                if (!isset($tixByEmail[$email])) $tixByEmail[$email] = $rowArr;
+                if (! isset($tixByEmail[$email])) {
+                    $tixByEmail[$email] = $rowArr;
+                }
             } else {
                 $tixNoEmail[] = $rowArr;
             }
         }
 
-        $filename = 'all_data_' . preg_replace('/[^a-zA-Z0-9_-]/', '_', $event->event_name ?? 'event') . '.csv';
+        $filename = 'all_data_'.preg_replace('/[^a-zA-Z0-9_-]/', '_', $event->event_name ?? 'event').'.csv';
 
         return new StreamedResponse(function () use (
             $event, $exportSignupCols, $questionByColumn, $signupByEmail, $signupNoEmail, $tixByEmail, $tixNoEmail, $defaultSourceWord, $exportTags
@@ -454,10 +472,15 @@ class AttendeesController extends Controller
                         $out[] = $signup[$col] ?? '';
                     } else {
                         // Tix-only row: backfill identity columns where the sign-up schema has them
-                        if ($col === 'email')          $out[] = $tix['email'] ?? '';
-                        elseif ($col === 'first_name') $out[] = $tix['first_name'] ?? '';
-                        elseif ($col === 'last_name')  $out[] = $tix['last_name'] ?? '';
-                        else                           $out[] = '';
+                        if ($col === 'email') {
+                            $out[] = $tix['email'] ?? '';
+                        } elseif ($col === 'first_name') {
+                            $out[] = $tix['first_name'] ?? '';
+                        } elseif ($col === 'last_name') {
+                            $out[] = $tix['last_name'] ?? '';
+                        } else {
+                            $out[] = '';
+                        }
                     }
                 }
                 $out[] = $signup['location_name'] ?? ($tix['location_name'] ?? '');
@@ -483,13 +506,17 @@ class AttendeesController extends Controller
                 $emit($source, $signup, $tix);
             }
             // Rows lacking an email can't be deduped — emit each as its own row
-            foreach ($signupNoEmail as $r) $emit('win', $r, null);
-            foreach ($tixNoEmail as $r)    $emit('tix', null, $r);
+            foreach ($signupNoEmail as $r) {
+                $emit('win', $r, null);
+            }
+            foreach ($tixNoEmail as $r) {
+                $emit('tix', null, $r);
+            }
 
             fclose($handle);
         }, 200, [
             'Content-Type' => 'text/csv; charset=UTF-8',
-            'Content-Disposition' => 'attachment; filename="' . $filename . '"',
+            'Content-Disposition' => 'attachment; filename="'.$filename.'"',
         ]);
     }
 
@@ -516,12 +543,13 @@ class AttendeesController extends Controller
         $tags = [];
         if ($extracted !== '') {
             $showTag = $isUsaOrCanada && $state ? "{$locationWithoutState}, {$state}" : $locationWithoutState;
-            $sourceTag = strtoupper($defaultSourceWord) . ' ' . $locationWithoutState . ' COMP ' . $eventYear;
-            $tags[] = 'SHOW - ' . $showTag;
-            $tags[] = 'SOURCE - ' . $sourceTag;
+            $sourceTag = strtoupper($defaultSourceWord).' '.$locationWithoutState.' COMP '.$eventYear;
+            $tags[] = 'SHOW - '.$showTag;
+            $tags[] = 'SOURCE - '.$sourceTag;
         }
         $manual = array_map('trim', array_filter(explode(',', $manualTagsStr)));
         $manual = array_map('strtoupper', $manual);
+
         return implode(', ', array_merge($tags, $manual));
     }
 }

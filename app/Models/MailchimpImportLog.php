@@ -14,6 +14,7 @@ class MailchimpImportLog extends Model
         'new_contacts',
         'updated_data',
         'data_with_error',
+        'total_resubscribed',
         'errors',
         'failed_rows',
         'tags',
@@ -76,6 +77,7 @@ class MailchimpImportLog extends Model
                 $order['other'][] = $t;
             }
         }
+
         return array_merge(
             $order['year'],
             $order['film_tour'],
@@ -90,7 +92,7 @@ class MailchimpImportLog extends Model
     protected function setTagsAttribute($value): void
     {
         $arr = is_array($value) ? $value : (is_string($value) ? json_decode($value, true) : []);
-        if (!is_array($arr)) {
+        if (! is_array($arr)) {
             $arr = [];
         }
         // Ensure flat 0-indexed array so no tags are dropped (e.g. from associative keys)

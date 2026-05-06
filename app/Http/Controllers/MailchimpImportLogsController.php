@@ -57,12 +57,13 @@ class MailchimpImportLogsController extends Controller
             'imported_by_name' => 'users.name',
             'mailchimp_account' => 'mailchimp_import_logs.mailchimp_account',
             'list_name' => 'COALESCE(mailchimp_import_logs.list_name, mailchimp_import_logs.list_id)',
-            'source' => "COALESCE(mailchimp_import_logs.custom_source, mailchimp_import_logs.source)",
+            'source' => 'COALESCE(mailchimp_import_logs.custom_source, mailchimp_import_logs.source)',
             'status' => 'mailchimp_import_logs.status',
             'total_data' => 'mailchimp_import_logs.total_data',
             'new_contacts' => 'mailchimp_import_logs.new_contacts',
             'updated_data' => 'mailchimp_import_logs.updated_data',
             'data_with_error' => 'mailchimp_import_logs.data_with_error',
+            'total_resubscribed' => 'mailchimp_import_logs.total_resubscribed',
         ];
         $sortByParam = $request->query('sort_by');
         $sortBy = is_string($sortByParam) && isset($sortMap[$sortByParam]) ? $sortByParam : null;
@@ -72,7 +73,7 @@ class MailchimpImportLogsController extends Controller
             if ($search === '') {
                 return;
             }
-            $term = '%' . str_replace(['\\', '%', '_'], ['\\\\', '\\%', '\\_'], $search) . '%';
+            $term = '%'.str_replace(['\\', '%', '_'], ['\\\\', '\\%', '\\_'], $search).'%';
             $q->where(function ($q) use ($term) {
                 $q->where('mailchimp_import_logs.list_name', 'like', $term)
                     ->orWhere('mailchimp_import_logs.list_id', 'like', $term)
@@ -92,7 +93,7 @@ class MailchimpImportLogsController extends Controller
             ->when($eventId, fn ($q) => $q->where(function ($q) use ($eventId) {
                 $q->where('locations.event_id', $eventId)->orWhereNull('mailchimp_import_logs.location_id');
             }))
-            ->when($source && in_array($source, ['signup_form', 'ticket_data', 'manual_csv']), fn ($q) => $q->where('mailchimp_import_logs.source', $source));
+            ->when($source && in_array($source, ['signup_form', 'ticket_data', 'manual_csv', 'signup_form_resub']), fn ($q) => $q->where('mailchimp_import_logs.source', $source));
 
         // Totals across all matching logs (filtered by event/source only, not pagination)
         $totalsFiltered = [
@@ -101,6 +102,7 @@ class MailchimpImportLogsController extends Controller
             'newContacts' => (clone $baseQuery)->sum('mailchimp_import_logs.new_contacts'),
             'updatedData' => (clone $baseQuery)->sum('mailchimp_import_logs.updated_data'),
             'dataWithError' => (clone $baseQuery)->sum('mailchimp_import_logs.data_with_error'),
+            'totalResubscribed' => (clone $baseQuery)->sum('mailchimp_import_logs.total_resubscribed'),
         ];
 
         $query = MailchimpImportLog::query()
@@ -112,6 +114,7 @@ class MailchimpImportLogsController extends Controller
                 'mailchimp_import_logs.new_contacts',
                 'mailchimp_import_logs.updated_data',
                 'mailchimp_import_logs.data_with_error',
+                'mailchimp_import_logs.total_resubscribed',
                 'mailchimp_import_logs.errors',
                 'mailchimp_import_logs.tags',
                 'mailchimp_import_logs.source',
@@ -136,10 +139,10 @@ class MailchimpImportLogsController extends Controller
             ->when($eventId, fn ($q) => $q->where(function ($q) use ($eventId) {
                 $q->where('locations.event_id', $eventId)->orWhereNull('mailchimp_import_logs.location_id');
             }))
-            ->when($source && in_array($source, ['signup_form', 'ticket_data', 'manual_csv']), fn ($q) => $q->where('mailchimp_import_logs.source', $source));
+            ->when($source && in_array($source, ['signup_form', 'ticket_data', 'manual_csv', 'signup_form_resub']), fn ($q) => $q->where('mailchimp_import_logs.source', $source));
 
         if ($sortBy !== null) {
-            $query->orderByRaw($sortMap[$sortBy] . ' ' . strtoupper($sortDir));
+            $query->orderByRaw($sortMap[$sortBy].' '.strtoupper($sortDir));
             if ($sortBy !== 'created_at') {
                 $query->orderByDesc('mailchimp_import_logs.created_at');
             }
@@ -157,12 +160,14 @@ class MailchimpImportLogsController extends Controller
             if (isset($item['failed_rows']) && ! is_array($item['failed_rows'])) {
                 $item['failed_rows'] = [];
             }
+
             return $item;
         };
 
         if ($perPage === 'all') {
             $logs = $query->get()->map($normalizeLog)->values()->all();
             $events = Events::orderBy('event_name')->get(['id', 'event_name']);
+
             return Inertia::render('MailchimpImportLogs', [
                 'mailchimpImportLogs' => $logs,
                 'pagination' => null,
@@ -170,7 +175,7 @@ class MailchimpImportLogsController extends Controller
                 'totalsFiltered' => $totalsFiltered,
                 'events' => $events,
                 'filterEventId' => $eventId ? (int) $eventId : null,
-                'filterSource' => $source && in_array($source, ['signup_form', 'ticket_data', 'manual_csv']) ? $source : null,
+                'filterSource' => $source && in_array($source, ['signup_form', 'ticket_data', 'manual_csv', 'signup_form_resub']) ? $source : null,
                 'searchKeyword' => $search !== '' ? $search : null,
                 'sortBy' => $sortBy,
                 'sortDir' => $sortBy ? $sortDir : null,
@@ -179,6 +184,7 @@ class MailchimpImportLogsController extends Controller
 
         $paginator = $query->paginate($perPage)->withQueryString()->through($normalizeLog);
         $events = Events::orderBy('event_name')->get(['id', 'event_name']);
+
         return Inertia::render('MailchimpImportLogs', [
             'mailchimpImportLogs' => $paginator->items(),
             'pagination' => [
@@ -194,7 +200,7 @@ class MailchimpImportLogsController extends Controller
             'totalsFiltered' => $totalsFiltered,
             'events' => $events,
             'filterEventId' => $eventId ? (int) $eventId : null,
-            'filterSource' => $source && in_array($source, ['signup_form', 'ticket_data', 'manual_csv']) ? $source : null,
+            'filterSource' => $source && in_array($source, ['signup_form', 'ticket_data', 'manual_csv', 'signup_form_resub']) ? $source : null,
             'searchKeyword' => $search !== '' ? $search : null,
             'sortBy' => $sortBy,
             'sortDir' => $sortBy ? $sortDir : null,
@@ -292,8 +298,9 @@ class MailchimpImportLogsController extends Controller
             $headers = ['email_address', 'first_name', 'last_name', 'mobile_number', 'street_address', 'street_address_2', 'city', 'state', 'zip_code', 'country', 'gender', 'age'];
             $escape = function ($v) {
                 $s = $v === null || $v === '' ? '' : (string) $v;
+
                 return strpos($s, ',') !== false || strpos($s, '"') !== false || strpos($s, "\n") !== false
-                    ? '"' . str_replace('"', '""', $s) . '"' : $s;
+                    ? '"'.str_replace('"', '""', $s).'"' : $s;
             };
             $lines = [implode(',', $headers)];
             foreach ($subscribers as $row) {
@@ -301,8 +308,8 @@ class MailchimpImportLogsController extends Controller
                     return $escape($row[$key] ?? '');
                 }, $headers));
             }
-            $csv = "\xEF\xBB\xBF" . implode("\r\n", $lines);
-            Storage::disk('local')->put('mailchimp_imports/' . $log->id . '.csv', $csv);
+            $csv = "\xEF\xBB\xBF".implode("\r\n", $lines);
+            Storage::disk('local')->put('mailchimp_imports/'.$log->id.'.csv', $csv);
             $log->update(['has_import_file' => true]);
         }
 
@@ -315,11 +322,11 @@ class MailchimpImportLogsController extends Controller
     public function download($id)
     {
         $log = MailchimpImportLog::with('location')->findOrFail($id);
-        if (!$log->has_import_file) {
+        if (! $log->has_import_file) {
             abort(404, 'No import file for this log.');
         }
-        $path = 'mailchimp_imports/' . $log->id . '.csv';
-        if (!Storage::disk('local')->exists($path)) {
+        $path = 'mailchimp_imports/'.$log->id.'.csv';
+        if (! Storage::disk('local')->exists($path)) {
             abort(404, 'Import file not found.');
         }
         $locationName = $log->location
@@ -327,6 +334,7 @@ class MailchimpImportLogsController extends Controller
             : ($log->source === 'manual_csv' ? 'manual-import' : 'import');
         $date = $log->created_at->format('Y-m-d');
         $filename = "mailchimp-import-{$locationName}-{$date}.csv";
+
         return response()->download(Storage::disk('local')->path($path), $filename, [
             'Content-Type' => 'text/csv; charset=UTF-8',
         ]);
@@ -344,12 +352,13 @@ class MailchimpImportLogsController extends Controller
 
         $log = MailchimpImportLog::findOrFail($id);
         if ($log->has_import_file) {
-            $path = 'mailchimp_imports/' . $log->id . '.csv';
+            $path = 'mailchimp_imports/'.$log->id.'.csv';
             if (Storage::disk('local')->exists($path)) {
                 Storage::disk('local')->delete($path);
             }
         }
         $log->delete();
+
         return back();
     }
 
@@ -383,7 +392,7 @@ class MailchimpImportLogsController extends Controller
         $deleted = 0;
         foreach ($logs as $log) {
             if ($log->has_import_file) {
-                $path = 'mailchimp_imports/' . $log->id . '.csv';
+                $path = 'mailchimp_imports/'.$log->id.'.csv';
                 if (Storage::disk('local')->exists($path)) {
                     Storage::disk('local')->delete($path);
                 }
@@ -395,6 +404,7 @@ class MailchimpImportLogsController extends Controller
         if ($request->wantsJson()) {
             return response()->json(['success' => true, 'deleted' => $deleted]);
         }
+
         return back()->with('message', "All import logs deleted ({$deleted} logs).");
     }
 
@@ -421,7 +431,7 @@ class MailchimpImportLogsController extends Controller
                 continue;
             }
             if ($log->has_import_file) {
-                $path = 'mailchimp_imports/' . $log->id . '.csv';
+                $path = 'mailchimp_imports/'.$log->id.'.csv';
                 if (Storage::disk('local')->exists($path)) {
                     Storage::disk('local')->delete($path);
                 }
@@ -433,6 +443,7 @@ class MailchimpImportLogsController extends Controller
         if ($request->wantsJson()) {
             return response()->json(['success' => true, 'deleted' => $deleted]);
         }
+
         return back()->with('message', "{$deleted} import log(s) deleted.");
     }
 
@@ -531,7 +542,7 @@ class MailchimpImportLogsController extends Controller
                 }
             } catch (\Exception $e) {
                 $errorCount++;
-                $errors[] = substr("{$subscriber['email_address']}: " . $e->getMessage(), 0, 200);
+                $errors[] = substr("{$subscriber['email_address']}: ".$e->getMessage(), 0, 200);
                 $failedRows[] = array_merge($subscriber, ['error_message' => $e->getMessage()]);
             }
         }
@@ -600,6 +611,7 @@ class MailchimpImportLogsController extends Controller
                     'source' => '—',
                     'created_at' => $row->created_at ? date('Y-m-d H:i:s', $row->created_at) : null,
                 ];
+
                 continue;
             }
 
@@ -616,6 +628,7 @@ class MailchimpImportLogsController extends Controller
                     'source' => '—',
                     'created_at' => $row->created_at ? date('Y-m-d H:i:s', $row->created_at) : null,
                 ];
+
                 continue;
             }
 
@@ -635,6 +648,7 @@ class MailchimpImportLogsController extends Controller
                     'source' => 'Manual CSV',
                     'created_at' => $row->created_at ? date('Y-m-d H:i:s', $row->created_at) : null,
                 ];
+
                 continue;
             }
 
@@ -645,9 +659,9 @@ class MailchimpImportLogsController extends Controller
                     $locationIds[$locationId] = true;
                 }
                 $source = 'Signup form';
-                if (!empty($job->locationPayload['import_ticket'])) {
-                    $source = !empty($job->locationPayload['import_form']) ? 'Ticket + Signup form' : 'Ticket';
-                } elseif (!empty($job->locationPayload['import_form'])) {
+                if (! empty($job->locationPayload['import_ticket'])) {
+                    $source = ! empty($job->locationPayload['import_form']) ? 'Ticket + Signup form' : 'Ticket';
+                } elseif (! empty($job->locationPayload['import_form'])) {
                     $source = 'Signup form';
                 }
                 $result[] = [
@@ -661,6 +675,7 @@ class MailchimpImportLogsController extends Controller
                     'source' => $source,
                     'created_at' => $row->created_at ? date('Y-m-d H:i:s', $row->created_at) : null,
                 ];
+
                 continue;
             }
 
@@ -682,9 +697,9 @@ class MailchimpImportLogsController extends Controller
             $source = 'Signup form';
             $first = $locationsPayload[0] ?? null;
             if ($first !== null) {
-                if (!empty($first['import_ticket'])) {
-                    $source = !empty($first['import_form']) ? 'Ticket + Signup form' : 'Ticket';
-                } elseif (!empty($first['import_form'])) {
+                if (! empty($first['import_ticket'])) {
+                    $source = ! empty($first['import_form']) ? 'Ticket + Signup form' : 'Ticket';
+                } elseif (! empty($first['import_form'])) {
                     $source = 'Signup form';
                 }
             }
@@ -701,7 +716,7 @@ class MailchimpImportLogsController extends Controller
                 'created_at' => $row->created_at ? date('Y-m-d H:i:s', $row->created_at) : null,
             ];
             if ($row->reserved_at && $job->importBatchId) {
-                $progress = Cache::get('event_import_progress_' . $job->importBatchId, []);
+                $progress = Cache::get('event_import_progress_'.$job->importBatchId, []);
                 $item['locations_imported_so_far'] = (int) ($progress['locations_imported'] ?? 0);
                 $item['locations_failed_so_far'] = (int) ($progress['locations_failed'] ?? 0);
             }
@@ -844,6 +859,7 @@ class MailchimpImportLogsController extends Controller
         if ($isManualImport) {
             $this->jobsTable()->where('id', $jobId)->delete();
             Log::info('Import cancelled by user: manual import job removed from queue', ['job_id' => $jobId]);
+
             return response()->json(['success' => true, 'message' => 'Manual import removed from queue.']);
         }
 
@@ -853,6 +869,7 @@ class MailchimpImportLogsController extends Controller
             }
             $this->jobsTable()->where('id', $jobId)->delete();
             Log::info('Import cancelled by user: per-location import job removed from queue', ['job_id' => $jobId]);
+
             return response()->json(['success' => true, 'message' => 'Location import removed from queue.']);
         }
 
@@ -863,7 +880,7 @@ class MailchimpImportLogsController extends Controller
                 try {
                     $job = unserialize($command);
                     if ($job instanceof EventImportAllToMailchimpJob && $job->importBatchId) {
-                        Cache::put('cancel_import_batch_' . $job->importBatchId, true, 600);
+                        Cache::put('cancel_import_batch_'.$job->importBatchId, true, 600);
                         Log::info('Import cancelled by user: stop requested for in-progress Event import', [
                             'job_id' => $jobId,
                             'import_batch_id' => $job->importBatchId,
@@ -872,6 +889,7 @@ class MailchimpImportLogsController extends Controller
                             'locations_in_payload' => count($job->locationsPayload ?? []),
                             'reason' => 'User clicked Stop. Job will exit after current location, then the queue entry will be removed.',
                         ]);
+
                         return response()->json([
                             'success' => true,
                             'message' => 'Import will stop after the current location finishes.',
@@ -881,6 +899,7 @@ class MailchimpImportLogsController extends Controller
                     // fall through to error
                 }
             }
+
             return response()->json(['error' => 'Cannot cancel: this import could not be stopped (no batch id).'], 422);
         }
 
