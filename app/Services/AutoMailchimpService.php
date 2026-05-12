@@ -133,7 +133,32 @@ class AutoMailchimpService
             // Create MailchimpService instance with selected account
             $selectedAccount = $settings['mailchimp_account'] ?? 'anz';
             $mailchimpService = new MailchimpService($selectedAccount);
-            
+
+            // If this contact was archived in Mailchimp, unarchive them before the upsert.
+            // addSubscriberToList() uses status_if_new which Mailchimp ignores for existing
+            // members, so archived contacts would otherwise stay archived even after re-signup.
+            try {
+                $statusCheck = $mailchimpService->getSubscriberStatus(
+                    $settings['default_list_id'],
+                    $subscriber->email_address
+                );
+                if (($statusCheck['exists'] ?? false) && ($statusCheck['status'] ?? null) === 'archived') {
+                    Log::info('Auto-sync: subscriber archived in Mailchimp, unarchiving before upsert', [
+                        'email' => $subscriber->email_address,
+                        'location' => $locationName,
+                    ]);
+                    $mailchimpService->resubscribe(
+                        $settings['default_list_id'],
+                        $subscriber->email_address
+                    );
+                }
+            } catch (\Exception $e) {
+                Log::warning('Auto-sync: archive status check failed, continuing with upsert', [
+                    'email' => $subscriber->email_address,
+                    'error' => $e->getMessage(),
+                ]);
+            }
+
             // Add to Mailchimp
             $mailchimpService->addSubscriberToList(
                 $settings['default_list_id'],

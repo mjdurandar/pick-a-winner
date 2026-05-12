@@ -442,8 +442,25 @@ class SignUpFormController extends Controller
         $event = Events::where('event_uuid', $event_uuid)->firstOrFail();
         $form = SignUpForm::where('event_id', $event->id)->firstOrFail();
         $tableName = $form->table_name; // Ensure correct table
-        // Get Email Address from Request
-        $email = $request->input('Email Address'); // Make sure this matches the form input name
+
+        // Form posts each answer under the question.text key, not the column_name. Look up
+        // the email question's text so this still works when admins rename "Email Address"
+        // (a stale hardcoded key was silently nulling $email and skipping the resub log).
+        $formQuestions = json_decode($form->questions, true) ?: [];
+        $emailQuestion = collect($formQuestions)->first(function ($q) {
+            return ($q['column_name'] ?? null) === 'email_address' || ($q['type'] ?? null) === 'email';
+        });
+        $emailKey = $emailQuestion['text'] ?? 'Email Address';
+        $email = $request->input($emailKey);
+        if (! $email) {
+            // Fallback: scan request for the first valid-looking email
+            foreach ($request->except(['_token', 'events_location']) as $value) {
+                if (is_string($value) && filter_var($value, FILTER_VALIDATE_EMAIL)) {
+                    $email = $value;
+                    break;
+                }
+            }
+        }
 
         // If email already exists in the form table, update the existing row instead of blocking
         $existingEntry = null;
