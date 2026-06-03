@@ -428,7 +428,10 @@ class SignUpFormController extends Controller
         // Fetch the form details
         $event = Events::where('event_uuid', $event_uuid)->firstOrFail();
         $form = SignUpForm::where('event_id', $event->id)->firstOrFail();
-        $locations = Location::where('event_id', $event->id)->get();
+        // Remove a location from the signup dropdown 2 days after its date
+        $locations = Location::where('event_id', $event->id)
+            ->where('date', '>=', now()->subDays(2)->format('Y-m-d'))
+            ->get();
 
         return inertia('SignUpFormEmbed', [
             'form' => $form,
