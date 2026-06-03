@@ -118,13 +118,16 @@ class PickaWinnerController extends Controller
      */
     public function getLocations(Events $event)
     {
+        $today = now()->format('Y-m-d');
+
         $query = Location::where('event_id', $event->id)
-            ->select(['id', 'name', 'date', 'time']);
+            ->select(['id', 'name', 'date', 'time'])
+            // Hide locations whose date has already passed (only show today or later)
+            ->where('date', '>=', $today);
 
         if (! $event->show_all_locations) {
-            $from = now()->subDays(14)->format('Y-m-d');
             $to = now()->addDays(14)->format('Y-m-d');
-            $query->where('date', '>=', $from)->where('date', '<=', $to);
+            $query->where('date', '<=', $to);
         }
 
         return response()->json($query->get());

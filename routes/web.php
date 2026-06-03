@@ -10,6 +10,7 @@ use App\Http\Controllers\SignUpFormController;
 use App\Http\Controllers\PrizeController;
 use App\Http\Controllers\LocationController;
 use App\Http\Controllers\LaravelLogsController;
+use App\Http\Controllers\ExportLogsController;
 use App\Http\Controllers\MailchimpImportLogsController;
 use App\Http\Controllers\MailchimpAutoSyncController;
 use App\Http\Controllers\FilmsController;
@@ -72,7 +73,7 @@ Route::middleware(['auth', RoleMiddleware::class . ':admin,host'])->group(functi
     Route::get('/mailchimp-import-logs/queued-imports', [MailchimpImportLogsController::class, 'queuedImports'])->name('mailchimpImportLogs.queuedImports');
     Route::post('/mailchimp-import-logs/queued-imports/cancel-location', [MailchimpImportLogsController::class, 'cancelQueuedLocation'])->name('mailchimpImportLogs.cancelQueuedLocation');
     Route::delete('/mailchimp-import-logs/queued-imports/{jobId}', [MailchimpImportLogsController::class, 'cancelQueuedImport'])->name('mailchimpImportLogs.cancelQueuedImport');
-    Route::get('/mailchimp-import-logs/{id}/download', [MailchimpImportLogsController::class, 'download'])->name('mailchimpImportLogs.download');
+    Route::get('/mailchimp-import-logs/{id}/download', [MailchimpImportLogsController::class, 'download'])->middleware('log.exports')->name('mailchimpImportLogs.download');
     Route::patch('/mailchimp-import-logs/{id}/notes', [MailchimpImportLogsController::class, 'updateNotes'])->name('mailchimpImportLogs.updateNotes');
     Route::post('/mailchimp-import-logs/reimport-failed', [MailchimpImportLogsController::class, 'reimportFailedRows'])->name('mailchimpImportLogs.reimportFailed');
     Route::delete('/mailchimp-import-logs/all', [MailchimpImportLogsController::class, 'destroyAll'])->name('mailchimpImportLogs.destroyAll');
@@ -81,10 +82,10 @@ Route::middleware(['auth', RoleMiddleware::class . ':admin,host'])->group(functi
 
     //ATTENDEES ROUTES
     Route::get('/attendees/{eventId}', [AttendeesController::class, 'index'])->name('attendees.index');
-    Route::get('/attendees/{eventId}/export-all', [AttendeesController::class, 'exportAll'])->name('attendees.exportAll');
-    Route::get('/attendees/{eventId}/export-csv', [AttendeesController::class, 'exportCsv'])->name('attendees.exportCsv');
-    Route::get('/attendees/{eventId}/export-tickets', [AttendeesController::class, 'exportTickets'])->name('attendees.exportTickets');
-    Route::get('/attendees/{eventId}/export-all-win-tix', [AttendeesController::class, 'exportAllWinTix'])->name('attendees.exportAllWinTix');
+    Route::get('/attendees/{eventId}/export-all', [AttendeesController::class, 'exportAll'])->middleware('log.exports')->name('attendees.exportAll');
+    Route::get('/attendees/{eventId}/export-csv', [AttendeesController::class, 'exportCsv'])->middleware('log.exports')->name('attendees.exportCsv');
+    Route::get('/attendees/{eventId}/export-tickets', [AttendeesController::class, 'exportTickets'])->middleware('log.exports')->name('attendees.exportTickets');
+    Route::get('/attendees/{eventId}/export-all-win-tix', [AttendeesController::class, 'exportAllWinTix'])->middleware('log.exports')->name('attendees.exportAllWinTix');
     Route::get('/attendees/{eventId}/location/{locationId}', [AttendeesController::class, 'locationAttendees'])->name('attendees.location');
     Route::put('/attendees/{id}', [AttendeesController::class, 'update'])->name('attendees.update');
     Route::delete('/attendee/{attendee}/event/{event}', [AttendeesController::class, 'destroy'])->name('attendees.destroy');
@@ -133,15 +134,18 @@ Route::middleware(['auth', RoleMiddleware::class . ':admin,host'])->group(functi
     Route::get('/event/{eventId}/mailchimp-report', [LocationController::class, 'getMailchimpEventReport'])->name('event.mailchimpReport');
     
     //EXPORT ROUTES
-    Route::get('/location/{locationId}/export', [LocationController::class, 'exportLocationData'])->name('location.export');
-    Route::get('/event/{eventId}/export-all', [LocationController::class, 'exportEventData'])->name('event.exportAll');
+    Route::get('/location/{locationId}/export', [LocationController::class, 'exportLocationData'])->middleware('log.exports')->name('location.export');
+    Route::get('/event/{eventId}/export-all', [LocationController::class, 'exportEventData'])->middleware('log.exports')->name('event.exportAll');
     
     //SHEETS DATA ROUTES
     Route::get('/location/sheets-data/{eventId}', [LocationController::class, 'getSheetsData'])->name('location.getSheetsData');
     Route::post('/location/save-sheets-data', [LocationController::class, 'saveSheetsData'])->name('location.saveSheetsData');
 });
 
-Route::middleware(['auth', RoleMiddleware::class . ':admin'])->group(function () {  
+Route::middleware(['auth', RoleMiddleware::class . ':admin'])->group(function () {
+    //EXPORT AUDIT LOGS
+    Route::get('/admin/export-logs', [ExportLogsController::class, 'index'])->name('admin.exportLogs.index');
+
     //DASHBOARD
     Route::get('/dashboard', [DashboardController::class, 'index'])->name('dashboard');
     Route::get('/dashboard/{event}', [DashboardController::class, 'filter'])->name('dashboard.filter');
@@ -186,13 +190,13 @@ Route::get('/mailchimp/autosync/lists', [MailchimpAutoSyncController::class, 'ge
 // Weekly Report Routes
 Route::get('/weekly-report', [App\Http\Controllers\WeeklyReportController::class, 'index'])->name('weekly-report');
 Route::match(['get', 'post'], '/weekly-report/generate', [App\Http\Controllers\WeeklyReportController::class, 'generate'])->name('weekly-report.generate');
-Route::post('/weekly-report/export', [App\Http\Controllers\WeeklyReportController::class, 'export'])->name('weekly-report.export');
-Route::get('/weekly-report/export-demographics-spreadsheet', [App\Http\Controllers\WeeklyReportController::class, 'exportDemographicsSpreadsheet'])->name('weekly-report.export-demographics-spreadsheet');
+Route::post('/weekly-report/export', [App\Http\Controllers\WeeklyReportController::class, 'export'])->middleware('log.exports')->name('weekly-report.export');
+Route::get('/weekly-report/export-demographics-spreadsheet', [App\Http\Controllers\WeeklyReportController::class, 'exportDemographicsSpreadsheet'])->middleware('log.exports')->name('weekly-report.export-demographics-spreadsheet');
 Route::get('/weekly-report/demographics-table', [App\Http\Controllers\WeeklyReportController::class, 'getDemographicsTableData'])->name('weekly-report.demographics-table');
-Route::post('/weekly-report/export-pdf', [App\Http\Controllers\WeeklyReportController::class, 'exportPdf'])->name('weekly-report.export-pdf');
+Route::post('/weekly-report/export-pdf', [App\Http\Controllers\WeeklyReportController::class, 'exportPdf'])->middleware('log.exports')->name('weekly-report.export-pdf');
 Route::get('/weekly-report/event-breakdown', [App\Http\Controllers\WeeklyReportController::class, 'getEventBreakdown'])->name('weekly-report.event-breakdown');
-Route::post('/weekly-report/event-breakdown/export-pdf', [App\Http\Controllers\WeeklyReportController::class, 'exportEventBreakdownPdf'])->name('weekly-report.event-breakdown.export-pdf');
-Route::post('/weekly-report/end-of-film-tour/export-pdf', [App\Http\Controllers\WeeklyReportController::class, 'exportEndOfFilmTourPdf'])->name('weekly-report.end-of-film-tour.export-pdf');
+Route::post('/weekly-report/event-breakdown/export-pdf', [App\Http\Controllers\WeeklyReportController::class, 'exportEventBreakdownPdf'])->middleware('log.exports')->name('weekly-report.event-breakdown.export-pdf');
+Route::post('/weekly-report/end-of-film-tour/export-pdf', [App\Http\Controllers\WeeklyReportController::class, 'exportEndOfFilmTourPdf'])->middleware('log.exports')->name('weekly-report.end-of-film-tour.export-pdf');
 
 // API Routes
 Route::prefix('api')->middleware(['auth', 'verified'])->group(function () {
@@ -201,6 +205,7 @@ Route::prefix('api')->middleware(['auth', 'verified'])->group(function () {
 });
 
 Route::get('/location/mailchimp-logs/download', [LocationController::class, 'downloadMailchimpLogs'])
+    ->middleware('log.exports')
     ->name('location.downloadMailchimpLogs');
 
 require __DIR__.'/auth.php';

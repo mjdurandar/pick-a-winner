@@ -147,6 +147,12 @@ const userRole = computed(() => user.value?.role);
                                         </DropdownLink>
                                         <DropdownLink
                                             v-if="userRole === 'admin'"
+                                            :href="route('admin.exportLogs.index')"
+                                        >
+                                            Export Logs
+                                        </DropdownLink>
+                                        <DropdownLink
+                                            v-if="userRole === 'admin'"
                                             :href="route('users.index')"
                                         >
                                             Users
@@ -303,6 +309,12 @@ const userRole = computed(() => user.value?.role);
                                 :href="route('laravelLogs.index')"
                             >
                                 Laravel Logs
+                            </ResponsiveNavLink>
+                            <ResponsiveNavLink
+                                v-if="userRole === 'admin'"
+                                :href="route('admin.exportLogs.index')"
+                            >
+                                Export Logs
                             </ResponsiveNavLink>
                             <ResponsiveNavLink
                                 v-if="userRole === 'admin'"

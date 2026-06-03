@@ -857,7 +857,7 @@ input:-webkit-autofill:active {
                                         >
                                             {{ option }}
                                         </option>
-                            </select>
+                                    </select>
                                     <!-- Dropdown for questions with options -->
                                     <select 
                                         v-else-if="filter.questionColumn && questionHasOptions(filter.questionColumn)"
