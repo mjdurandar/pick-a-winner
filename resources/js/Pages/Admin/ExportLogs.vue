@@ -7,6 +7,7 @@ const props = defineProps({
     logs: { type: Object, required: true },
     filters: { type: Object, required: true },
     routeNames: { type: Array, default: () => [] },
+    categories: { type: Array, default: () => [] },
     users: { type: Array, default: () => [] },
 });
 
@@ -38,12 +39,29 @@ function clearFilters() {
     filters.value = {
         user_id: '',
         route_name: '',
+        category: '',
         search: '',
         date_from: '',
         date_to: '',
         per_page: '25',
     };
     applyFilters();
+}
+
+const CATEGORY_LABELS = {
+    export: 'Data export',
+    pickawinner_access: 'Draw access',
+};
+
+function categoryLabel(c) {
+    if (!c) return 'Activity';
+    return CATEGORY_LABELS[c] || c;
+}
+
+function categoryBadgeClass(c) {
+    return c === 'pickawinner_access'
+        ? 'bg-purple-100 text-purple-800'
+        : 'bg-blue-100 text-blue-800';
 }
 
 function formatDate(s) {
@@ -72,11 +90,11 @@ function prettyRoute(name) {
 </script>
 
 <template>
-    <Head title="Export Logs" />
+    <Head title="Activity Logs" />
 
     <AuthenticatedLayout>
         <template #header>
-            <h2 class="text-xl font-semibold leading-tight text-gray-800">Export Audit Logs</h2>
+            <h2 class="text-xl font-semibold leading-tight text-gray-800">Activity Logs</h2>
         </template>
 
         <div class="p-2 pb-5 pt-4">
@@ -84,7 +102,8 @@ function prettyRoute(name) {
                 <div class="overflow-hidden bg-white shadow-sm sm:rounded-lg">
                     <div class="p-6 text-gray-900">
                         <p class="text-gray-600 mb-4">
-                            Every data export action is logged here — who exported what, when, and from where.
+                            Activity is logged here — data exports and Pick a Winner draw access (including
+                            failed attempts) — showing who, what, when, and from which IP address.
                         </p>
 
                         <!-- Filters -->
@@ -97,6 +116,19 @@ function prettyRoute(name) {
                                     placeholder="name, email, url, ip..."
                                     class="w-full rounded border-gray-300 text-sm"
                                 />
+                            </div>
+                            <div>
+                                <label class="block text-xs font-medium text-gray-600 mb-1">Activity</label>
+                                <select
+                                    v-model="filters.category"
+                                    @change="applyFilters"
+                                    class="w-full rounded border-gray-300 text-sm"
+                                >
+                                    <option value="">All</option>
+                                    <option v-for="c in categories" :key="c" :value="c">
+                                        {{ categoryLabel(c) }}
+                                    </option>
+                                </select>
                             </div>
                             <div>
                                 <label class="block text-xs font-medium text-gray-600 mb-1">User</label>
@@ -112,7 +144,7 @@ function prettyRoute(name) {
                                 </select>
                             </div>
                             <div>
-                                <label class="block text-xs font-medium text-gray-600 mb-1">Export type</label>
+                                <label class="block text-xs font-medium text-gray-600 mb-1">Route</label>
                                 <select
                                     v-model="filters.route_name"
                                     @change="applyFilters"
@@ -175,8 +207,9 @@ function prettyRoute(name) {
                                 <thead class="bg-gray-50">
                                     <tr>
                                         <th class="px-3 py-2 text-left font-semibold text-gray-700">When</th>
+                                        <th class="px-3 py-2 text-left font-semibold text-gray-700">Activity</th>
                                         <th class="px-3 py-2 text-left font-semibold text-gray-700">Who</th>
-                                        <th class="px-3 py-2 text-left font-semibold text-gray-700">Export type</th>
+                                        <th class="px-3 py-2 text-left font-semibold text-gray-700">Route</th>
                                         <th class="px-3 py-2 text-left font-semibold text-gray-700">Target</th>
                                         <th class="px-3 py-2 text-left font-semibold text-gray-700">Rows</th>
                                         <th class="px-3 py-2 text-left font-semibold text-gray-700">IP</th>
@@ -186,15 +219,23 @@ function prettyRoute(name) {
                                 </thead>
                                 <tbody class="divide-y divide-gray-100 bg-white">
                                     <tr v-if="logs.data.length === 0">
-                                        <td colspan="8" class="px-3 py-8 text-center text-gray-500">
-                                            No export activity yet.
+                                        <td colspan="9" class="px-3 py-8 text-center text-gray-500">
+                                            No activity yet.
                                         </td>
                                     </tr>
                                     <template v-for="row in logs.data" :key="row.id">
                                         <tr class="hover:bg-gray-50">
                                             <td class="px-3 py-2 whitespace-nowrap text-gray-700">{{ formatDate(row.created_at) }}</td>
+                                            <td class="px-3 py-2">
+                                                <span
+                                                    :class="categoryBadgeClass(row.category)"
+                                                    class="inline-flex rounded px-2 py-0.5 text-xs font-medium whitespace-nowrap"
+                                                >
+                                                    {{ categoryLabel(row.category) }}
+                                                </span>
+                                            </td>
                                             <td class="px-3 py-2 text-gray-800">
-                                                <div class="font-medium">{{ row.user_name_snapshot || row.user?.name || 'Unknown' }}</div>
+                                                <div class="font-medium">{{ row.user_name_snapshot || row.user?.name || (row.category === 'pickawinner_access' ? 'Guest (host)' : 'Unknown') }}</div>
                                                 <div class="text-xs text-gray-500">{{ row.user_email_snapshot || row.user?.email || '—' }}</div>
                                             </td>
                                             <td class="px-3 py-2 text-gray-700 font-mono text-xs">{{ prettyRoute(row.route_name) }}</td>
@@ -223,7 +264,7 @@ function prettyRoute(name) {
                                             </td>
                                         </tr>
                                         <tr v-if="expandedRow === row.id" class="bg-gray-50">
-                                            <td colspan="8" class="px-3 py-3">
+                                            <td colspan="9" class="px-3 py-3">
                                                 <div class="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs">
                                                     <div>
                                                         <div class="font-semibold text-gray-600 mb-1">URL</div>

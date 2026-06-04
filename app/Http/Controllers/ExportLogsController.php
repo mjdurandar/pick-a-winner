@@ -15,6 +15,7 @@ class ExportLogsController extends Controller
     {
         $userId = $request->query('user_id');
         $routeName = $request->query('route_name');
+        $category = $request->query('category');
         $search = trim((string) $request->query('search', ''));
         $dateFrom = $request->query('date_from');
         $dateTo = $request->query('date_to');
@@ -28,6 +29,9 @@ class ExportLogsController extends Controller
         }
         if ($routeName) {
             $query->where('route_name', $routeName);
+        }
+        if ($category) {
+            $query->where('category', $category);
         }
         if ($search !== '') {
             $query->where(function ($q) use ($search) {
@@ -53,6 +57,12 @@ class ExportLogsController extends Controller
             ->orderBy('route_name')
             ->pluck('route_name');
 
+        $categories = ExportLog::query()
+            ->whereNotNull('category')
+            ->distinct()
+            ->orderBy('category')
+            ->pluck('category');
+
         $users = ExportLog::query()
             ->whereNotNull('user_id')
             ->with('user:id,name')
@@ -67,12 +77,14 @@ class ExportLogsController extends Controller
             'filters' => [
                 'user_id' => $userId,
                 'route_name' => $routeName,
+                'category' => $category,
                 'search' => $search,
                 'date_from' => $dateFrom,
                 'date_to' => $dateTo,
                 'per_page' => (string) $perPage,
             ],
             'routeNames' => $routeNames,
+            'categories' => $categories,
             'users' => $users,
         ]);
     }

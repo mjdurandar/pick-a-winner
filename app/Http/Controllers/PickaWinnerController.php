@@ -8,6 +8,7 @@ use Inertia\Inertia;
 use App\Models\Location;
 use App\Models\Prize;
 use App\Models\SignUpForm;
+use App\Models\ExportLog;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Session;
 
@@ -144,9 +145,16 @@ class PickaWinnerController extends Controller
 
         if ($validated['is_all_locations'] ?? false) {
             $event = Events::findOrFail($validated['event_id']);
-            
+
             // For all locations, password should match event's stored password
             if (strtoupper($validated['password']) !== strtoupper($event->password)) {
+                ExportLog::recordDrawAccess($request, 'failed', 'event', (string) $event->id, [
+                    'event_id' => $event->id,
+                    'event_name' => $event->name ?? null,
+                    'is_all_locations' => true,
+                    'reason' => 'wrong_password',
+                ]);
+
                 return back()->withErrors([
                     'password' => 'Invalid password. Please enter the correct event password.'
                 ]);
@@ -155,6 +163,12 @@ class PickaWinnerController extends Controller
             // Mark this event as unlocked for the all-locations draw so the
             // host can manage prizes without authenticating.
             Session::put('verified_all_locations_event_id', $event->id);
+
+            ExportLog::recordDrawAccess($request, 'success', 'event', (string) $event->id, [
+                'event_id' => $event->id,
+                'event_name' => $event->name ?? null,
+                'is_all_locations' => true,
+            ]);
 
             return redirect()->route('pickawinner.alllocation', [
                 'event' => $validated['event_id']
@@ -166,6 +180,13 @@ class PickaWinnerController extends Controller
             ->first();
 
         if (!$location) {
+            ExportLog::recordDrawAccess($request, 'failed', 'event', (string) $validated['event_id'], [
+                'event_id' => $validated['event_id'],
+                'location_id' => $validated['location_id'] ?? null,
+                'is_all_locations' => false,
+                'reason' => 'invalid_location',
+            ]);
+
             return back()->withErrors([
                 'password' => 'Invalid location selected.'
             ]);
@@ -173,6 +194,14 @@ class PickaWinnerController extends Controller
 
         // Check if password matches the stored password
         if (strtoupper($validated['password']) !== strtoupper($location->password)) {
+            ExportLog::recordDrawAccess($request, 'failed', 'location', (string) $location->id, [
+                'event_id' => $validated['event_id'],
+                'location_id' => $location->id,
+                'location_name' => $location->name ?? null,
+                'is_all_locations' => false,
+                'reason' => 'wrong_password',
+            ]);
+
             return back()->withErrors([
                 'password' => 'Invalid password. Please try again.'
             ]);
@@ -182,12 +211,19 @@ class PickaWinnerController extends Controller
         Session::put('verified_location_id', $location->id);
         Session::put('verified_event_id', $validated['event_id']);
 
+        ExportLog::recordDrawAccess($request, 'success', 'location', (string) $location->id, [
+            'event_id' => $validated['event_id'],
+            'location_id' => $location->id,
+            'location_name' => $location->name ?? null,
+            'is_all_locations' => false,
+        ]);
+
         if (!SignupForm::where('event_id', $validated['event_id'])->exists()) {
             return back()->withErrors([
                 'password' => 'Signup form not created yet. Please contact the admin.'
             ]);
         }
-        
+
         return redirect()->route('pickawinner.locationpage', [
             'location' => $validated['location_id'],
             'event' => $validated['event_id']
