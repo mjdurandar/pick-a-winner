@@ -24,6 +24,7 @@ return Application::configure(basePath: dirname(__DIR__))
 
         $middleware->alias([
             'log.exports' => \App\Http\Middleware\LogExports::class,
+            'pickawinner.access' => \App\Http\Middleware\EnsurePickAWinnerAccess::class,
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions) {

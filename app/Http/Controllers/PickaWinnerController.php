@@ -152,6 +152,10 @@ class PickaWinnerController extends Controller
                 ]);
             }
 
+            // Mark this event as unlocked for the all-locations draw so the
+            // host can manage prizes without authenticating.
+            Session::put('verified_all_locations_event_id', $event->id);
+
             return redirect()->route('pickawinner.alllocation', [
                 'event' => $validated['event_id']
             ]);

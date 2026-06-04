@@ -26,15 +26,21 @@ Route::get('/pickawinner/{eventId}', [PickaWinnerController::class, 'pickawinner
 Route::get('/pickawinner/show/{location}/{event}', [PickaWinnerController::class, 'pickawinnerlocationpage'])->name('pickawinner.locationpage');
 Route::get('/pickawinner/alllocation/{event}', [PickaWinnerController::class, 'alllocation'])->name('pickawinner.alllocation');
 Route::get('/api/events/{event}/locations', [PickaWinnerController::class, 'getLocations']);
-Route::post('/picka-winner/verify', [PickaWinnerController::class, 'verify'])->name('picka-winner.verify');
+Route::post('/picka-winner/verify', [PickaWinnerController::class, 'verify'])
+    ->middleware('throttle:10,1')
+    ->name('picka-winner.verify');
 
-// Prize Management Routes (no auth required)
-Route::patch('/prize/{prize}', [PrizeController::class, 'update'])->name('prize.update');
-Route::post('/prize', [PrizeController::class, 'addPrize'])->name('prize.store');
-Route::post('/prize/alllocation', [PrizeController::class, 'addPrizeAllLocation'])->name('prize.storeAllLocation');
-Route::post('/prize/multiple', [PrizeController::class, 'storeMultiple'])->name('prize.storeMultiple');
-Route::delete('/prize/{prize}', [PrizeController::class, 'destroy'])->name('prize.destroy');
-Route::post('/prize/winner/{prize}', [PrizeController::class, 'addWinner'])->name('prize.assignWinner');
+// Prize Management Routes — gated to a verified Pick-a-Winner session (the host
+// must have unlocked the draw with the correct password) or an authenticated
+// admin/host. See EnsurePickAWinnerAccess.
+Route::middleware('pickawinner.access')->group(function () {
+    Route::patch('/prize/{prize}', [PrizeController::class, 'update'])->name('prize.update');
+    Route::post('/prize', [PrizeController::class, 'addPrize'])->name('prize.store');
+    Route::post('/prize/alllocation', [PrizeController::class, 'addPrizeAllLocation'])->name('prize.storeAllLocation');
+    Route::post('/prize/multiple', [PrizeController::class, 'storeMultiple'])->name('prize.storeMultiple');
+    Route::delete('/prize/{prize}', [PrizeController::class, 'destroy'])->name('prize.destroy');
+    Route::post('/prize/winner/{prize}', [PrizeController::class, 'addWinner'])->name('prize.assignWinner');
+});
 
 Route::get('/', function () {
     return Inertia::render('Auth/Login');
@@ -182,30 +188,34 @@ Route::middleware(['auth', RoleMiddleware::class . ':admin'])->group(function ()
     Route::delete('/profile', [ProfileController::class, 'destroy'])->name('profile.destroy');
 });
 
-// Mailchimp Auto-sync Settings Routes
-Route::get('/mailchimp/autosync/settings', [MailchimpAutoSyncController::class, 'getSettings'])->name('mailchimp.autosync.settings');
-Route::post('/mailchimp/autosync/update', [MailchimpAutoSyncController::class, 'updateSettings'])->name('mailchimp.autosync.update');
-Route::get('/mailchimp/autosync/lists', [MailchimpAutoSyncController::class, 'getListsForAccount'])->name('mailchimp.autosync.lists');
+// Authenticated reporting / Mailchimp settings routes (admin + host).
+Route::middleware(['auth', RoleMiddleware::class . ':admin,host'])->group(function () {
+    // Mailchimp Auto-sync Settings Routes
+    Route::get('/mailchimp/autosync/settings', [MailchimpAutoSyncController::class, 'getSettings'])->name('mailchimp.autosync.settings');
+    Route::post('/mailchimp/autosync/update', [MailchimpAutoSyncController::class, 'updateSettings'])->name('mailchimp.autosync.update');
+    Route::get('/mailchimp/autosync/lists', [MailchimpAutoSyncController::class, 'getListsForAccount'])->name('mailchimp.autosync.lists');
 
-// Weekly Report Routes
-Route::get('/weekly-report', [App\Http\Controllers\WeeklyReportController::class, 'index'])->name('weekly-report');
-Route::match(['get', 'post'], '/weekly-report/generate', [App\Http\Controllers\WeeklyReportController::class, 'generate'])->name('weekly-report.generate');
-Route::post('/weekly-report/export', [App\Http\Controllers\WeeklyReportController::class, 'export'])->middleware('log.exports')->name('weekly-report.export');
-Route::get('/weekly-report/export-demographics-spreadsheet', [App\Http\Controllers\WeeklyReportController::class, 'exportDemographicsSpreadsheet'])->middleware('log.exports')->name('weekly-report.export-demographics-spreadsheet');
-Route::get('/weekly-report/demographics-table', [App\Http\Controllers\WeeklyReportController::class, 'getDemographicsTableData'])->name('weekly-report.demographics-table');
-Route::post('/weekly-report/export-pdf', [App\Http\Controllers\WeeklyReportController::class, 'exportPdf'])->middleware('log.exports')->name('weekly-report.export-pdf');
-Route::get('/weekly-report/event-breakdown', [App\Http\Controllers\WeeklyReportController::class, 'getEventBreakdown'])->name('weekly-report.event-breakdown');
-Route::post('/weekly-report/event-breakdown/export-pdf', [App\Http\Controllers\WeeklyReportController::class, 'exportEventBreakdownPdf'])->middleware('log.exports')->name('weekly-report.event-breakdown.export-pdf');
-Route::post('/weekly-report/end-of-film-tour/export-pdf', [App\Http\Controllers\WeeklyReportController::class, 'exportEndOfFilmTourPdf'])->middleware('log.exports')->name('weekly-report.end-of-film-tour.export-pdf');
+    // Weekly Report Routes
+    Route::get('/weekly-report', [App\Http\Controllers\WeeklyReportController::class, 'index'])->name('weekly-report');
+    Route::match(['get', 'post'], '/weekly-report/generate', [App\Http\Controllers\WeeklyReportController::class, 'generate'])->name('weekly-report.generate');
+    Route::post('/weekly-report/export', [App\Http\Controllers\WeeklyReportController::class, 'export'])->middleware('log.exports')->name('weekly-report.export');
+    Route::get('/weekly-report/export-demographics-spreadsheet', [App\Http\Controllers\WeeklyReportController::class, 'exportDemographicsSpreadsheet'])->middleware('log.exports')->name('weekly-report.export-demographics-spreadsheet');
+    Route::get('/weekly-report/demographics-table', [App\Http\Controllers\WeeklyReportController::class, 'getDemographicsTableData'])->name('weekly-report.demographics-table');
+    Route::post('/weekly-report/export-pdf', [App\Http\Controllers\WeeklyReportController::class, 'exportPdf'])->middleware('log.exports')->name('weekly-report.export-pdf');
+    Route::get('/weekly-report/event-breakdown', [App\Http\Controllers\WeeklyReportController::class, 'getEventBreakdown'])->name('weekly-report.event-breakdown');
+    Route::post('/weekly-report/event-breakdown/export-pdf', [App\Http\Controllers\WeeklyReportController::class, 'exportEventBreakdownPdf'])->middleware('log.exports')->name('weekly-report.event-breakdown.export-pdf');
+    Route::post('/weekly-report/end-of-film-tour/export-pdf', [App\Http\Controllers\WeeklyReportController::class, 'exportEndOfFilmTourPdf'])->middleware('log.exports')->name('weekly-report.end-of-film-tour.export-pdf');
+
+    // Mailchimp import logs download
+    Route::get('/location/mailchimp-logs/download', [LocationController::class, 'downloadMailchimpLogs'])
+        ->middleware('log.exports')
+        ->name('location.downloadMailchimpLogs');
+});
 
 // API Routes
 Route::prefix('api')->middleware(['auth', 'verified'])->group(function () {
     Route::get('/location/mailchimp/lists', [LocationController::class, 'getMailchimpLists'])->name('location.mailchimpLists');
     Route::get('/location/subscribers', [LocationController::class, 'getSubscribers'])->name('location.getSubscribers');
 });
-
-Route::get('/location/mailchimp-logs/download', [LocationController::class, 'downloadMailchimpLogs'])
-    ->middleware('log.exports')
-    ->name('location.downloadMailchimpLogs');
 
 require __DIR__.'/auth.php';

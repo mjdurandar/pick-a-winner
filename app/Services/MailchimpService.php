@@ -145,19 +145,22 @@ class MailchimpService
         return array_values(array_filter(array_map('trim', explode(',', $value)), fn ($t) => $t !== ''));
     }
 
+    /**
+     * Return the configured Mailchimp accounts for display in the UI.
+     *
+     * IMPORTANT: never include the raw API key or server prefix here — this
+     * array is serialized to the client. Only expose the display name and a
+     * boolean indicating whether the account is configured.
+     */
     public static function getAvailableAccounts()
     {
         return [
             'anz' => [
                 'name' => 'Mailchimp ANZ',
-                'key' => Config::get('services.mailchimp.anz.key'),
-                'server' => Config::get('services.mailchimp.anz.server'),
                 'enabled' => !empty(Config::get('services.mailchimp.anz.key'))
             ],
             'usa' => [
                 'name' => 'Mailchimp USA',
-                'key' => Config::get('services.mailchimp.usa.key'),
-                'server' => Config::get('services.mailchimp.usa.server'),
                 'enabled' => !empty(Config::get('services.mailchimp.usa.key'))
             ]
         ];
