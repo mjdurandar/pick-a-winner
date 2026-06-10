@@ -531,9 +531,11 @@ class AttendeesController extends Controller
         $eventYear = $event->event_year ?? date('Y');
         $eventCountry = strtoupper($event->event_country ?? '');
         $isUsaOrCanada = in_array($eventCountry, ['USA', 'CANADA', 'USA & CANADA']);
+        // Always split off a trailing 2-3 letter state code (e.g. "MELBOURNE VIC" -> "MELBOURNE").
+        // For USA/Canada the state is re-appended to the SHOW tag; for AU/NZ/other it is dropped entirely.
         $state = '';
         $locationWithoutState = strtoupper($extracted);
-        if ($isUsaOrCanada && $extracted !== '') {
+        if ($extracted !== '') {
             $parts = preg_split('/\s+/', strtoupper($extracted), -1, PREG_SPLIT_NO_EMPTY);
             if (count($parts) > 1 && preg_match('/^[A-Z]{2,3}$/', end($parts))) {
                 $state = end($parts);
