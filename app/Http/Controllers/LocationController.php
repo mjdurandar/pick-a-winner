@@ -271,7 +271,7 @@ class LocationController extends Controller
             $availableFields = [
                 'FNAME', 'LNAME', 'CITY', 'SHOWCITY', 'STATE', 'ZIPCODE', 'COUNTRY', 
                 'MMERGE11', 'GENDER', 'MMERGE18', 'MMERGE10', 'MMERGE12', 'MMERGE13', 'MMERGE14',
-                'PHONE', 'SMSPHONE' // Now available based on your latest screenshot
+                'PHONE' // We no longer import the SMS phone number field
             ];
             $existingTags = array_column($mergeFields, 'tag');
 
@@ -327,7 +327,6 @@ class LocationController extends Controller
                     'MMERGE13' => 'Equipment Spending (Available ✅)',
                     'MMERGE14' => 'Age (Available ✅)',
                     'PHONE' => 'Phone Number (Available ✅)',
-                    'SMSPHONE' => 'SMS Phone Number (Available ✅ - SMS Marketing Ready!)'
                 ],
                 'data_to_import' => [
                     'first_name' => 'Nathan',
@@ -960,11 +959,16 @@ class LocationController extends Controller
         $listId = $request->input('list_id');
         $mailchimpAccount = $request->input('mailchimp_account');
         $hadPreviousImport = $listId && $mailchimpAccount
-            ? MailchimpImportLog::where('location_id', $locationId)->where('list_id', $listId)->where('mailchimp_account', $mailchimpAccount)->exists()
+            ? MailchimpImportLog::where('location_id', $locationId)->where('list_id', $listId)->where('mailchimp_account', $mailchimpAccount)->where('source', $source)->exists()
             : false;
 
-        $log = MailchimpImportLog::create([
+        // Reuse the same log line for this location/list/account/source on re-import instead of adding a new row.
+        $log = MailchimpImportLog::updateOrCreate([
             'location_id' => $locationId,
+            'source' => $source,
+            'list_id' => $listId,
+            'mailchimp_account' => $mailchimpAccount,
+        ], [
             'imported_by' => auth()->id(),
             'total_data' => $request->total_data,
             'new_contacts' => $request->new_contacts,
@@ -973,9 +977,6 @@ class LocationController extends Controller
             'errors' => $request->input('errors', []),
             'failed_rows' => $request->input('failed_rows'),
             'tags' => $tags,
-            'source' => $source,
-            'mailchimp_account' => $mailchimpAccount,
-            'list_id' => $listId,
             'list_name' => $request->input('list_name'),
             'status' => $hadPreviousImport ? 'reimport' : 'import',
         ]);

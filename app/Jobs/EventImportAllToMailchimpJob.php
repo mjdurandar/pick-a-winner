@@ -640,10 +640,16 @@ class EventImportAllToMailchimpJob implements ShouldQueue
         $hadPreviousImport = MailchimpImportLog::where('location_id', $locationId)
             ->where('list_id', $this->listId)
             ->where('mailchimp_account', $this->mailchimpAccount)
+            ->where('source', 'ticket_data')
             ->exists();
 
-        $ticketLog = MailchimpImportLog::create([
+        // Reuse the same log line for this location/list/account/source on re-import instead of adding a new row.
+        $ticketLog = MailchimpImportLog::updateOrCreate([
             'location_id' => $locationId,
+            'source' => 'ticket_data',
+            'list_id' => $this->listId,
+            'mailchimp_account' => $this->mailchimpAccount,
+        ], [
             'imported_by' => $this->userId,
             'total_data' => $attempted,
             'new_contacts' => $locNew,
@@ -652,9 +658,6 @@ class EventImportAllToMailchimpJob implements ShouldQueue
             'errors' => array_slice($locErrors, 0, 50),
             'failed_rows' => array_slice($failedRowsData, 0, $maxFailedRowsStored),
             'tags' => $tags,
-            'source' => 'ticket_data',
-            'mailchimp_account' => $this->mailchimpAccount,
-            'list_id' => $this->listId,
             'list_name' => $this->listName,
             'status' => $hadPreviousImport ? 'reimport' : 'import',
         ]);
@@ -768,10 +771,16 @@ class EventImportAllToMailchimpJob implements ShouldQueue
         $hadPreviousImport = MailchimpImportLog::where('location_id', $locationId)
             ->where('list_id', $this->listId)
             ->where('mailchimp_account', $this->mailchimpAccount)
+            ->where('source', 'signup_form')
             ->exists();
 
-        $formLog = MailchimpImportLog::create([
+        // Reuse the same log line for this location/list/account/source on re-import instead of adding a new row.
+        $formLog = MailchimpImportLog::updateOrCreate([
             'location_id' => $locationId,
+            'source' => 'signup_form',
+            'list_id' => $this->listId,
+            'mailchimp_account' => $this->mailchimpAccount,
+        ], [
             'imported_by' => $this->userId,
             'total_data' => $attemptedForm,
             'new_contacts' => $locFormNew,
@@ -780,9 +789,6 @@ class EventImportAllToMailchimpJob implements ShouldQueue
             'errors' => array_slice($locFormErrors, 0, 50),
             'failed_rows' => array_slice($failedRowsData, 0, $maxFailedRowsStored),
             'tags' => $formTags,
-            'source' => 'signup_form',
-            'mailchimp_account' => $this->mailchimpAccount,
-            'list_id' => $this->listId,
             'list_name' => $this->listName,
             'status' => $hadPreviousImport ? 'reimport' : 'import',
         ]);

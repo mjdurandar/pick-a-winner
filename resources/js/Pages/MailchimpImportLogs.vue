@@ -50,8 +50,15 @@ const props = defineProps({
     filterSource: { type: String, default: null }, // 'signup_form' | 'ticket_data' | null
     searchKeyword: { type: String, default: null },
     sortBy: { type: String, default: null },
-    sortDir: { type: String, default: null } // 'asc' | 'desc' | null
+    sortDir: { type: String, default: null }, // 'asc' | 'desc' | null
+    autoImportRuns: { type: Array, default: () => [] } // scheduled "auto-import finished locations" run summaries
 });
+
+const showAutoRuns = ref(false);
+const expandedRunId = ref(null);
+const toggleRunDetails = (id) => {
+    expandedRunId.value = expandedRunId.value === id ? null : id;
+};
 
 const formatImportDate = (dateStr) => {
     if (!dateStr) return '—';
@@ -681,7 +688,7 @@ const onManualImportAudienceChange = async (listId) => {
         manualImportMergeFields.value = mf;
         const tagToDefault = {
             FNAME: 'first_name', LNAME: 'last_name',
-            PHONE: 'mobile_number', SMSPHONE: 'mobile_number', MERGE4: 'mobile_number', MERGE30: 'mobile_number',
+            PHONE: 'mobile_number', MERGE4: 'mobile_number', MERGE30: 'mobile_number',
             ADDRESSWIN: 'address_full', MMERGE10: 'address_full', MERGE10: 'address_full', MERGE11: 'address_full',
             SHOWCITY: 'city', CITY: 'city', MERGE3: 'city', MERGE5: 'city',
             STATEWIN: 'state', STATE: 'state', MERGE6: 'state',
@@ -774,7 +781,7 @@ const onManualImportCsvSelected = async (event) => {
 // Map Mailchimp merge tags to storage CSV headers for manual import log file
 const MANUAL_IMPORT_TAG_TO_KEY = {
     EMAIL: 'email_address', FNAME: 'first_name', LNAME: 'last_name',
-    PHONE: 'mobile_number', SMSPHONE: 'mobile_number', MERGE4: 'mobile_number', MERGE30: 'mobile_number',
+    PHONE: 'mobile_number', MERGE4: 'mobile_number', MERGE30: 'mobile_number',
     ADDRESSWIN: 'street_address', MMERGE10: 'street_address', MERGE10: 'street_address', MERGE11: 'street_address',
     SHOWCITY: 'city', CITY: 'city', MERGE3: 'city', MERGE5: 'city',
     STATEWIN: 'state', STATE: 'state', MERGE6: 'state',
@@ -965,6 +972,101 @@ const exportToCsv = () => {
                         <p class="text-gray-600 mb-4">
                             All Mailchimp imports recorded when you import attendees to Mailchimp from a location page.
                         </p>
+
+                        <!-- Automated import runs (scheduled "import finished locations") -->
+                        <div class="mb-6 border border-gray-200 rounded-lg">
+                            <button
+                                type="button"
+                                class="w-full flex items-center justify-between px-4 py-3 text-left"
+                                @click="showAutoRuns = !showAutoRuns"
+                            >
+                                <span class="font-semibold text-gray-800">
+                                    <i class="fa-solid fa-robot mr-1"></i>
+                                    Automated runs
+                                    <span class="text-sm font-normal text-gray-500">({{ autoImportRuns.length }})</span>
+                                </span>
+                                <span class="text-sm text-gray-500">
+                                    <template v-if="autoImportRuns.length">Last run: {{ formatImportDate(autoImportRuns[0].ran_at) }}</template>
+                                    <template v-else>No automated runs yet</template>
+                                    <i class="fa-solid ml-2" :class="showAutoRuns ? 'fa-chevron-up' : 'fa-chevron-down'"></i>
+                                </span>
+                            </button>
+                            <div v-if="showAutoRuns" class="border-t border-gray-200 px-4 py-3">
+                                <p class="text-sm text-gray-600 mb-3">
+                                    Daily job that imports locations finished 4+ days ago for events with auto-import enabled.
+                                    Turn it on per event via <span class="font-medium">Mailchimp Auto-Sync Settings</span> on a location page.
+                                </p>
+                                <div v-if="autoImportRuns.length === 0" class="text-sm text-gray-500">Nothing yet.</div>
+                                <div v-else class="overflow-x-auto">
+                                    <table class="min-w-full text-sm">
+                                        <thead>
+                                            <tr class="text-left text-gray-500 border-b">
+                                                <th class="py-2 pr-4">Ran at</th>
+                                                <th class="py-2 pr-4">Status</th>
+                                                <th class="py-2 pr-4">Imported</th>
+                                                <th class="py-2 pr-4">Skipped</th>
+                                                <th class="py-2 pr-4">New</th>
+                                                <th class="py-2 pr-4">Updated</th>
+                                                <th class="py-2 pr-4">Errors</th>
+                                                <th class="py-2 pr-4"></th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            <template v-for="run in autoImportRuns" :key="run.id">
+                                                <tr class="border-b">
+                                                    <td class="py-2 pr-4 whitespace-nowrap">
+                                                        {{ formatImportDate(run.ran_at) }}
+                                                        <span v-if="run.dry_run" class="ml-1 inline-block px-1.5 py-0.5 text-xs bg-gray-100 text-gray-600 rounded">dry run</span>
+                                                    </td>
+                                                    <td class="py-2 pr-4">
+                                                        <span
+                                                            class="inline-block px-2 py-0.5 text-xs rounded"
+                                                            :class="{
+                                                                'bg-green-100 text-green-700': run.status === 'completed',
+                                                                'bg-yellow-100 text-yellow-700': run.status === 'running',
+                                                                'bg-red-100 text-red-700': run.status === 'failed'
+                                                            }"
+                                                        >{{ run.status }}</span>
+                                                    </td>
+                                                    <td class="py-2 pr-4">{{ run.locations_imported }}</td>
+                                                    <td class="py-2 pr-4">{{ run.locations_skipped }}</td>
+                                                    <td class="py-2 pr-4">{{ run.total_new }}</td>
+                                                    <td class="py-2 pr-4">{{ run.total_updated }}</td>
+                                                    <td class="py-2 pr-4">{{ run.total_errors }}</td>
+                                                    <td class="py-2 pr-4">
+                                                        <button
+                                                            v-if="Array.isArray(run.details) && run.details.length"
+                                                            type="button"
+                                                            class="text-blue-600 hover:underline"
+                                                            @click="toggleRunDetails(run.id)"
+                                                        >{{ expandedRunId === run.id ? 'Hide' : 'Details' }}</button>
+                                                    </td>
+                                                </tr>
+                                                <tr v-if="expandedRunId === run.id">
+                                                    <td colspan="8" class="py-2 px-3 bg-gray-50">
+                                                        <div class="text-xs text-gray-700">
+                                                            <div
+                                                                v-for="(d, i) in run.details"
+                                                                :key="i"
+                                                                class="py-1 border-b border-gray-100 last:border-0"
+                                                            >
+                                                                <span class="font-medium">{{ d.location_name }}</span>
+                                                                <span class="text-gray-500"> — {{ d.status }}</span>
+                                                                <span v-if="d.status === 'imported'"> · new {{ d.new }}, updated {{ d.updated }}, errors {{ d.errors }}</span>
+                                                                <span v-else-if="d.reason" class="text-gray-500"> ({{ d.reason }})</span>
+                                                            </div>
+                                                        </div>
+                                                    </td>
+                                                </tr>
+                                            </template>
+                                        </tbody>
+                                    </table>
+                                </div>
+                                <p v-if="autoImportRuns.length && autoImportRuns[0].status === 'running'" class="text-xs text-gray-500 mt-2">
+                                    A run is in progress — counts update as locations finish importing. Refresh to see the latest.
+                                </p>
+                            </div>
+                        </div>
 
                         <div class="flex flex-wrap items-center justify-between gap-4 mb-4">
                             <div class="flex items-center gap-4">

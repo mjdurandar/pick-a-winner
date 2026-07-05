@@ -975,6 +975,12 @@ class MailchimpService
             $fieldType = $info['type'] ?? 'text';
             $value = $getSubscriberValueForTag($tag);
 
+            // We no longer import the SMS phone number — never populate SMS-specific merge fields
+            // (the regular PHONE field is still imported below).
+            if ($tag === 'SMSPHONE' || in_array($fieldType, ['smsphone', 'sms'], true)) {
+                continue;
+            }
+
             // Age: only include when mapped and non-empty.
             if (in_array($tag, ['AGE', 'AGEWIN', 'MMERGE14', 'MERGE14'], true)) {
                 if ($value !== null) {

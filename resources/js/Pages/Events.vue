@@ -1,6 +1,6 @@
 <script setup>
 import Swal from 'sweetalert2';
-import { ref, computed } from 'vue';
+import { ref, computed, watch } from 'vue';
 import { useForm, router, usePage } from '@inertiajs/vue3';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout.vue';
 import ScrollDatePicker from '@/Components/ScrollDatePicker.vue';
@@ -28,7 +28,35 @@ const filteredEvents = computed(() => {
         return props.events;
     }
     return props.events.filter(event => event.film_id === selectedFilmFilter.value);
-}); 
+});
+
+// Pagination — show 6 events per page
+const perPage = 6;
+const currentPage = ref(1);
+
+const totalPages = computed(() => Math.max(1, Math.ceil(filteredEvents.value.length / perPage)));
+
+const paginatedEvents = computed(() => {
+    const start = (currentPage.value - 1) * perPage;
+    return filteredEvents.value.slice(start, start + perPage);
+});
+
+// Jump back to the first page when the film filter changes
+watch(selectedFilmFilter, () => {
+    currentPage.value = 1;
+});
+
+// Clamp the current page if the number of pages shrinks
+watch(totalPages, () => {
+    if (currentPage.value > totalPages.value) {
+        currentPage.value = totalPages.value;
+    }
+});
+
+const goToPage = (page) => {
+    if (page < 1 || page > totalPages.value) return;
+    currentPage.value = page;
+};
 
 // Sheets modal state
 const showSheetsModal = ref(false);
@@ -587,7 +615,7 @@ const closeSheetsModal = () => {
         <div class="p-4">
             <div class="mx-auto max-w-7xl sm:px-6 lg:px-8">
                 <div class="row">
-                    <div v-for="event in filteredEvents" :key="event.id" class="col-md-4 mb-4">
+                    <div v-for="event in paginatedEvents" :key="event.id" class="col-md-4 mb-4">
                         <div class="card">
                             <img style="height: 200px;" :src="'/storage/' + event.event_banner" class="card-img-top" alt="Event Banner" />
                             <div class="card-body">
@@ -620,6 +648,26 @@ const closeSheetsModal = () => {
                         </div>
                     </div>
                 </div>
+
+                <!-- Pagination -->
+                <nav v-if="totalPages > 1" aria-label="Events pagination" class="mt-3">
+                    <ul class="pagination justify-content-center mb-0">
+                        <li class="page-item" :class="{ disabled: currentPage === 1 }">
+                            <button class="page-link" @click="goToPage(currentPage - 1)">Previous</button>
+                        </li>
+                        <li
+                            v-for="page in totalPages"
+                            :key="page"
+                            class="page-item"
+                            :class="{ active: page === currentPage }"
+                        >
+                            <button class="page-link" @click="goToPage(page)">{{ page }}</button>
+                        </li>
+                        <li class="page-item" :class="{ disabled: currentPage === totalPages }">
+                            <button class="page-link" @click="goToPage(currentPage + 1)">Next</button>
+                        </li>
+                    </ul>
+                </nav>
             </div>
         </div>
 

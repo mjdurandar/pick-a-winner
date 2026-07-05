@@ -7,6 +7,7 @@ use App\Jobs\EventImportLocationToMailchimpJob;
 use App\Jobs\ManualImportToMailchimpJob;
 use App\Models\Events;
 use App\Models\Location;
+use App\Models\MailchimpAutoImportRun;
 use App\Models\MailchimpImportLog;
 use App\Services\MailchimpService;
 use Illuminate\Http\Request;
@@ -164,6 +165,8 @@ class MailchimpImportLogsController extends Controller
             return $item;
         };
 
+        $autoImportRuns = MailchimpAutoImportRun::orderByDesc('ran_at')->limit(20)->get();
+
         if ($perPage === 'all') {
             $logs = $query->get()->map($normalizeLog)->values()->all();
             $events = Events::orderBy('event_name')->get(['id', 'event_name']);
@@ -174,6 +177,7 @@ class MailchimpImportLogsController extends Controller
                 'perPage' => 'all',
                 'totalsFiltered' => $totalsFiltered,
                 'events' => $events,
+                'autoImportRuns' => $autoImportRuns,
                 'filterEventId' => $eventId ? (int) $eventId : null,
                 'filterSource' => $source && in_array($source, ['signup_form', 'ticket_data', 'manual_csv', 'signup_form_resub']) ? $source : null,
                 'searchKeyword' => $search !== '' ? $search : null,
@@ -199,6 +203,7 @@ class MailchimpImportLogsController extends Controller
             'perPage' => (string) $perPage,
             'totalsFiltered' => $totalsFiltered,
             'events' => $events,
+            'autoImportRuns' => $autoImportRuns,
             'filterEventId' => $eventId ? (int) $eventId : null,
             'filterSource' => $source && in_array($source, ['signup_form', 'ticket_data', 'manual_csv', 'signup_form_resub']) ? $source : null,
             'searchKeyword' => $search !== '' ? $search : null,
@@ -274,24 +279,29 @@ class MailchimpImportLogsController extends Controller
             return is_string($t) ? trim($t) : (string) $t;
         }, $request->tags ?: []), fn ($t) => $t !== ''));
 
-        $log = MailchimpImportLog::create([
-            'location_id' => null,
-            'imported_by' => auth()->id(),
-            'total_data' => $request->total_data,
-            'new_contacts' => $request->new_contacts,
-            'updated_data' => $request->updated_data,
-            'data_with_error' => $request->data_with_error,
-            'errors' => $request->input('errors', []),
-            'failed_rows' => $request->input('failed_rows', []),
-            'tags' => $tags,
-            'source' => 'manual_csv',
-            'mailchimp_account' => $request->mailchimp_account,
-            'list_id' => $request->list_id,
-            'list_name' => $request->input('list_name'),
-            'custom_event_name' => $request->filled('custom_event_name') ? trim($request->custom_event_name) : null,
-            'custom_source' => $request->filled('custom_source') ? trim($request->custom_source) : null,
-            'status' => 'import',
-        ]);
+        // Reuse the same log line for a repeat of the same named manual import (list/account/event/source) instead of a new row.
+        $log = MailchimpImportLog::updateOrCreate(
+            [
+                'location_id' => null,
+                'source' => 'manual_csv',
+                'list_id' => $request->list_id,
+                'mailchimp_account' => $request->mailchimp_account,
+                'custom_event_name' => $request->filled('custom_event_name') ? trim($request->custom_event_name) : null,
+                'custom_source' => $request->filled('custom_source') ? trim($request->custom_source) : null,
+            ],
+            [
+                'imported_by' => auth()->id(),
+                'total_data' => $request->total_data,
+                'new_contacts' => $request->new_contacts,
+                'updated_data' => $request->updated_data,
+                'data_with_error' => $request->data_with_error,
+                'errors' => $request->input('errors', []),
+                'failed_rows' => $request->input('failed_rows', []),
+                'tags' => $tags,
+                'list_name' => $request->input('list_name'),
+            ]
+        );
+        $log->update(['status' => $log->wasRecentlyCreated ? 'import' : 'reimport']);
 
         $subscribers = $request->input('subscribers', []);
         if (! empty($subscribers)) {
@@ -493,7 +503,6 @@ class MailchimpImportLogsController extends Controller
                 'FNAME' => 'first_name',
                 'LNAME' => 'last_name',
                 'PHONE' => 'mobile_number',
-                'SMSPHONE' => 'mobile_number',
                 'CITY' => 'city',
                 'STATE' => 'state',
                 'ZIPCODE' => 'zip_code',
@@ -548,24 +557,14 @@ class MailchimpImportLogsController extends Controller
         }
 
         $successCount = $newCount + $updatedCount;
-        MailchimpImportLog::create([
-            'location_id' => $log->location_id,
-            'imported_by' => auth()->id(),
-            'total_data' => count($request->subscribers),
-            'new_contacts' => $newCount,
-            'updated_data' => $updatedCount,
-            'data_with_error' => $errorCount,
-            'errors' => array_slice($errors, 0, 50),
-            'failed_rows' => array_slice($failedRows, 0, 100),
-            'tags' => $tags,
-            'source' => $log->source,
-            'mailchimp_account' => $account,
-            'list_id' => $listId,
-            'list_name' => $log->list_name,
-            'custom_event_name' => $log->custom_event_name,
-            'custom_source' => $log->custom_source,
-            'status' => 'reimport',
-        ]);
+        // Retrying failed rows updates the original log line in place (rows that now succeed move out of the error count).
+        $log->new_contacts += $newCount;
+        $log->updated_data += $updatedCount;
+        $log->data_with_error = $errorCount;
+        $log->errors = array_slice($errors, 0, 50);
+        $log->failed_rows = array_slice($failedRows, 0, 100);
+        $log->status = 'reimport';
+        $log->save();
 
         return response()->json([
             'success' => true,

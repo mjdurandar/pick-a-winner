@@ -26,7 +26,6 @@ class ManualImportToMailchimpJob implements ShouldQueue
         'FNAME' => 'first_name',
         'LNAME' => 'last_name',
         'PHONE' => 'mobile_number',
-        'SMSPHONE' => 'mobile_number',
         'MERGE4' => 'mobile_number',
         'MERGE30' => 'mobile_number',
         'ADDRESSWIN' => 'street_address',
@@ -171,8 +170,15 @@ class ManualImportToMailchimpJob implements ShouldQueue
 
         $effectiveFieldMapping = $this->effectiveFieldMappingForLog($fieldMapping);
 
-        $log = MailchimpImportLog::create([
+        // Reuse the same log line for a repeat of the same named manual import (list/account/event/source) instead of a new row.
+        $log = MailchimpImportLog::updateOrCreate([
             'location_id' => null,
+            'source' => 'manual_csv',
+            'list_id' => $this->listId,
+            'mailchimp_account' => $this->mailchimpAccount,
+            'custom_event_name' => $this->customEventName,
+            'custom_source' => $this->customSource,
+        ], [
             'imported_by' => $this->userId,
             'total_data' => $total,
             'new_contacts' => $results['new'],
@@ -181,15 +187,10 @@ class ManualImportToMailchimpJob implements ShouldQueue
             'errors' => array_slice($results['errors'], 0, 100),
             'failed_rows' => array_slice($results['errorDetails'], 0, 100),
             'tags' => $tags,
-            'source' => 'manual_csv',
-            'mailchimp_account' => $this->mailchimpAccount,
-            'list_id' => $this->listId,
             'list_name' => $this->listName,
             'field_mapping' => $effectiveFieldMapping,
-            'custom_event_name' => $this->customEventName,
-            'custom_source' => $this->customSource,
-            'status' => 'import',
         ]);
+        $log->update(['status' => $log->wasRecentlyCreated ? 'import' : 'reimport']);
 
         $normalized = $this->buildNormalizedSubscribers($fieldMapping);
         if (! empty($normalized)) {

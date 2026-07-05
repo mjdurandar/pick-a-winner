@@ -51,6 +51,9 @@ const mailchimpSettings = ref({
 const availableLists = ref([]);
 const availableAccounts = ref([]);
 const isSettingsLoading = ref(false);
+// Durable per-event auto-import config (scheduled "import finished locations").
+const autoImportConfig = ref({ enabled: false, list_id: '', list_name: '', account: 'anz' });
+const autoImportLists = ref([]);
 const showEventbriteModal = ref(false);
 const eventbriteLink = ref('');
 const isFetchingEventbrite = ref(false);
@@ -1825,8 +1828,17 @@ const openMailchimpSettingsModal = async () => {
                 event_id: props.event.id
             }
         });
-        const { settings, available_lists, available_accounts } = response.data;
-        
+        const { settings, available_lists, available_accounts, auto_import } = response.data;
+
+        const ai = auto_import || {};
+        autoImportConfig.value = {
+            enabled: !!ai.enabled,
+            list_id: ai.list_id || '',
+            list_name: ai.list_name || '',
+            account: ai.account || settings.mailchimp_account || 'anz',
+        };
+        await loadAutoImportLists(autoImportConfig.value.account);
+
         const savedMap = (settings && typeof settings.interest_tag_map === 'object' && settings.interest_tag_map !== null)
             ? settings.interest_tag_map
             : {};
@@ -1853,6 +1865,24 @@ const openMailchimpSettingsModal = async () => {
     } finally {
         isSettingsLoading.value = false;
     }
+};
+
+const loadAutoImportLists = async (account) => {
+    try {
+        const response = await axios.get(route('mailchimp.autosync.lists'), {
+            params: { account }
+        });
+        autoImportLists.value = response.data.lists || [];
+    } catch (error) {
+        console.warn('Auto-import: failed to load lists for account:', error?.message);
+        autoImportLists.value = [];
+    }
+};
+
+const onAutoImportAccountChange = async () => {
+    autoImportConfig.value.list_id = '';
+    autoImportConfig.value.list_name = '';
+    await loadAutoImportLists(autoImportConfig.value.account);
 };
 
 const loadListsForAccount = async (account) => {
@@ -1882,6 +1912,12 @@ const saveMailchimpSettings = async () => {
             }
         });
 
+        if (autoImportConfig.value.enabled && !autoImportConfig.value.list_id) {
+            Swal.fire('Error', 'Select an audience for Auto-Import Finished Locations, or turn it off.', 'error');
+            return;
+        }
+        const selectedAiList = autoImportLists.value.find(l => l.id === autoImportConfig.value.list_id);
+
         const settings = {
             ...mailchimpSettings.value,
             film_tour: mailchimpSettings.value.film_tour,
@@ -1891,7 +1927,11 @@ const saveMailchimpSettings = async () => {
                 : [],
             mailchimp_account: mailchimpSettings.value.mailchimp_account,
             interest_tag_map: cleanedMap,
-            event_id: props.event.id
+            event_id: props.event.id,
+            auto_import_enabled: autoImportConfig.value.enabled,
+            auto_import_account: autoImportConfig.value.account,
+            auto_import_list_id: autoImportConfig.value.enabled ? autoImportConfig.value.list_id : '',
+            auto_import_list_name: autoImportConfig.value.enabled ? (selectedAiList?.name || autoImportConfig.value.list_name || '') : '',
         };
 
         console.log('Saving settings:', settings);
@@ -2216,7 +2256,7 @@ watch(
             const mapping = {};
             const tagToDefault = {
                 FNAME: 'first_name', LNAME: 'last_name',
-                PHONE: 'mobile_number', SMSPHONE: 'mobile_number', MERGE4: 'mobile_number', MERGE30: 'mobile_number',
+                PHONE: 'mobile_number', MERGE4: 'mobile_number', MERGE30: 'mobile_number',
                 ADDRESSWIN: 'address_full', MMERGE10: 'address_full', MERGE10: 'address_full', MERGE11: 'address_full',
                 SHOWCITY: 'city', CITY: 'city', MERGE3: 'city', MERGE5: 'city',
                 STATEWIN: 'state', STATE: 'state', MERGE6: 'state',
@@ -3145,6 +3185,68 @@ const runImportAll = async () => {
                                         :placeholder="'e.g., INT - SNOWSPORTS'"
                                         v-model="mailchimpSettings.interest_tag_map[option]"
                                     />
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="mb-4 border rounded p-3 bg-light">
+                            <label class="form-label fw-bold">
+                                <i class="fa-solid fa-robot me-1"></i> Auto-Import Finished Locations
+                            </label>
+                            <div class="form-text mb-2">
+                                When enabled, locations whose screening finished 4+ days ago are automatically imported to Mailchimp each day (ticket + win form).
+                                It runs unattended and only imports locations not already imported to the audience below. Results appear under "Automated runs" in the Mailchimp import logs.
+                            </div>
+                            <div class="form-check mb-3">
+                                <input
+                                    type="checkbox"
+                                    v-model="autoImportConfig.enabled"
+                                    class="form-check-input"
+                                    id="autoImportCheck"
+                                >
+                                <label class="form-check-label" for="autoImportCheck">Enable daily auto-import for this event</label>
+                            </div>
+                            <div v-if="autoImportConfig.enabled">
+                                <div class="mb-3">
+                                    <label class="form-label">Auto-Import Account</label>
+                                    <select
+                                        v-model="autoImportConfig.account"
+                                        class="form-select"
+                                        @change="onAutoImportAccountChange"
+                                    >
+                                        <option
+                                            v-for="(account, key) in availableAccounts"
+                                            :key="key"
+                                            :value="key"
+                                            :disabled="!account.enabled"
+                                        >
+                                            {{ account.name }} {{ !account.enabled ? '(Not Configured)' : '' }}
+                                        </option>
+                                    </select>
+                                </div>
+                                <div class="mb-2">
+                                    <label class="form-label">Auto-Import Audience</label>
+                                    <select
+                                        v-model="autoImportConfig.list_id"
+                                        class="form-select"
+                                        :class="{ 'is-invalid': autoImportConfig.enabled && !autoImportConfig.list_id }"
+                                    >
+                                        <option value="">Select an audience...</option>
+                                        <option
+                                            v-for="list in autoImportLists"
+                                            :key="list.id"
+                                            :value="list.id"
+                                        >
+                                            {{ list.name }} ({{ list.stats.member_count }} members)
+                                        </option>
+                                    </select>
+                                    <div v-if="autoImportLists.length === 0" class="form-text text-warning">
+                                        <i class="fa-solid fa-exclamation-triangle me-1"></i>
+                                        No audiences found for this account. Pick a different account or check the API configuration.
+                                    </div>
+                                    <div v-if="autoImportConfig.enabled && !autoImportConfig.list_id" class="invalid-feedback">
+                                        Select the audience finished locations should be imported into.
+                                    </div>
                                 </div>
                             </div>
                         </div>

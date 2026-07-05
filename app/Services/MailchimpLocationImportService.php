@@ -289,11 +289,17 @@ class MailchimpLocationImportService
         $hadPreviousImport = MailchimpImportLog::where('location_id', $locationId)
             ->where('list_id', $listId)
             ->where('mailchimp_account', $mailchimpAccount)
+            ->where('source', 'ticket_data')
             ->exists();
 
-        $ticketLog = MailchimpImportLog::create([
+        // Reuse the same log line for this location/list/account/source on re-import instead of adding a new row.
+        $ticketLog = MailchimpImportLog::updateOrCreate([
             'location_id' => $locationId,
-            'imported_by' => $userId,
+            'source' => 'ticket_data',
+            'list_id' => $listId,
+            'mailchimp_account' => $mailchimpAccount,
+        ], [
+            'imported_by' => $userId ?: null,
             'total_data' => $attempted,
             'new_contacts' => 0,
             'updated_data' => $locUpdated,
@@ -301,9 +307,6 @@ class MailchimpLocationImportService
             'errors' => array_slice($locErrors, 0, 50),
             'failed_rows' => array_slice($failedRowsData, 0, $maxFailedRowsStored),
             'tags' => $tags,
-            'source' => 'ticket_data',
-            'mailchimp_account' => $mailchimpAccount,
-            'list_id' => $listId,
             'list_name' => $listName,
             'status' => $hadPreviousImport ? 'reimport' : 'import',
         ]);
@@ -420,11 +423,17 @@ class MailchimpLocationImportService
         $hadPreviousImport = MailchimpImportLog::where('location_id', $locationId)
             ->where('list_id', $listId)
             ->where('mailchimp_account', $mailchimpAccount)
+            ->where('source', 'signup_form')
             ->exists();
 
-        $formLog = MailchimpImportLog::create([
+        // Reuse the same log line for this location/list/account/source on re-import instead of adding a new row.
+        $formLog = MailchimpImportLog::updateOrCreate([
             'location_id' => $locationId,
-            'imported_by' => $userId,
+            'source' => 'signup_form',
+            'list_id' => $listId,
+            'mailchimp_account' => $mailchimpAccount,
+        ], [
+            'imported_by' => $userId ?: null,
             'total_data' => $attemptedForm,
             'new_contacts' => 0,
             'updated_data' => $locFormUpdated,
@@ -432,9 +441,6 @@ class MailchimpLocationImportService
             'errors' => array_slice($locFormErrors, 0, 50),
             'failed_rows' => array_slice($failedRowsData, 0, $maxFailedRowsStored),
             'tags' => $formTags,
-            'source' => 'signup_form',
-            'mailchimp_account' => $mailchimpAccount,
-            'list_id' => $listId,
             'list_name' => $listName,
             'status' => $hadPreviousImport ? 'reimport' : 'import',
         ]);

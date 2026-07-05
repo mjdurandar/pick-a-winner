@@ -149,7 +149,7 @@ const userRole = computed(() => user.value?.role);
                                             v-if="userRole === 'admin'"
                                             :href="route('admin.exportLogs.index')"
                                         >
-                                            Export Logs
+                                            Activity Logs
                                         </DropdownLink>
                                         <DropdownLink
                                             v-if="userRole === 'admin'"
@@ -314,7 +314,7 @@ const userRole = computed(() => user.value?.role);
                                 v-if="userRole === 'admin'"
                                 :href="route('admin.exportLogs.index')"
                             >
-                                Export Logs
+                                Activity Logs
                             </ResponsiveNavLink>
                             <ResponsiveNavLink
                                 v-if="userRole === 'admin'"

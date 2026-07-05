@@ -327,7 +327,7 @@ const fetchMergeFields = async (listId) => {
         // Default mapping by Mailchimp tag (same as Import All)
         const tagToDefault = {
             FNAME: 'first_name', LNAME: 'last_name',
-            PHONE: 'mobile_number', SMSPHONE: 'mobile_number', MERGE4: 'mobile_number', MERGE30: 'mobile_number',
+            PHONE: 'mobile_number', MERGE4: 'mobile_number', MERGE30: 'mobile_number',
             ADDRESSWIN: 'address_full', MMERGE10: 'address_full', MERGE10: 'address_full', MERGE11: 'address_full',
             SHOWCITY: 'city', CITY: 'city', MERGE3: 'city', MERGE5: 'city',
             STATEWIN: 'state', STATE: 'state', MERGE6: 'state',

@@ -15,6 +15,9 @@ return Application::configure(basePath: dirname(__DIR__))
     ->withSchedule(function (Schedule $schedule) {
         // Snapshot Mailchimp audience counts every Friday at 9am
         $schedule->job(new McSnapshotJob)->weeklyOn(5, '09:00');
+
+        // Auto-import locations that finished 4+ days ago (per-event opt-in), every day at 8am.
+        $schedule->command('mailchimp:auto-import-finished')->dailyAt('08:00')->withoutOverlapping();
     })
     ->withMiddleware(function (Middleware $middleware) {
         $middleware->web(append: [

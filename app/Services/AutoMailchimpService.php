@@ -47,6 +47,64 @@ class AutoMailchimpService
         return $settings;
     }
 
+    /**
+     * Build the SHOW / SOURCE / COUNTRY tag set for a location, matching the manual
+     * "Import All" formula (LocationPage.vue). Used by the scheduled auto-import so
+     * automated runs tag contacts identically to manual imports.
+     *
+     * @param  string  $mode  'ticket' => SOURCE ... TIX <year>, 'form' => SOURCE ... COMP <year>
+     * @return array<int, string>
+     */
+    public function buildLocationTags(Location $location, string $mode, ?array $settings = null): array
+    {
+        $settings = $settings ?? $this->getSettings($location->event_id);
+
+        $filmTour = $settings['film_tour'] ?? 'WM';
+        $defaultTags = is_array($settings['default_tags'] ?? null) ? $settings['default_tags'] : [];
+        $sourceSuffix = $mode === 'ticket' ? 'TIX' : 'COMP';
+
+        $event = $location->event;
+        $year = $event->event_year ?: date('Y');
+
+        // Everything before " - " in the location name is the location label.
+        $locationTag = explode(' - ', $location->name)[0];
+        $locationTagUpper = strtoupper($locationTag);
+
+        $eventCountry = strtoupper($event->event_country ?? '');
+        $isUsaOrCanada = in_array($eventCountry, ['USA', 'CANADA', 'USA & CANADA']);
+
+        // For USA/CANADA, split a trailing 2-3 letter state code off the location label.
+        $locationParts = explode(' ', trim($locationTagUpper));
+        $state = '';
+        $locationWithoutState = $locationTagUpper;
+        if ($isUsaOrCanada && count($locationParts) > 1) {
+            $lastPart = end($locationParts);
+            if (preg_match('/^[A-Z]{2,3}$/', $lastPart)) {
+                $state = $lastPart;
+                $locationWithoutState = trim(str_replace($state, '', $locationTagUpper));
+            }
+        }
+
+        $showTagLocation = $isUsaOrCanada && $state
+            ? trim($locationWithoutState) . ', ' . $state
+            : $locationTagUpper;
+        $sourceTagLocation = $isUsaOrCanada && $state
+            ? trim($locationWithoutState)
+            : $locationTagUpper;
+
+        $tags = [
+            'SHOW - ' . $showTagLocation,
+            'SOURCE - ' . strtoupper($filmTour) . ' ' . $sourceTagLocation . ' ' . $sourceSuffix . ' ' . $year,
+        ];
+
+        $country = trim((string) ($location->country ?? ''));
+        if ($country !== '') {
+            $tags[] = 'COUNTRY - ' . strtoupper($country);
+        }
+
+        return array_values(array_filter(array_merge($tags, $defaultTags), fn ($t) => is_string($t) && trim($t) !== ''));
+    }
+
     public function syncSubscriber($subscriber, $locationId)
     {
         try {

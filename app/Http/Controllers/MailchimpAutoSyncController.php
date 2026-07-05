@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use Illuminate\Http\Request;
+use App\Models\Events;
 use App\Services\AutoMailchimpService;
 use App\Services\MailchimpService;
 
@@ -51,10 +52,20 @@ class MailchimpAutoSyncController extends Controller
                 }
             }
 
+            // Durable per-event auto-import config (scheduled "import finished locations").
+            $event = Events::find($eventId);
+            $autoImport = [
+                'enabled' => (bool) ($event->auto_import_enabled ?? false),
+                'list_id' => $event->auto_import_list_id ?? '',
+                'list_name' => $event->auto_import_list_name ?? '',
+                'account' => $event->auto_import_account ?? ($settings['mailchimp_account'] ?? 'anz'),
+            ];
+
             return response()->json([
                 'settings' => $settings,
                 'available_lists' => $lists,
-                'available_accounts' => $availableAccounts
+                'available_accounts' => $availableAccounts,
+                'auto_import' => $autoImport,
             ]);
         } catch (\Exception $e) {
             return response()->json(['error' => $e->getMessage()], 500);
@@ -73,11 +84,35 @@ class MailchimpAutoSyncController extends Controller
             'event_id' => 'required|integer',
             'interest_tag_map' => 'nullable|array',
             'interest_tag_map.*' => 'nullable|string',
+            'auto_import_enabled' => 'nullable|boolean',
+            'auto_import_list_id' => 'required_if:auto_import_enabled,true,1|nullable|string|max:64',
+            'auto_import_list_name' => 'nullable|string|max:255',
+            'auto_import_account' => 'required_if:auto_import_enabled,true,1|nullable|string|in:anz,usa',
         ]);
 
         try {
             $settings = $this->autoMailchimpService->updateSettings($request->all());
-            return response()->json(['settings' => $settings]);
+
+            // Persist the durable auto-import config to the events table.
+            $event = Events::find($request->input('event_id'));
+            if ($event) {
+                $autoEnabled = (bool) $request->input('auto_import_enabled', false);
+                $event->auto_import_enabled = $autoEnabled;
+                $event->auto_import_list_id = $autoEnabled ? $request->input('auto_import_list_id') : $event->auto_import_list_id;
+                $event->auto_import_list_name = $autoEnabled ? $request->input('auto_import_list_name') : $event->auto_import_list_name;
+                $event->auto_import_account = $autoEnabled ? $request->input('auto_import_account') : $event->auto_import_account;
+                $event->save();
+            }
+
+            return response()->json([
+                'settings' => $settings,
+                'auto_import' => [
+                    'enabled' => (bool) ($event->auto_import_enabled ?? false),
+                    'list_id' => $event->auto_import_list_id ?? '',
+                    'list_name' => $event->auto_import_list_name ?? '',
+                    'account' => $event->auto_import_account ?? 'anz',
+                ],
+            ]);
         } catch (\Exception $e) {
             return response()->json(['error' => $e->getMessage()], 500);
         }
