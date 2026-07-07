@@ -39,6 +39,38 @@ class ExportLog extends Model
     }
 
     /**
+     * Record a general activity-log entry (login/logout, create/update/delete, etc.).
+     *
+     * Captures the acting user and the current request context, then merges any
+     * overrides ($data) — e.g. category, target_type, target_id, params, status, or an
+     * explicit user snapshot (used for auth events where Auth::user() isn't set yet).
+     * Never throws: logging must not break the action being logged.
+     */
+    public static function recordActivity(string $category, array $data = []): void
+    {
+        try {
+            $user = Auth::user();
+            $request = request();
+            $route = $request?->route();
+
+            self::create(array_merge([
+                'category' => $category,
+                'user_id' => $user?->id,
+                'user_name_snapshot' => $user?->name,
+                'user_email_snapshot' => $user?->email,
+                'route_name' => $route?->getName(),
+                'method' => $request?->method() ?? 'CLI',
+                'url' => substr($request?->fullUrl() ?? 'console', 0, 2048),
+                'ip_address' => $request?->ip(),
+                'user_agent' => substr((string) ($request?->userAgent() ?? ''), 0, 1024),
+                'status' => 'success',
+            ], $data));
+        } catch (\Throwable $e) {
+            Log::warning('Failed to record activity log: '.$e->getMessage());
+        }
+    }
+
+    /**
      * Record a Pick a Winner draw-access attempt (the password/unlock step).
      *
      * Captures who/what/when/where so admins can audit who accessed a draw,
@@ -46,7 +78,7 @@ class ExportLog extends Model
      * Never throws: logging must not break the draw flow.
      *
      * @param  string  $status  'success' (granted) or 'failed' (denied)
-     * @param  array   $params  contextual data (event/location ids + names) — no secrets
+     * @param  array  $params  contextual data (event/location ids + names) — no secrets
      */
     public static function recordDrawAccess(
         Request $request,
@@ -74,7 +106,7 @@ class ExportLog extends Model
                 'status' => $status,
             ]);
         } catch (\Throwable $e) {
-            Log::warning('Failed to record Pick a Winner draw access: ' . $e->getMessage());
+            Log::warning('Failed to record Pick a Winner draw access: '.$e->getMessage());
         }
     }
 }

@@ -51,6 +51,12 @@ function clearFilters() {
 const CATEGORY_LABELS = {
     export: 'Data export',
     pickawinner_access: 'Draw access',
+    login: 'Login',
+    logout: 'Logout',
+    login_failed: 'Failed login',
+    create: 'Created',
+    update: 'Updated',
+    delete: 'Deleted',
 };
 
 function categoryLabel(c) {
@@ -58,10 +64,30 @@ function categoryLabel(c) {
     return CATEGORY_LABELS[c] || c;
 }
 
+const CATEGORY_BADGE_CLASSES = {
+    pickawinner_access: 'bg-purple-100 text-purple-800',
+    login: 'bg-green-100 text-green-800',
+    logout: 'bg-gray-100 text-gray-700',
+    login_failed: 'bg-red-100 text-red-800',
+    create: 'bg-emerald-100 text-emerald-800',
+    update: 'bg-amber-100 text-amber-800',
+    delete: 'bg-red-100 text-red-800',
+};
+
 function categoryBadgeClass(c) {
-    return c === 'pickawinner_access'
-        ? 'bg-purple-100 text-purple-800'
-        : 'bg-blue-100 text-blue-800';
+    return CATEGORY_BADGE_CLASSES[c] || 'bg-blue-100 text-blue-800';
+}
+
+// Short human summary of a create/update/delete row for the Target column.
+function activitySummary(log) {
+    const p = log.params || {};
+    if (!['create', 'update', 'delete'].includes(log.category)) return '';
+    const what = `${log.target_type || p.model || 'record'} #${log.target_id ?? ''}`.trim();
+    const label = p.label ? ` “${p.label}”` : '';
+    if (log.category === 'update' && p.changes) {
+        return `${what}${label} — ${Object.keys(p.changes).join(', ')}`;
+    }
+    return `${what}${label}`;
 }
 
 function formatDate(s) {
@@ -240,7 +266,8 @@ function prettyRoute(name) {
                                             </td>
                                             <td class="px-3 py-2 text-gray-700 font-mono text-xs">{{ prettyRoute(row.route_name) }}</td>
                                             <td class="px-3 py-2 text-gray-700">
-                                                <span v-if="row.target_type">{{ row.target_type }} #{{ row.target_id }}</span>
+                                                <span v-if="activitySummary(row)">{{ activitySummary(row) }}</span>
+                                                <span v-else-if="row.target_type">{{ row.target_type }} #{{ row.target_id }}</span>
                                                 <span v-else class="text-gray-400">—</span>
                                             </td>
                                             <td class="px-3 py-2 text-gray-700">{{ row.row_count ?? '—' }}</td>
