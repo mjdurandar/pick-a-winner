@@ -47,11 +47,12 @@ class AutoImportFinishedLocations extends Command
                 }
 
                 // Skip locations already imported to this audience (avoids daily re-imports).
-                $alreadyImported = MailchimpImportLog::where('location_id', $location->id)
+                // A prior run that fully errored (0 new + 0 updated) is NOT counted as imported, so it retries.
+                $priorSuccess = (int) MailchimpImportLog::where('location_id', $location->id)
                     ->where('list_id', $event->auto_import_list_id)
                     ->where('mailchimp_account', $event->auto_import_account)
-                    ->exists();
-                if ($alreadyImported) {
+                    ->sum(DB::raw('new_contacts + updated_data'));
+                if ($priorSuccess > 0) {
                     continue;
                 }
 

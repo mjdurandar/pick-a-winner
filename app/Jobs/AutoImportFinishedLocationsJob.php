@@ -32,6 +32,31 @@ class AutoImportFinishedLocationsJob implements ShouldQueue
     public $tries = 1;
 
     /**
+     * Ticket rows carry the venue's city/state (not the contact's home address), so we only
+     * map name — mirroring the manual "Import All" ticket mode in LocationPage.vue.
+     */
+    private const TICKET_FIELD_MAPPING = [
+        'FNAME' => 'first_name',
+        'LNAME' => 'last_name',
+    ];
+
+    /**
+     * Full field mapping for win/sign-up-form rows (they carry the contact's real address).
+     * Mirrors the tagToDefault map in LocationPage.vue. SMSPHONE is intentionally omitted.
+     */
+    private const FORM_FIELD_MAPPING = [
+        'FNAME' => 'first_name', 'LNAME' => 'last_name',
+        'PHONE' => 'mobile_number', 'MERGE4' => 'mobile_number', 'MERGE30' => 'mobile_number',
+        'ADDRESSWIN' => 'address_full', 'MMERGE10' => 'address_full', 'MERGE10' => 'address_full', 'MERGE11' => 'address_full',
+        'SHOWCITY' => 'city', 'CITY' => 'city', 'MERGE3' => 'city', 'MERGE5' => 'city',
+        'STATEWIN' => 'state', 'STATE' => 'state', 'MERGE6' => 'state',
+        'ZIPCODEWIN' => 'zip_code', 'ZIPCODE' => 'zip_code', 'MERGE7' => 'zip_code',
+        'COUNTRYWIN' => 'country', 'COUNTRY' => 'country', 'MERGE8' => 'country',
+        'GENDER' => 'gender', 'MERGE17' => 'gender',
+        'AGEWIN' => 'age', 'MERGE14' => 'age', 'MMERGE14' => 'age',
+    ];
+
+    /**
      * @param  int  $runId  MailchimpAutoImportRun id to write the summary into.
      * @param  array<int, array{event_id:int, location_id:int, location_name:string, list_id:string, list_name:?string, account:string}>  $items
      */
@@ -93,18 +118,30 @@ class AutoImportFinishedLocationsJob implements ShouldQueue
                     ];
                 })->all();
 
-                $payload = [
+                // Ticket and form run as separate imports because they need different field mappings
+                // (ticket = name only; form = full address). Each writes its own per-source log line.
+                $ticketResult = ['imported' => 0, 'skipped' => true];
+                if (! empty($attendees)) {
+                    $ticketResult = $service->runForOneLocation($eventId, $listId, $account, $listName, [
+                        'location_id' => $locationId,
+                        'import_ticket' => true,
+                        'import_form' => false,
+                        'attendees' => $attendees,
+                        'tags' => $tagBuilder->buildLocationTags($location, 'ticket'),
+                        'form_tags' => [],
+                    ], 0, self::TICKET_FIELD_MAPPING);
+                }
+
+                $formResult = $service->runForOneLocation($eventId, $listId, $account, $listName, [
                     'location_id' => $locationId,
-                    'import_ticket' => true,
+                    'import_ticket' => false,
                     'import_form' => true,
-                    'attendees' => $attendees,
-                    'tags' => $tagBuilder->buildLocationTags($location, 'ticket'),
+                    'attendees' => [],
+                    'tags' => [],
                     'form_tags' => $tagBuilder->buildLocationTags($location, 'form'),
-                ];
+                ], 0, self::FORM_FIELD_MAPPING);
 
-                $result = $service->runForOneLocation($eventId, $listId, $account, $listName, $payload, 0, null);
-
-                if ($result['skipped']) {
+                if ($ticketResult['skipped'] && $formResult['skipped']) {
                     $skipped++;
                     $details[] = [
                         'location_id' => $locationId,

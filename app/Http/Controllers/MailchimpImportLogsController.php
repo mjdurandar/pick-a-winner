@@ -419,6 +419,41 @@ class MailchimpImportLogsController extends Controller
     }
 
     /**
+     * Delete a single automated-import run summary.
+     * Only allowed for mj@adventureentertainment.com.
+     */
+    public function destroyAutoImportRun($id)
+    {
+        if (strtolower(auth()->user()?->email ?? '') !== 'mj@adventureentertainment.com') {
+            abort(403, 'You are not allowed to delete automated run logs.');
+        }
+
+        MailchimpAutoImportRun::findOrFail($id)->delete();
+
+        return back();
+    }
+
+    /**
+     * Delete all automated-import run summaries.
+     * Only allowed for mj@adventureentertainment.com.
+     */
+    public function destroyAllAutoImportRuns(Request $request)
+    {
+        if (strtolower(auth()->user()?->email ?? '') !== 'mj@adventureentertainment.com') {
+            abort(403, 'You are not allowed to delete automated run logs.');
+        }
+
+        $deleted = MailchimpAutoImportRun::count();
+        MailchimpAutoImportRun::query()->delete();
+
+        if ($request->wantsJson()) {
+            return response()->json(['success' => true, 'deleted' => $deleted]);
+        }
+
+        return back()->with('message', "All automated run logs deleted ({$deleted}).");
+    }
+
+    /**
      * Delete multiple Mailchimp import logs and their stored CSV files by ID.
      * Only allowed for mj@adventureentertainment.com.
      */

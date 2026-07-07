@@ -64,45 +64,83 @@ class AutoMailchimpService
         $sourceSuffix = $mode === 'ticket' ? 'TIX' : 'COMP';
 
         $event = $location->event;
-        $year = $event->event_year ?: date('Y');
+        $year = $event && $event->event_year ? $event->event_year : date('Y');
+        // Country used for USA-format detection matches the frontend: event country, falling back to the location's.
+        $country = $event && $event->event_country ? $event->event_country : ($location->country ?? '');
+        $state = trim((string) ($location->state ?? ''));
 
-        // Everything before " - " in the location name is the location label.
-        $locationTag = explode(' - ', $location->name)[0];
-        $locationTagUpper = strtoupper($locationTag);
-
-        $eventCountry = strtoupper($event->event_country ?? '');
-        $isUsaOrCanada = in_array($eventCountry, ['USA', 'CANADA', 'USA & CANADA']);
-
-        // For USA/CANADA, split a trailing 2-3 letter state code off the location label.
-        $locationParts = explode(' ', trim($locationTagUpper));
-        $state = '';
-        $locationWithoutState = $locationTagUpper;
-        if ($isUsaOrCanada && count($locationParts) > 1) {
-            $lastPart = end($locationParts);
-            if (preg_match('/^[A-Z]{2,3}$/', $lastPart)) {
-                $state = $lastPart;
-                $locationWithoutState = trim(str_replace($state, '', $locationTagUpper));
-            }
-        }
-
-        $showTagLocation = $isUsaOrCanada && $state
-            ? trim($locationWithoutState) . ', ' . $state
-            : $locationTagUpper;
-        $sourceTagLocation = $isUsaOrCanada && $state
-            ? trim($locationWithoutState)
-            : $locationTagUpper;
+        $showLoc = $this->locationTagForShow($location->name, $state, $country);
+        $sourceLoc = $this->locationTagForSource($location->name, $state);
 
         $tags = [
-            'SHOW - ' . $showTagLocation,
-            'SOURCE - ' . strtoupper($filmTour) . ' ' . $sourceTagLocation . ' ' . $sourceSuffix . ' ' . $year,
+            'SHOW - ' . $showLoc,
+            'SOURCE - ' . strtoupper($filmTour) . ' ' . $sourceLoc . ' ' . $sourceSuffix . ' ' . $year,
         ];
 
-        $country = trim((string) ($location->country ?? ''));
-        if ($country !== '') {
-            $tags[] = 'COUNTRY - ' . strtoupper($country);
+        $countryTag = trim((string) ($location->country ?? ''));
+        if ($countryTag !== '') {
+            $tags[] = 'COUNTRY - ' . strtoupper($countryTag);
         }
 
         return array_values(array_filter(array_merge($tags, $defaultTags), fn ($t) => is_string($t) && trim($t) !== ''));
+    }
+
+    /**
+     * SOURCE-tag location label. Strips the location's state (or a trailing 2-3 letter
+     * abbreviation like VIC/NSW) so the state is never part of the tag. Mirrors
+     * locationTagForSource() in LocationPage.vue.
+     */
+    private function locationTagForSource(?string $name, string $state): string
+    {
+        $part = trim(explode(' - ', (string) $name)[0]);
+        if ($part === '') {
+            return 'LOC';
+        }
+        if ($state !== '') {
+            $out = preg_replace('/,?\s*' . preg_quote($state, '/') . '$/i', '', $part);
+        } else {
+            $out = preg_replace('/,?\s+[A-Z]{2,3}$/i', '', $part);
+        }
+        $out = $out === null ? $part : trim($out);
+
+        return strtoupper($out !== '' ? $out : $part);
+    }
+
+    /**
+     * SHOW-tag location label. USA keeps the state ("DENVER, CO"); Australia/NZ/other
+     * strip the trailing state abbreviation ("FALLS CREEK VIC" -> "FALLS CREEK").
+     * Mirrors locationTagForShow() in LocationPage.vue.
+     */
+    private function locationTagForShow(?string $name, string $state, ?string $country): string
+    {
+        $part = trim(explode(' - ', (string) $name)[0]);
+        if ($part === '') {
+            return 'LOC';
+        }
+        $c = strtoupper(trim((string) $country));
+        $isUSA = in_array($c, ['USA', 'USA & CANADA', 'USA AND CANADA'], true);
+
+        if ($isUSA && $state !== '') {
+            $base = preg_replace('/,?\s+[A-Z]{2,3}$/i', '', $part);
+            $base = $base === null ? $part : trim($base);
+
+            return strtoupper($base . ', ' . $state);
+        }
+        if ($isUSA) {
+            return strtoupper($part);
+        }
+
+        // Non-USA: strip a trailing 2-3 letter abbreviation, then the full state name if given.
+        $out = preg_replace('/,?\s+[A-Z]{2,3}$/i', '', $part);
+        $out = $out === null || trim($out) === '' ? $part : trim($out);
+        if ($state !== '') {
+            $stripped = preg_replace('/,?\s*' . preg_quote($state, '/') . '$/i', '', $out);
+            if ($stripped !== null && trim($stripped) !== '') {
+                $out = trim($stripped);
+            }
+        }
+
+        return strtoupper($out !== '' ? $out : $part);
     }
 
     public function syncSubscriber($subscriber, $locationId)

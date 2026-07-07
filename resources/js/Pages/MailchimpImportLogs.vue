@@ -620,6 +620,44 @@ const deleteLog = (log) => {
     });
 };
 
+const deleteAutoRun = (run) => {
+    Swal.fire({
+        title: 'Delete this run log?',
+        text: 'This removes the automated run summary. This cannot be undone.',
+        icon: 'warning',
+        showCancelButton: true,
+        confirmButtonText: 'Yes, delete it',
+        cancelButtonText: 'Cancel',
+        confirmButtonColor: '#dc2626',
+    }).then((result) => {
+        if (!result.isConfirmed) return;
+        router.delete(route('mailchimpImportLogs.destroyAutoRun', run.id), {
+            preserveScroll: true,
+            onSuccess: () => Swal.fire('Deleted', 'The run log has been removed.', 'success'),
+            onError: () => Swal.fire('Error', 'Failed to delete the run log.', 'error'),
+        });
+    });
+};
+
+const deleteAllAutoRuns = () => {
+    Swal.fire({
+        title: 'Clear all automated runs?',
+        html: 'This will permanently delete <strong>all</strong> automated run logs. This cannot be undone.',
+        icon: 'warning',
+        showCancelButton: true,
+        confirmButtonText: 'Yes, clear all',
+        cancelButtonText: 'Cancel',
+        confirmButtonColor: '#dc2626',
+    }).then((result) => {
+        if (!result.isConfirmed) return;
+        router.delete(route('mailchimpImportLogs.destroyAllAutoRuns'), {
+            preserveScroll: true,
+            onSuccess: () => Swal.fire('Deleted', 'All automated run logs have been removed.', 'success'),
+            onError: () => Swal.fire('Error', 'Failed to clear run logs.', 'error'),
+        });
+    });
+};
+
 const deletingAllLogs = ref(false);
 const deletingSelectedLogs = ref(false);
 
@@ -996,6 +1034,15 @@ const exportToCsv = () => {
                                     Daily job that imports locations finished 4+ days ago for events with auto-import enabled.
                                     Turn it on per event via <span class="font-medium">Mailchimp Auto-Sync Settings</span> on a location page.
                                 </p>
+                                <div v-if="autoImportRuns.length" class="mb-2 flex justify-end">
+                                    <button
+                                        type="button"
+                                        class="text-xs text-red-600 hover:underline"
+                                        @click="deleteAllAutoRuns"
+                                    >
+                                        <i class="fa-solid fa-trash-can mr-1"></i>Clear all runs
+                                    </button>
+                                </div>
                                 <div v-if="autoImportRuns.length === 0" class="text-sm text-gray-500">Nothing yet.</div>
                                 <div v-else class="overflow-x-auto">
                                     <table class="min-w-full text-sm">
@@ -1033,13 +1080,19 @@ const exportToCsv = () => {
                                                     <td class="py-2 pr-4">{{ run.total_new }}</td>
                                                     <td class="py-2 pr-4">{{ run.total_updated }}</td>
                                                     <td class="py-2 pr-4">{{ run.total_errors }}</td>
-                                                    <td class="py-2 pr-4">
+                                                    <td class="py-2 pr-4 whitespace-nowrap">
                                                         <button
                                                             v-if="Array.isArray(run.details) && run.details.length"
                                                             type="button"
-                                                            class="text-blue-600 hover:underline"
+                                                            class="text-blue-600 hover:underline mr-3"
                                                             @click="toggleRunDetails(run.id)"
                                                         >{{ expandedRunId === run.id ? 'Hide' : 'Details' }}</button>
+                                                        <button
+                                                            type="button"
+                                                            class="text-red-600 hover:underline"
+                                                            title="Delete this run"
+                                                            @click="deleteAutoRun(run)"
+                                                        ><i class="fa-solid fa-trash-can"></i></button>
                                                     </td>
                                                 </tr>
                                                 <tr v-if="expandedRunId === run.id">

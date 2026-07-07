@@ -468,7 +468,8 @@ class MailchimpService
         $payload = [
             'email_address' => $subscriber['email_address'],
             'status' => 'subscribed',
-            'merge_fields' => $mergeFieldMap,
+            // Mailchimp requires merge_fields to be a JSON object; an empty PHP array encodes as [] and is rejected.
+            'merge_fields' => empty($mergeFieldMap) ? new \stdClass() : $mergeFieldMap,
             'tags' => $tagsData,
         ];
         $smsStatus = $this->resolveSmsSubscriptionStatus($mergeFieldMap, $subscriber, $fieldMapping);
@@ -794,6 +795,10 @@ class MailchimpService
         }
 
         $doRequest = function ($mergeFieldsToSend) use ($emailHash, $listId, $subscriber, $tagsData, $smsSubscriptionStatus) {
+            // Mailchimp requires merge_fields to be a JSON object; an empty PHP array encodes as [] and is rejected.
+            if (empty($mergeFieldsToSend)) {
+                $mergeFieldsToSend = new \stdClass();
+            }
             $patchBody = [
                 'merge_fields' => $mergeFieldsToSend,
                 'tags' => $tagsData,
