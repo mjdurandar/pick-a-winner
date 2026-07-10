@@ -96,12 +96,26 @@ class SignUpFormController extends Controller
 
     /**
      * Find the newsletter audience list ID by name from Mailchimp.
+     *
+     * The audience → list ID mapping is effectively static, but this runs on the
+     * public checkSubscription endpoint (fired repeatedly as users type), so calling
+     * getLists() every time floods Mailchimp's 10-concurrent-connection limit and
+     * triggers 429s. Cache the resolved ID so bursts of checks reuse one API call.
      */
     private function findNewsletterListId(MailchimpService $mailchimpService, string $audienceName): ?string
     {
+        $cacheKey = 'mailchimp_newsletter_list_id:'.md5($audienceName);
+
+        $cached = Cache::get($cacheKey);
+        if ($cached !== null) {
+            return $cached;
+        }
+
         $lists = $mailchimpService->getLists();
         foreach ($lists as $list) {
             if ($list['name'] === $audienceName) {
+                Cache::put($cacheKey, $list['id'], now()->addHours(6));
+
                 return $list['id'];
             }
         }

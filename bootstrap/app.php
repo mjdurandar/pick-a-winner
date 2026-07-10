@@ -13,11 +13,15 @@ return Application::configure(basePath: dirname(__DIR__))
         health: '/up',
     )
     ->withSchedule(function (Schedule $schedule) {
+        // NOTE: queue processing is handled by a separate direct Hostinger cron
+        // (`artisan queue:work --stop-when-empty --max-time=59` every minute), so it is
+        // deliberately NOT scheduled here — doing so would run two overlapping workers.
+
         // Snapshot Mailchimp audience counts every Friday at 9am
         $schedule->job(new McSnapshotJob)->weeklyOn(5, '09:00');
 
         // Auto-import locations that finished 4+ days ago (per-event opt-in), every day at 8am.
-        $schedule->command('mailchimp:auto-import-finished')->dailyAt('08:00')->withoutOverlapping();
+        $schedule->command('mailchimp:auto-import-finished')->dailyAt('08:00')->withoutOverlapping(10);
     })
     ->withMiddleware(function (Middleware $middleware) {
         $middleware->web(append: [
