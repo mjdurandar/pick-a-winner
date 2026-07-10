@@ -60,6 +60,17 @@ const toggleRunDetails = (id) => {
     expandedRunId.value = expandedRunId.value === id ? null : id;
 };
 
+// A run can span multiple events (it batches every eligible location). Summarize the
+// distinct event names from the run's per-location details for the "Event(s)" column.
+const runEventLabel = (run) => {
+    const names = Array.isArray(run.details)
+        ? [...new Set(run.details.map((d) => d.event_name).filter(Boolean))]
+        : [];
+    if (names.length === 0) return '—';
+    if (names.length === 1) return names[0];
+    return `${names[0]} +${names.length - 1} more`;
+};
+
 const formatImportDate = (dateStr) => {
     if (!dateStr) return '—';
     const d = new Date(dateStr);
@@ -1049,6 +1060,7 @@ const exportToCsv = () => {
                                         <thead>
                                             <tr class="text-left text-gray-500 border-b">
                                                 <th class="py-2 pr-4">Ran at</th>
+                                                <th class="py-2 pr-4">Event(s)</th>
                                                 <th class="py-2 pr-4">Status</th>
                                                 <th class="py-2 pr-4">Imported</th>
                                                 <th class="py-2 pr-4">Skipped</th>
@@ -1065,6 +1077,7 @@ const exportToCsv = () => {
                                                         {{ formatImportDate(run.ran_at) }}
                                                         <span v-if="run.dry_run" class="ml-1 inline-block px-1.5 py-0.5 text-xs bg-gray-100 text-gray-600 rounded">dry run</span>
                                                     </td>
+                                                    <td class="py-2 pr-4">{{ runEventLabel(run) }}</td>
                                                     <td class="py-2 pr-4">
                                                         <span
                                                             class="inline-block px-2 py-0.5 text-xs rounded"
@@ -1096,13 +1109,14 @@ const exportToCsv = () => {
                                                     </td>
                                                 </tr>
                                                 <tr v-if="expandedRunId === run.id">
-                                                    <td colspan="8" class="py-2 px-3 bg-gray-50">
+                                                    <td colspan="9" class="py-2 px-3 bg-gray-50">
                                                         <div class="text-xs text-gray-700">
                                                             <div
                                                                 v-for="(d, i) in run.details"
                                                                 :key="i"
                                                                 class="py-1 border-b border-gray-100 last:border-0"
                                                             >
+                                                                <span v-if="d.event_name" class="text-gray-400">{{ d.event_name }} · </span>
                                                                 <span class="font-medium">{{ d.location_name }}</span>
                                                                 <span class="text-gray-500"> — {{ d.status }}</span>
                                                                 <span v-if="d.status === 'imported'"> · new {{ d.new }}, updated {{ d.updated }}, errors {{ d.errors }}</span>

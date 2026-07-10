@@ -28,6 +28,21 @@ class AutoImportFinishedLocations extends Command
         $dryRun = (bool) $this->option('dry-run');
         $cutoff = Carbon::now()->startOfDay()->subDays($days);
 
+        // Self-heal: a run can be left stuck at 'running' forever if the inline job's process
+        // is killed mid-run (e.g. a transient DB drop takes down the schedule:run cron). The job
+        // timeout is 1h, so anything still 'running' after 2h is dead — mark it failed so the UI
+        // stops showing a perpetual "running" and the locations become eligible again.
+        $stuck = MailchimpAutoImportRun::where('status', 'running')
+            ->where('ran_at', '<', Carbon::now()->subHours(2))
+            ->get();
+        foreach ($stuck as $stuckRun) {
+            $stuckRun->update([
+                'status' => 'failed',
+                'error' => 'Run did not complete (process interrupted); auto-marked failed by next scheduled run.',
+            ]);
+            Log::warning('Auto-import command: marked stale run as failed', ['run_id' => $stuckRun->id]);
+        }
+
         // Only events explicitly opted in AND with a configured audience.
         $events = Events::where('auto_import_enabled', true)
             ->whereNotNull('auto_import_list_id')
@@ -146,7 +161,21 @@ class AutoImportFinishedLocations extends Command
         // Run inline (not queued) so this works on shared hosting with only the schedule:run cron —
         // no separate always-on queue worker required. The daily cadence makes a longer run fine.
         Log::info('Auto-import command: starting inline import', ['run_id' => $run->id, 'locations' => count($items)]);
-        AutoImportFinishedLocationsJob::dispatchSync($run->id, $items);
+        try {
+            AutoImportFinishedLocationsJob::dispatchSync($run->id, $items);
+        } catch (\Throwable $e) {
+            // Inline dispatch doesn't route through the queue's failed-job handler, so mark the
+            // run failed here rather than leaving it stuck at 'running'.
+            $run->update([
+                'status' => 'failed',
+                'error' => substr($e->getMessage(), 0, 500),
+            ]);
+            Log::error('Auto-import command: run failed', ['run_id' => $run->id, 'error' => $e->getMessage()]);
+
+            $this->error(sprintf('Run #%d failed: %s', $run->id, $e->getMessage()));
+
+            return self::FAILURE;
+        }
 
         $run->refresh();
         $this->info(sprintf(
