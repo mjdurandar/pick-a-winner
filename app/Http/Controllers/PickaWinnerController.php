@@ -90,6 +90,7 @@ class PickaWinnerController extends Controller
             'event_banner' => $event->event_banner,
             'event_country' => $event->event_country,
             'event_coordinator' => $event->event_coordinator,
+            'event_coordinator_email' => $event->event_coordinator_email,
             'event_uuid' => $event->event_uuid,
         ];
 
@@ -101,19 +102,23 @@ class PickaWinnerController extends Controller
         if (! $unlocked) {
             return Inertia::render('HostGuide', [
                 'event' => $eventData,
-                'locations' => [],
+                'drawPassword' => null,
                 'locked' => true,
             ]);
         }
 
-        $locations = Location::where('event_id', $event->id)
+        // A single general draw password for all locations (locations share the
+        // same password); show the first non-empty one.
+        $drawPassword = Location::where('event_id', $event->id)
+            ->whereNotNull('password')
+            ->where('password', '!=', '')
             ->orderBy('date')
             ->orderBy('time')
-            ->get(['id', 'name', 'state', 'date', 'time', 'password']);
+            ->value('password');
 
         return Inertia::render('HostGuide', [
             'event' => $eventData,
-            'locations' => $locations,
+            'drawPassword' => $drawPassword,
             'locked' => false,
         ]);
     }

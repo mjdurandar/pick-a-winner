@@ -5,12 +5,11 @@ import PickaWinnerLayout from '@/Layouts/PickaWinnerLayout.vue';
 
 const props = defineProps({
     event: { type: Object, required: true },
-    locations: { type: Array, default: () => [] },
+    drawPassword: { type: String, default: null },
     locked: { type: Boolean, default: false },
 });
 
 const copied = ref(null);
-const passwordsOpen = ref(true);
 
 // Password gate for the private guide.
 const unlockForm = useForm({ password: '' });
@@ -23,33 +22,6 @@ const submitUnlock = () => {
 
 // Direct entry point to the Pick a Winner tool.
 const pickAWinnerUrl = computed(() => route('pickawinner.index'));
-
-function formatDate(dateString) {
-    if (!dateString) return '';
-    try {
-        const d = new Date(dateString);
-        if (isNaN(d.getTime())) return dateString;
-        return d.toLocaleDateString('en-US', {
-            weekday: 'short',
-            year: 'numeric',
-            month: 'short',
-            day: 'numeric',
-        });
-    } catch (e) {
-        return dateString;
-    }
-}
-
-function formatTime(t) {
-    if (!t) return '';
-    const parts = String(t).split(':');
-    if (parts.length < 2) return t;
-    let h = parseInt(parts[0], 10);
-    const m = parts[1];
-    const ampm = h >= 12 ? 'PM' : 'AM';
-    h = h % 12 || 12;
-    return `${h}:${m} ${ampm}`;
-}
 
 async function copyText(text, key) {
     try {
@@ -161,71 +133,36 @@ async function copyText(text, key) {
                 </div>
             </div>
 
-            <!-- Passwords for this event -->
+            <!-- Draw password for this event -->
             <div class="mt-6 rounded-2xl bg-white p-6 shadow-xl sm:p-8">
-                <button
-                    type="button"
-                    @click="passwordsOpen = !passwordsOpen"
-                    class="flex w-full items-center justify-between gap-2 text-left"
-                    :aria-expanded="passwordsOpen"
-                >
-                    <h2 class="flex items-center gap-2 text-lg font-bold text-gray-900">
-                        <svg class="h-5 w-5" style="color: #16C3D9;" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                            <path stroke-linecap="round" stroke-linejoin="round" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
-                        </svg>
-                        Your draw password{{ locations.length === 1 ? '' : 's' }}
-                        <span v-if="locations.length" class="rounded-full bg-gray-100 px-2 py-0.5 text-xs font-semibold text-gray-500">{{ locations.length }}</span>
-                    </h2>
-                    <svg
-                        class="h-5 w-5 flex-none text-gray-400 transition-transform"
-                        :class="passwordsOpen ? 'rotate-180' : ''"
-                        viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
-                    >
-                        <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" />
+                <h2 class="flex items-center gap-2 text-lg font-bold text-gray-900">
+                    <svg class="h-5 w-5" style="color: #16C3D9;" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
                     </svg>
-                </button>
+                    Your draw password
+                </h2>
                 <p class="mt-1 text-sm text-gray-500">
-                    Each screening has its own password. Use the one that matches the screening you're
-                    hosting. Passwords are not case-sensitive.
+                    Use this password to unlock the draw for any of your screenings. It is not
+                    case-sensitive.
                 </p>
 
-                <div v-show="passwordsOpen">
-                    <div v-if="locations.length" class="mt-4 max-h-96 space-y-2 overflow-y-auto pr-1">
-                        <div
-                            v-for="loc in locations"
-                            :key="loc.id"
-                            class="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-gray-200 bg-gray-50 px-4 py-3"
-                        >
-                            <div class="min-w-0">
-                                <p class="truncate font-semibold text-gray-900">{{ loc.name }}</p>
-                                <p class="text-xs text-gray-500">
-                                    <span v-if="loc.state">{{ loc.state }} · </span>
-                                    <span v-if="loc.date">{{ formatDate(loc.date) }}</span>
-                                    <span v-if="loc.time"> · {{ formatTime(loc.time) }}</span>
-                                </p>
-                            </div>
-                            <div class="flex items-center gap-2">
-                                <code
-                                    class="rounded bg-white px-3 py-1.5 font-mono text-base font-bold tracking-wide text-gray-900 ring-1 ring-inset ring-gray-200"
-                                >
-                                    {{ loc.password || '—' }}
-                                </code>
-                                <button
-                                    v-if="loc.password"
-                                    type="button"
-                                    @click="copyText(loc.password, loc.id)"
-                                    class="rounded-md px-2.5 py-1.5 text-xs font-semibold text-white transition hover:opacity-90"
-                                    style="background-color: #16C3D9;"
-                                >
-                                    {{ copied === loc.id ? 'Copied!' : 'Copy' }}
-                                </button>
-                            </div>
-                        </div>
-                    </div>
-                    <p v-else class="mt-4 text-sm text-gray-500">
-                        No screenings have been set up for this event yet. Please contact your coordinator.
-                    </p>
+                <div
+                    v-if="drawPassword"
+                    class="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-gray-200 bg-gray-50 px-4 py-3"
+                >
+                    <code class="font-mono text-xl font-bold tracking-widest text-gray-900">{{ drawPassword }}</code>
+                    <button
+                        type="button"
+                        @click="copyText(drawPassword, 'draw')"
+                        class="rounded-md px-3 py-1.5 text-xs font-semibold text-white transition hover:opacity-90"
+                        style="background-color: #16C3D9;"
+                    >
+                        {{ copied === 'draw' ? 'Copied!' : 'Copy' }}
+                    </button>
                 </div>
+                <p v-else class="mt-4 text-sm text-gray-500">
+                    No draw password has been set for this event yet. Please contact your coordinator.
+                </p>
             </div>
 
             <!-- Steps -->
@@ -380,7 +317,20 @@ async function copyText(text, key) {
                     <li>• Keep your password private; only share it with people running the draw.</li>
                     <li>• If you get stuck on the night, contact
                         <span v-if="event.event_coordinator" class="font-semibold text-white">{{ event.event_coordinator }}</span>
-                        <span v-else>your event coordinator</span>.
+                        <span v-else>your event coordinator</span><template v-if="event.event_coordinator_email">
+                        at
+                        <a
+                            :href="`mailto:${event.event_coordinator_email}?subject=${encodeURIComponent('Pick a Winner help — ' + event.event_name)}`"
+                            class="font-semibold underline"
+                            style="color: #16C3D9;"
+                        >{{ event.event_coordinator_email }}</a></template>.
+                    </li>
+                    <li>• Or call
+                        <a
+                            href="tel:0485952778"
+                            class="font-semibold underline"
+                            style="color: #16C3D9;"
+                        >0485 952 778</a>.
                     </li>
                 </ul>
             </div>

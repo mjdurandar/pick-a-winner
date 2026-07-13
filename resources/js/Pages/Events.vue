@@ -207,12 +207,14 @@ const shareHostGuide = (event) => {
     const pwd = event.instructions_password || '';
     Swal.fire({
         title: 'Host instruction link',
-        html: `<p style="font-size:14px;color:#555;margin-bottom:10px;">Share this link with your host. It explains how to open Pick a Winner, run a draw and record the winner — and lists the passwords for this event.</p>
-               <label style="display:block;text-align:left;font-size:12px;font-weight:600;color:#555;margin:0 0 2px 4px;">Link</label>
-               <input id="hostGuideUrl" class="swal2-input" style="font-size:12px;margin-top:0;" readonly value="${url}">
-               <label style="display:block;text-align:left;font-size:12px;font-weight:600;color:#555;margin:10px 0 2px 4px;">Guide password</label>
-               <input id="hostGuidePwd" class="swal2-input" style="font-size:14px;font-weight:700;letter-spacing:1px;margin-top:0;" readonly value="${pwd}">
-               <p style="font-size:12px;color:#888;margin-top:8px;">The host needs both the link and this password to view the guide.</p>`,
+        html: `<div style="text-align:left;">
+                 <p style="font-size:14px;color:#555;margin:0 0 16px;">Share this link with your host. It explains how to open Pick a Winner, run a draw and record the winner — and lists the passwords for this event.</p>
+                 <label style="display:block;font-size:12px;font-weight:600;color:#555;margin:0 0 4px;">Link</label>
+                 <input id="hostGuideUrl" readonly value="${url}" style="display:block;width:100%;box-sizing:border-box;font-size:13px;padding:9px 11px;border:1px solid #d9d9d9;border-radius:6px;color:#333;">
+                 <label style="display:block;font-size:12px;font-weight:600;color:#555;margin:14px 0 4px;">Guide password</label>
+                 <input id="hostGuidePwd" readonly value="${pwd}" style="display:block;width:100%;box-sizing:border-box;font-size:15px;font-weight:700;letter-spacing:1px;padding:9px 11px;border:1px solid #d9d9d9;border-radius:6px;color:#333;">
+                 <p style="font-size:12px;color:#888;margin:10px 0 0;">The host needs both the link and this password to view the guide.</p>
+               </div>`,
         showDenyButton: true,
         showCancelButton: true,
         confirmButtonText: 'Copy link',
