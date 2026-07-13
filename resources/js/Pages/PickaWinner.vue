@@ -168,7 +168,7 @@ const handleSubmit = () => {
             router.visit(route('pickawinner.alllocation', selectedEvent.id));
             return;
         }
-        
+
         // Show error if password doesn't match
         Swal.fire({
             icon: 'error',

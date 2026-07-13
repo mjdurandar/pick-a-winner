@@ -189,24 +189,15 @@ class PickaWinnerController extends Controller
 
     /**
      * Get locations for the Pick a Winner dropdown.
-     * When event.show_all_locations is true: return all locations.
-     * When false: show each location from 2 weeks before its date until 2 weeks after its date.
+     * Always return every location for the selected event (no date filtering).
      */
     public function getLocations(Events $event)
     {
-        // Hide locations once a week has passed since their date
-        $from = now()->subDays(7)->format('Y-m-d');
-
-        $query = Location::where('event_id', $event->id)
+        $locations = Location::where('event_id', $event->id)
             ->select(['id', 'name', 'date', 'time'])
-            ->where('date', '>=', $from);
+            ->get();
 
-        if (! $event->show_all_locations) {
-            $to = now()->addDays(14)->format('Y-m-d');
-            $query->where('date', '<=', $to);
-        }
-
-        return response()->json($query->get());
+        return response()->json($locations);
     }
 
     public function verify(Request $request)
