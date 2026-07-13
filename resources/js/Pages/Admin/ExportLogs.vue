@@ -113,6 +113,16 @@ function prettyRoute(name) {
     if (!name) return '—';
     return name;
 }
+
+// Build the export URL carrying the active filters (excluding pagination-only params).
+function exportUrl() {
+    const params = {};
+    Object.entries(filters.value).forEach(([k, v]) => {
+        if (k === 'per_page') return;
+        if (v !== '' && v !== null && v !== undefined) params[k] = v;
+    });
+    return route('admin.exportLogs.export', params);
+}
 </script>
 
 <template>
@@ -222,8 +232,19 @@ function prettyRoute(name) {
                                     Clear filters
                                 </button>
                             </div>
-                            <div class="text-sm text-gray-500">
-                                {{ logs.total }} total record{{ logs.total === 1 ? '' : 's' }}
+                            <div class="flex items-center gap-3">
+                                <a
+                                    :href="exportUrl()"
+                                    class="inline-flex items-center gap-1.5 rounded bg-emerald-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-emerald-700"
+                                >
+                                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                        <path stroke-linecap="round" stroke-linejoin="round" d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M7 10l5 5 5-5M12 15V3" />
+                                    </svg>
+                                    Export CSV
+                                </a>
+                                <div class="text-sm text-gray-500">
+                                    {{ logs.total }} total record{{ logs.total === 1 ? '' : 's' }}
+                                </div>
                             </div>
                         </div>
 

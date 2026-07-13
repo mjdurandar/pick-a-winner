@@ -153,6 +153,7 @@ Route::middleware(['auth', RoleMiddleware::class . ':admin,host'])->group(functi
 Route::middleware(['auth', RoleMiddleware::class . ':admin'])->group(function () {
     //EXPORT AUDIT LOGS
     Route::get('/admin/export-logs', [ExportLogsController::class, 'index'])->name('admin.exportLogs.index');
+    Route::get('/admin/export-logs/export', [ExportLogsController::class, 'export'])->name('admin.exportLogs.export');
 
     //DASHBOARD
     Route::get('/dashboard', [DashboardController::class, 'index'])->name('dashboard');

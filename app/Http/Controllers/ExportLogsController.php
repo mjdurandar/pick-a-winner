@@ -5,13 +5,14 @@ namespace App\Http\Controllers;
 use App\Models\ExportLog;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
+use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class ExportLogsController extends Controller
 {
     /**
-     * Display the export logs page with filters.
+     * Build the filtered activity-log query shared by the page and the CSV export.
      */
-    public function index(Request $request)
+    private function filteredQuery(Request $request)
     {
         $userId = $request->query('user_id');
         $routeName = $request->query('route_name');
@@ -19,8 +20,6 @@ class ExportLogsController extends Controller
         $search = trim((string) $request->query('search', ''));
         $dateFrom = $request->query('date_from');
         $dateTo = $request->query('date_to');
-        $perPageParam = $request->query('per_page', '25');
-        $perPage = in_array($perPageParam, ['25', '50', '100'], true) ? (int) $perPageParam : 25;
 
         $query = ExportLog::query()->with('user:id,name,email')->latest();
 
@@ -49,7 +48,24 @@ class ExportLogsController extends Controller
             $query->whereDate('created_at', '<=', $dateTo);
         }
 
-        $logs = $query->paginate($perPage)->withQueryString();
+        return $query;
+    }
+
+    /**
+     * Display the export logs page with filters.
+     */
+    public function index(Request $request)
+    {
+        $userId = $request->query('user_id');
+        $routeName = $request->query('route_name');
+        $category = $request->query('category');
+        $search = trim((string) $request->query('search', ''));
+        $dateFrom = $request->query('date_from');
+        $dateTo = $request->query('date_to');
+        $perPageParam = $request->query('per_page', '25');
+        $perPage = in_array($perPageParam, ['25', '50', '100'], true) ? (int) $perPageParam : 25;
+
+        $logs = $this->filteredQuery($request)->paginate($perPage)->withQueryString();
 
         $routeNames = ExportLog::query()
             ->whereNotNull('route_name')
@@ -87,5 +103,73 @@ class ExportLogsController extends Controller
             'categories' => $categories,
             'users' => $users,
         ]);
+    }
+
+    /**
+     * Stream all matching activity logs (respecting the current filters) as a CSV.
+     */
+    public function export(Request $request): StreamedResponse
+    {
+        $query = $this->filteredQuery($request);
+
+        $columns = [
+            'id',
+            'created_at',
+            'category',
+            'status',
+            'user_id',
+            'user_name',
+            'user_email',
+            'route_name',
+            'method',
+            'url',
+            'target_type',
+            'target_id',
+            'row_count',
+            'file_name',
+            'ip_address',
+            'user_agent',
+            'params',
+        ];
+
+        $filename = 'activity-logs-'.now()->format('Y-m-d_His').'.csv';
+
+        $response = new StreamedResponse(function () use ($query, $columns) {
+            $handle = fopen('php://output', 'w');
+            // UTF-8 BOM so Excel opens accented characters correctly.
+            fwrite($handle, "\xEF\xBB\xBF");
+            fputcsv($handle, $columns);
+
+            $query->chunk(500, function ($rows) use ($handle) {
+                foreach ($rows as $row) {
+                    fputcsv($handle, [
+                        $row->id,
+                        optional($row->created_at)->toDateTimeString(),
+                        $row->category,
+                        $row->status,
+                        $row->user_id,
+                        $row->user_name_snapshot ?? $row->user?->name,
+                        $row->user_email_snapshot ?? $row->user?->email,
+                        $row->route_name,
+                        $row->method,
+                        $row->url,
+                        $row->target_type,
+                        $row->target_id,
+                        $row->row_count,
+                        $row->file_name,
+                        $row->ip_address,
+                        $row->user_agent,
+                        $row->params ? json_encode($row->params) : null,
+                    ]);
+                }
+            });
+
+            fclose($handle);
+        });
+
+        $response->headers->set('Content-Type', 'text/csv; charset=UTF-8');
+        $response->headers->set('Content-Disposition', "attachment; filename=\"{$filename}\"");
+
+        return $response;
     }
 }
