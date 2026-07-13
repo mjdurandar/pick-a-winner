@@ -215,7 +215,7 @@ const shareHostGuide = (event) => {
                <p style="font-size:12px;color:#888;margin-top:8px;">The host needs both the link and this password to view the guide.</p>`,
         showDenyButton: true,
         showCancelButton: true,
-        confirmButtonText: 'Copy link & password',
+        confirmButtonText: 'Copy link',
         denyButtonText: 'Open',
         cancelButtonText: 'Close',
         confirmButtonColor: '#16C3D9',
@@ -226,7 +226,6 @@ const shareHostGuide = (event) => {
         },
     }).then((result) => {
         if (result.isConfirmed) {
-            const shareText = `Pick a Winner host guide: ${url}\nPassword: ${pwd}`;
             const done = () => Swal.fire({
                 icon: 'success',
                 title: 'Copied!',
@@ -236,7 +235,7 @@ const shareHostGuide = (event) => {
                 timer: 1500,
             });
             if (navigator.clipboard) {
-                navigator.clipboard.writeText(shareText).then(done).catch(done);
+                navigator.clipboard.writeText(url).then(done).catch(done);
             } else {
                 const input = document.getElementById('hostGuideUrl');
                 if (input) { input.select(); document.execCommand('copy'); }
