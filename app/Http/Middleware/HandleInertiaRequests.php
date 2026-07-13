@@ -54,6 +54,7 @@ class HandleInertiaRequests extends Middleware
             'forgot-password', 
             'reset-password/*', 
             'form/*',
+            'host-guide/*',
             'pickawinner',
             'pickawinner/*',
             'api/events/*/locations',
