@@ -35,6 +35,7 @@ class EventsController extends Controller
             'event_coordinator_email' => 'required|email',
             'event_country' => 'required|string',
             'film_id' => 'required|exists:films,id',
+            'instructions_password' => 'nullable|string|max:255',
             'is_enabled' => 'nullable|boolean',
             'show_all_locations' => 'nullable|boolean',
         ]);
@@ -93,6 +94,7 @@ class EventsController extends Controller
             'event_coordinator_email' => 'required|email',
             'event_country' => 'required|string',
             'film_id' => 'required|exists:films,id',
+            'instructions_password' => 'nullable|string|max:255',
             'is_enabled' => 'nullable|boolean',
             'show_all_locations' => 'nullable|boolean',
         ]);

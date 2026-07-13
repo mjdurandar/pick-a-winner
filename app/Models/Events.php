@@ -21,6 +21,7 @@ class Events extends Model
         'event_coordinator_email',
         'event_country',
         'event_uuid',
+        'instructions_password',
         'film_id',
         'auto_import_enabled',
         'auto_import_list_id',
@@ -39,6 +40,9 @@ class Events extends Model
         static::creating(function ($event) {
             if (empty($event->event_uuid)) {
                 $event->event_uuid = Str::uuid()->toString();
+            }
+            if (empty($event->instructions_password)) {
+                $event->instructions_password = strtoupper(Str::random(6));
             }
         });
     }

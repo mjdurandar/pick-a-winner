@@ -83,6 +83,7 @@ const form = useForm({
     event_coordinator_email: '',
     event_country: '',
     film_id: null,
+    instructions_password: '',
     is_enabled: false,
     show_all_locations: false
 });
@@ -123,6 +124,7 @@ const openEditModal = (event) => {
     form.event_coordinator_email = event.event_coordinator_email;
     form.event_country = event.event_country;
     form.film_id = event.film_id ? parseInt(event.film_id) : null;
+    form.instructions_password = event.instructions_password || '';
     form.is_enabled = event.is_enabled ? true : false;
     form.show_all_locations = event.show_all_locations ? true : false;
     form.event_banner = null; // Reset file input - new file will override
@@ -158,6 +160,9 @@ const saveEvent = () => {
     data.append('event_country', form.event_country);
     // Always append film_id as integer
     data.append('film_id', parseInt(form.film_id));
+    if (form.instructions_password) {
+        data.append('instructions_password', form.instructions_password);
+    }
     // Append is_enabled as 1 or 0
     data.append('is_enabled', form.is_enabled ? '1' : '0');
     data.append('show_all_locations', form.show_all_locations ? '1' : '0');
@@ -194,6 +199,53 @@ const saveEvent = () => {
 
 const goToLocationPage = (event) => {
     router.get(route('location.locationpage', { eventId: event.id }));
+};
+
+// Share the public host instruction guide (how to run a draw + passwords).
+const shareHostGuide = (event) => {
+    const url = route('pickawinner.hostguide', { event_uuid: event.event_uuid });
+    const pwd = event.instructions_password || '';
+    Swal.fire({
+        title: 'Host instruction link',
+        html: `<p style="font-size:14px;color:#555;margin-bottom:10px;">Share this link with your host. It explains how to open Pick a Winner, run a draw and record the winner — and lists the passwords for this event.</p>
+               <label style="display:block;text-align:left;font-size:12px;font-weight:600;color:#555;margin:0 0 2px 4px;">Link</label>
+               <input id="hostGuideUrl" class="swal2-input" style="font-size:12px;margin-top:0;" readonly value="${url}">
+               <label style="display:block;text-align:left;font-size:12px;font-weight:600;color:#555;margin:10px 0 2px 4px;">Guide password</label>
+               <input id="hostGuidePwd" class="swal2-input" style="font-size:14px;font-weight:700;letter-spacing:1px;margin-top:0;" readonly value="${pwd}">
+               <p style="font-size:12px;color:#888;margin-top:8px;">The host needs both the link and this password to view the guide.</p>`,
+        showDenyButton: true,
+        showCancelButton: true,
+        confirmButtonText: 'Copy link & password',
+        denyButtonText: 'Open',
+        cancelButtonText: 'Close',
+        confirmButtonColor: '#16C3D9',
+        denyButtonColor: '#6c757d',
+        didOpen: () => {
+            const input = document.getElementById('hostGuideUrl');
+            if (input) input.select();
+        },
+    }).then((result) => {
+        if (result.isConfirmed) {
+            const shareText = `Pick a Winner host guide: ${url}\nPassword: ${pwd}`;
+            const done = () => Swal.fire({
+                icon: 'success',
+                title: 'Copied!',
+                toast: true,
+                position: 'top-end',
+                showConfirmButton: false,
+                timer: 1500,
+            });
+            if (navigator.clipboard) {
+                navigator.clipboard.writeText(shareText).then(done).catch(done);
+            } else {
+                const input = document.getElementById('hostGuideUrl');
+                if (input) { input.select(); document.execCommand('copy'); }
+                done();
+            }
+        } else if (result.isDenied) {
+            window.open(url, '_blank');
+        }
+    });
 };
 
 // Format date to "Saturday, September 20, 2025" format
@@ -636,6 +688,9 @@ const closeSheetsModal = () => {
                                         <button @click="goToLocationPage(event)" class="btn btn-sm" style="background-color: #16C3D9; color: white;" title="Go to Location Page">
                                             Locations
                                         </button>
+                                        <button @click="shareHostGuide(event)" class="btn btn-sm" style="background-color: #16C3D9; color: white;" title="Share host instruction guide">
+                                            <i class="fa-solid fa-share-nodes"></i>
+                                        </button>
                                         <button @click="openEditModal(event)" class="btn btn-sm" style="background-color: #16C3D9; color: white;" v-if="userRole === 'admin'">
                                             <i class="fa-solid fa-pen-to-square"></i>
                                         </button>
@@ -729,6 +784,11 @@ const closeSheetsModal = () => {
                                     <option value="New Zealand">New Zealand</option>
                                     <option value="Germany">Germany</option>
                                 </select>
+                            </div>
+                            <div class="mb-3">
+                                <label class="form-label">Host Guide Password</label>
+                                <input v-model="form.instructions_password" type="text" class="form-control" maxlength="255" placeholder="Auto-generated if left blank" />
+                                <small class="text-muted">Password hosts enter to open the shared instruction guide.</small>
                             </div>
                             <div class="mb-3">
                                 <label class="form-label">Event Logo</label>

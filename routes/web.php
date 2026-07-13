@@ -25,6 +25,12 @@ Route::get('/pickawinner', [PickaWinnerController::class, 'index'])->name('picka
 Route::get('/pickawinner/{eventId}', [PickaWinnerController::class, 'pickawinner'])->name('pickawinner.page');
 Route::get('/pickawinner/show/{location}/{event}', [PickaWinnerController::class, 'pickawinnerlocationpage'])->name('pickawinner.locationpage');
 Route::get('/pickawinner/alllocation/{event}', [PickaWinnerController::class, 'alllocation'])->name('pickawinner.alllocation');
+// Shareable host instruction guide (uuid-gated public link). Shows how to run a
+// draw and lists the per-location passwords for hosts.
+Route::get('/host-guide/{event_uuid}', [PickaWinnerController::class, 'hostGuide'])->name('pickawinner.hostguide');
+Route::post('/host-guide/{event_uuid}/verify', [PickaWinnerController::class, 'verifyHostGuide'])
+    ->middleware('throttle:10,1')
+    ->name('pickawinner.hostguide.verify');
 Route::get('/api/events/{event}/locations', [PickaWinnerController::class, 'getLocations']);
 Route::post('/picka-winner/verify', [PickaWinnerController::class, 'verify'])
     ->middleware('throttle:10,1')

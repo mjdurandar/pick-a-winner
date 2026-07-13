@@ -71,6 +71,76 @@ class PickaWinnerController extends Controller
         ]);
     }
 
+    /**
+     * Public, uuid-gated host instruction guide for an event.
+     *
+     * Renders a shareable page explaining how a host accesses Pick a Winner,
+     * unlocks a draw, and assigns a winner — and lists the per-location
+     * passwords generated for this event. The event_uuid acts as the secret,
+     * so this needs no login and can be shared directly with a host.
+     */
+    public function hostGuide($event_uuid, Request $request)
+    {
+        $event = Events::where('event_uuid', $event_uuid)->firstOrFail();
+
+        // Non-sensitive event fields — the instructions password is never sent to
+        // the client, whether locked or unlocked.
+        $eventData = [
+            'event_name' => $event->event_name,
+            'event_banner' => $event->event_banner,
+            'event_country' => $event->event_country,
+            'event_coordinator' => $event->event_coordinator,
+            'event_uuid' => $event->event_uuid,
+        ];
+
+        // The guide is private: require the per-event password unless it has been
+        // verified in this session (or no password is set, for older events).
+        $unlocked = empty($event->instructions_password)
+            || $request->session()->get('guide_verified_'.$event->id) === true;
+
+        if (! $unlocked) {
+            return Inertia::render('HostGuide', [
+                'event' => $eventData,
+                'locations' => [],
+                'locked' => true,
+            ]);
+        }
+
+        $locations = Location::where('event_id', $event->id)
+            ->orderBy('date')
+            ->orderBy('time')
+            ->get(['id', 'name', 'state', 'date', 'time', 'password']);
+
+        return Inertia::render('HostGuide', [
+            'event' => $eventData,
+            'locations' => $locations,
+            'locked' => false,
+        ]);
+    }
+
+    /**
+     * Verify the password for a host instruction guide and unlock it for this session.
+     */
+    public function verifyHostGuide(Request $request, $event_uuid)
+    {
+        $event = Events::where('event_uuid', $event_uuid)->firstOrFail();
+
+        $validated = $request->validate([
+            'password' => 'required|string',
+        ]);
+
+        if (empty($event->instructions_password)
+            || strtoupper(trim($validated['password'])) !== strtoupper($event->instructions_password)) {
+            return back()->withErrors([
+                'password' => 'Incorrect password. Please try again.',
+            ]);
+        }
+
+        $request->session()->put('guide_verified_'.$event->id, true);
+
+        return redirect()->route('pickawinner.hostguide', ['event_uuid' => $event_uuid]);
+    }
+
     public function allLocation($eventId) {
         $event = Events::findOrFail($eventId);
         $signUpForm = SignUpForm::where('event_id', $eventId)->first();
