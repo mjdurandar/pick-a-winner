@@ -442,10 +442,14 @@ class SignUpFormController extends Controller
         // Fetch the form details
         $event = Events::where('event_uuid', $event_uuid)->firstOrFail();
         $form = SignUpForm::where('event_id', $event->id)->firstOrFail();
-        // Remove a location from the signup dropdown 2 days after its date
-        $locations = Location::where('event_id', $event->id)
-            ->where('date', '>=', now()->subDays(2)->format('Y-m-d'))
-            ->get();
+        // Remove a location from the signup dropdown 2 days after its date —
+        // unless "show all locations" is enabled on the event, in which case we
+        // return every location (including finished ones) so the dropdown stays.
+        $locationsQuery = Location::where('event_id', $event->id);
+        if (! $event->show_all_locations) {
+            $locationsQuery->where('date', '>=', now()->subDays(2)->format('Y-m-d'));
+        }
+        $locations = $locationsQuery->get();
 
         return inertia('SignUpFormEmbed', [
             'form' => $form,
