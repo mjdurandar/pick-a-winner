@@ -736,7 +736,7 @@ const closeSheetsModal = () => {
 
         <!-- Bootstrap Modal for Create/Edit -->
         <div class="modal fade" id="createEventModal" tabindex="-1" aria-labelledby="createEventModalLabel">
-            <div class="modal-dialog">
+            <div class="modal-dialog modal-xl modal-dialog-centered modal-fullscreen-lg-down">
                 <div class="modal-content">
                     <div class="modal-header">
                         <h5 class="modal-title" id="createEventModalLabel">{{ isEditing ? 'Edit Event' : 'Create Event' }}</h5>
@@ -744,120 +744,130 @@ const closeSheetsModal = () => {
                     </div>
                     <div class="modal-body">
                         <form @submit.prevent="saveEvent">
-                            <div class="mb-3">
-                                <label class="form-label">Event Name</label>
-                                <input v-model="form.event_name" type="text" class="form-control" required  maxlength="26" />
-                            </div>
-                            <div class="mb-3">
-                                <label class="form-label">Film <span class="text-danger">*</span></label>
-                                <select v-model="form.film_id" class="form-select" required :class="{ 'is-invalid': form.errors.film_id }">
-                                    <option :value="null">Select a film</option>
-                                    <option 
-                                        v-for="film in props.films" 
-                                        :key="film.id" 
-                                        :value="film.id"
-                                    >
-                                        {{ film.name }}
-                                    </option>
-                                </select>
-                                <div v-if="form.errors.film_id" class="invalid-feedback">
-                                    {{ form.errors.film_id }}
+                            <div class="row g-3">
+                                <div class="col-12 col-md-4">
+                                    <label class="form-label">Event Name</label>
+                                    <input v-model="form.event_name" type="text" class="form-control" required maxlength="26" />
+                                </div>
+                                <div class="col-12 col-md-4">
+                                    <label class="form-label">Film <span class="text-danger">*</span></label>
+                                    <select v-model="form.film_id" class="form-select" required :class="{ 'is-invalid': form.errors.film_id }">
+                                        <option :value="null">Select a film</option>
+                                        <option
+                                            v-for="film in props.films"
+                                            :key="film.id"
+                                            :value="film.id"
+                                        >
+                                            {{ film.name }}
+                                        </option>
+                                    </select>
+                                    <div v-if="form.errors.film_id" class="invalid-feedback">
+                                        {{ form.errors.film_id }}
+                                    </div>
+                                </div>
+                                <div class="col-12 col-md-4">
+                                    <label class="form-label">Event Year</label>
+                                    <input v-model="form.event_year" type="text" class="form-control" maxlength="4" pattern="\d{4}" required />
+                                </div>
+
+                                <div class="col-12 col-md-4">
+                                    <label class="form-label">Start Date</label>
+                                    <ScrollDatePicker v-model="form.event_date" :min-year="2015" :max-year="new Date().getFullYear() + 5" />
+                                </div>
+                                <div class="col-12 col-md-4">
+                                    <label class="form-label">Country</label>
+                                    <select v-model="form.event_country" class="form-select" required>
+                                        <option value="AUSTRALIA & NEW ZEALAND">AUSTRALIA & NEW ZEALAND</option>
+                                        <option value="USA & CANADA">USA & CANADA</option>
+                                        <option value="USA">USA</option>
+                                        <option value="Canada">Canada</option>
+                                        <option value="UK">UK</option>
+                                        <option value="Australia">Australia</option>
+                                        <option value="New Zealand">New Zealand</option>
+                                        <option value="Germany">Germany</option>
+                                    </select>
+                                </div>
+                                <div class="col-12 col-md-4">
+                                    <label class="form-label">Host Guide Password</label>
+                                    <input v-model="form.instructions_password" type="text" class="form-control" maxlength="255" placeholder="Auto-generated if left blank" />
+                                    <small class="text-muted">Password hosts enter to open the shared instruction guide.</small>
+                                </div>
+
+                                <div class="col-12 col-md-4">
+                                    <label class="form-label">Coordinator Name</label>
+                                    <input v-model="form.event_coordinator" type="text" class="form-control" required />
+                                </div>
+                                <div class="col-12 col-md-4">
+                                    <label class="form-label">Coordinator Email</label>
+                                    <input v-model="form.event_coordinator_email" type="email" class="form-control" required />
+                                </div>
+                                <div class="col-12 col-md-4">
+                                    <label class="form-label">Coordinator Phone</label>
+                                    <input v-model="form.event_coordinator_phone" type="tel" class="form-control" placeholder="0485 952 778" />
+                                    <small class="text-muted">Shown on the host guide. Leave blank to use the default number.</small>
+                                </div>
+
+                                <div class="col-12 col-md-6">
+                                    <label class="form-label">Event Logo</label>
+                                    <input type="file" @change="handleLogoChange" id="event_logo" class="form-control" />
+                                    <small v-if="isEditing && existingLogo" class="text-muted">
+                                        Current: {{ existingLogo.split('/').pop() }} (leave empty to keep current)
+                                    </small>
+                                </div>
+                                <div class="col-12 col-md-6">
+                                    <label class="form-label">Event Banner</label>
+                                    <input type="file" @change="handleFileChange" id="event_banner" class="form-control" />
+                                    <small v-if="isEditing && existingBanner" class="text-muted">
+                                        Current: {{ existingBanner.split('/').pop() }} (leave empty to keep current)
+                                    </small>
+                                </div>
+
+                                <div class="col-12"><hr class="my-1" /></div>
+
+                                <div class="col-12 col-md-4">
+                                    <div class="form-check">
+                                        <input
+                                            class="form-check-input"
+                                            type="checkbox"
+                                            v-model="form.is_enabled"
+                                            id="is_enabled"
+                                        />
+                                        <label class="form-check-label" for="is_enabled">
+                                            Show this in the pick a winner dropdown
+                                        </label>
+                                        <small class="d-block text-muted">Controls the event list, not the locations. When off, this event is hidden from the Pick a Winner login and no one can open its draw. Does not affect the sign-up form.</small>
+                                    </div>
+                                </div>
+                                <div class="col-12 col-md-4">
+                                    <div class="form-check">
+                                        <input
+                                            class="form-check-input"
+                                            type="checkbox"
+                                            v-model="form.show_all_locations"
+                                            id="show_all_locations"
+                                        />
+                                        <label class="form-check-label" for="show_all_locations">
+                                            Show all locations on the sign-up form
+                                        </label>
+                                        <small class="d-block text-muted">Includes finished locations. When off, the sign-up form only lists locations from 2 days ago to 3 weeks ahead.</small>
+                                    </div>
+                                </div>
+                                <div class="col-12 col-md-4">
+                                    <div class="form-check">
+                                        <input
+                                            class="form-check-input"
+                                            type="checkbox"
+                                            v-model="form.show_all_locations_draw"
+                                            id="show_all_locations_draw"
+                                        />
+                                        <label class="form-check-label" for="show_all_locations_draw">
+                                            Show all locations on the Pick a Winner login
+                                        </label>
+                                        <small class="d-block text-muted">Includes finished locations. When off, the draw only lists locations from 7 days ago onwards.</small>
+                                    </div>
                                 </div>
                             </div>
-                            <div class="mb-3">
-                                <label class="form-label">Event Year</label>
-                                <input v-model="form.event_year" type="text" class="form-control" maxlength="4" pattern="\d{4}" required />
-                            </div>
-                            <div class="mb-3">
-                                <label class="form-label">Start Date</label>
-                                <ScrollDatePicker v-model="form.event_date" :min-year="2015" :max-year="new Date().getFullYear() + 5" />
-                            </div>
-                            <div class="mb-3">
-                                <label class="form-label">Coordinator Name</label>
-                                <input v-model="form.event_coordinator" type="text" class="form-control" required />
-                            </div>
-                            <div class="mb-3">
-                                <label class="form-label">Coordinator Email</label>
-                                <input v-model="form.event_coordinator_email" type="email" class="form-control" required />
-                            </div>
-                            <div class="mb-3">
-                                <label class="form-label">Coordinator Phone</label>
-                                <input v-model="form.event_coordinator_phone" type="tel" class="form-control" placeholder="0485 952 778" />
-                                <small class="text-muted">Shown on the host guide. Leave blank to use the default number.</small>
-                            </div>
-                            <div class="mb-3">
-                                <label class="form-label">Country</label>
-                                <select v-model="form.event_country" class="form-select" required>
-                                    <option value="AUSTRALIA & NEW ZEALAND">AUSTRALIA & NEW ZEALAND</option>
-                                    <option value="USA & CANADA">USA & CANADA</option>
-                                    <option value="USA">USA</option>
-                                    <option value="Canada">Canada</option>
-                                    <option value="UK">UK</option>
-                                    <option value="Australia">Australia</option>
-                                    <option value="New Zealand">New Zealand</option>
-                                    <option value="Germany">Germany</option>
-                                </select>
-                            </div>
-                            <div class="mb-3">
-                                <label class="form-label">Host Guide Password</label>
-                                <input v-model="form.instructions_password" type="text" class="form-control" maxlength="255" placeholder="Auto-generated if left blank" />
-                                <small class="text-muted">Password hosts enter to open the shared instruction guide.</small>
-                            </div>
-                            <div class="mb-3">
-                                <label class="form-label">Event Logo</label>
-                                <input type="file" @change="handleLogoChange" id="event_logo" class="form-control" />
-                                <small v-if="isEditing && existingLogo" class="text-muted">
-                                    Current: {{ existingLogo.split('/').pop() }} (leave empty to keep current)
-                                </small>
-                            </div>
-                            <div class="mb-3">
-                                <label class="form-label">Event Banner</label>
-                                <input type="file" @change="handleFileChange" id="event_banner" class="form-control" />
-                                <small v-if="isEditing && existingBanner" class="text-muted">
-                                    Current: {{ existingBanner.split('/').pop() }} (leave empty to keep current)
-                                </small>
-                            </div>
-                            <div class="mb-3">
-                                <div class="form-check">
-                                    <input
-                                        class="form-check-input"
-                                        type="checkbox"
-                                        v-model="form.is_enabled"
-                                        id="is_enabled"
-                                    />
-                                    <label class="form-check-label" for="is_enabled">
-                                        Show this in the pick a winner dropdown
-                                    </label>
-                                    <small class="d-block text-muted">Controls the event list, not the locations. When off, this event is hidden from the Pick a Winner login and no one can open its draw. Does not affect the sign-up form.</small>
-                                </div>
-                            </div>
-                            <div class="mb-3">
-                                <div class="form-check">
-                                    <input
-                                        class="form-check-input"
-                                        type="checkbox"
-                                        v-model="form.show_all_locations"
-                                        id="show_all_locations"
-                                    />
-                                    <label class="form-check-label" for="show_all_locations">
-                                        Show all locations on the sign-up form
-                                    </label>
-                                    <small class="d-block text-muted">Includes finished locations. When off, the sign-up form only lists locations from 2 days ago to 3 weeks ahead.</small>
-                                </div>
-                                <div class="form-check mt-2">
-                                    <input
-                                        class="form-check-input"
-                                        type="checkbox"
-                                        v-model="form.show_all_locations_draw"
-                                        id="show_all_locations_draw"
-                                    />
-                                    <label class="form-check-label" for="show_all_locations_draw">
-                                        Show all locations on the Pick a Winner login
-                                    </label>
-                                    <small class="d-block text-muted">Includes finished locations. When off, the draw only lists locations from 7 days ago onwards.</small>
-                                </div>
-                            </div>
-                            <div class="modal-footer">
+                            <div class="modal-footer px-0 pb-0 mt-3">
                                 <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
                                 <button type="submit" class="btn" style="background-color: black; color: white;">
                                     {{ isEditing ? 'Update Event' : 'Save Event' }}
