@@ -189,9 +189,9 @@ class PickaWinnerController extends Controller
 
     /**
      * Get locations for the Pick a Winner dropdown.
-     * Drop a location 2 days after its date — unless "show all locations" is
-     * enabled on the event, which keeps finished locations in the dropdown.
-     * Mirrors SignUpFormController::embed().
+     * With "show all locations" enabled on the event, return every location.
+     * Otherwise drop locations more than a week past — a host can still draw a
+     * recently-finished one — while keeping every upcoming location listed.
      */
     public function getLocations(Events $event)
     {
@@ -199,7 +199,7 @@ class PickaWinnerController extends Controller
             ->select(['id', 'name', 'date', 'time']);
 
         if (! $event->show_all_locations) {
-            $locationsQuery->where('date', '>=', now()->subDays(2)->format('Y-m-d'));
+            $locationsQuery->where('date', '>=', now()->subDays(7)->format('Y-m-d'));
         }
 
         return response()->json($locationsQuery->get());

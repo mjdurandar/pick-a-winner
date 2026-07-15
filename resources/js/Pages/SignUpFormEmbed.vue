@@ -232,9 +232,8 @@ const isOptionSelected = (question, option) => {
 const submitForm = async () => {
     if (isSubmitting.value) return; // Prevent multiple submissions
     
-    // ✅ Validate if location is selected (unless all locations have finished, in
-    // which case we accept the sign-up with no location)
-    if (!allLocationsFinished.value && !selectedLocation.value) {
+    // ✅ Validate if location is selected
+    if (!selectedLocation.value) {
         Swal.fire('Error!', 'Please select a location.', 'error');
         return;
     }
@@ -644,19 +643,6 @@ const hasEventsInWindow = computed(() => {
     return Object.keys(groupedLocations.value).length > 0;
 });
 
-// When the backend returns no locations at all, every location for this event has
-// finished (embed() only returns locations dated within the last 2 days onward).
-// In that case we drop the location picker entirely and let people still sign up —
-// the submission is saved against the event with no location.
-//
-// Exception: when "show all locations" is enabled on the event, embed() returns
-// every location (finished included), so we always keep the dropdown and disregard
-// this removal logic.
-const allLocationsFinished = computed(() => {
-    if (props.event?.show_all_locations) return false;
-    return !props.locations || props.locations.length === 0;
-});
-
 // Helper to determine if a date is in the past
 const isPastDate = (dateObj) => {
     const todayStart = new Date(today);
@@ -715,10 +701,6 @@ onMounted(() => {
               v-if="!isSubmitted">
             <input type="hidden" :value="csrfToken" name="_token">
 
-            <!-- Location picker is only shown while there are locations to pick.
-                 When every location has finished (and "show all locations" is off),
-                 we hide it and accept the sign-up with no location. -->
-            <template v-if="!allLocationsFinished">
             <label class="block font-medium text-gray-800 mb-1">Events Location</label>
 
             <!-- Show location dropdown if there are events in the window -->
@@ -752,7 +734,6 @@ onMounted(() => {
             <div v-else class="alert alert-info mb-3">
                 No events available in the selected date range. Please check back later.
             </div>
-            </template>
 
             <!-- Show selected location details -->
             <div v-if="selectedLocationData.id" class="mb-4 p-3 bg-gray-50 rounded">
@@ -906,7 +887,7 @@ onMounted(() => {
                 <button
                     type="submit"
                     class="btn btn-primary w-40"
-                    :disabled="(!allLocationsFinished && !hasEventsInWindow) || isSubmitting || subscriptionStatus === 'checking'"
+                    :disabled="!hasEventsInWindow || isSubmitting || subscriptionStatus === 'checking'"
                 >
                     <span v-if="subscriptionStatus === 'checking'">
                         <i class="fa-solid fa-spinner fa-spin me-2"></i>
