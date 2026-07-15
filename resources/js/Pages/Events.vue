@@ -81,11 +81,13 @@ const form = useForm({
     event_banner: null, // File input
     event_coordinator: '',
     event_coordinator_email: '',
+    event_coordinator_phone: '',
     event_country: '',
     film_id: null,
     instructions_password: '',
     is_enabled: false,
-    show_all_locations: false
+    show_all_locations: false,
+    show_all_locations_draw: false
 });
 
 // File input reference
@@ -122,11 +124,13 @@ const openEditModal = (event) => {
     form.event_date = event.event_date;
     form.event_coordinator = event.event_coordinator;
     form.event_coordinator_email = event.event_coordinator_email;
+    form.event_coordinator_phone = event.event_coordinator_phone || '';
     form.event_country = event.event_country;
     form.film_id = event.film_id ? parseInt(event.film_id) : null;
     form.instructions_password = event.instructions_password || '';
     form.is_enabled = event.is_enabled ? true : false;
     form.show_all_locations = event.show_all_locations ? true : false;
+    form.show_all_locations_draw = event.show_all_locations_draw ? true : false;
     form.event_banner = null; // Reset file input - new file will override
     form.event_logo = null; // Reset file input - new file will override
     existingBanner.value = event.event_banner; // Store existing banner path
@@ -157,6 +161,8 @@ const saveEvent = () => {
     }
     data.append('event_coordinator', form.event_coordinator);
     data.append('event_coordinator_email', form.event_coordinator_email);
+    // Always sent (even when blank) so clearing the field clears the stored number.
+    data.append('event_coordinator_phone', form.event_coordinator_phone ?? '');
     data.append('event_country', form.event_country);
     // Always append film_id as integer
     data.append('film_id', parseInt(form.film_id));
@@ -166,6 +172,7 @@ const saveEvent = () => {
     // Append is_enabled as 1 or 0
     data.append('is_enabled', form.is_enabled ? '1' : '0');
     data.append('show_all_locations', form.show_all_locations ? '1' : '0');
+    data.append('show_all_locations_draw', form.show_all_locations_draw ? '1' : '0');
 
     if (isEditing.value) {
         data.append('_method', 'PATCH'); // Use PATCH for updating
@@ -774,6 +781,11 @@ const closeSheetsModal = () => {
                                 <input v-model="form.event_coordinator_email" type="email" class="form-control" required />
                             </div>
                             <div class="mb-3">
+                                <label class="form-label">Coordinator Phone</label>
+                                <input v-model="form.event_coordinator_phone" type="tel" class="form-control" placeholder="0485 952 778" />
+                                <small class="text-muted">Shown on the host guide. Leave blank to use the default number.</small>
+                            </div>
+                            <div class="mb-3">
                                 <label class="form-label">Country</label>
                                 <select v-model="form.event_country" class="form-select" required>
                                     <option value="AUSTRALIA & NEW ZEALAND">AUSTRALIA & NEW ZEALAND</option>
@@ -807,28 +819,42 @@ const closeSheetsModal = () => {
                             </div>
                             <div class="mb-3">
                                 <div class="form-check">
-                                    <input 
-                                        class="form-check-input" 
-                                        type="checkbox" 
-                                        v-model="form.is_enabled" 
+                                    <input
+                                        class="form-check-input"
+                                        type="checkbox"
+                                        v-model="form.is_enabled"
                                         id="is_enabled"
                                     />
                                     <label class="form-check-label" for="is_enabled">
                                         Show this in the pick a winner dropdown
                                     </label>
+                                    <small class="d-block text-muted">Controls the event list, not the locations. When off, this event is hidden from the Pick a Winner login and no one can open its draw. Does not affect the sign-up form.</small>
                                 </div>
                             </div>
                             <div class="mb-3">
                                 <div class="form-check">
-                                    <input 
-                                        class="form-check-input" 
-                                        type="checkbox" 
-                                        v-model="form.show_all_locations" 
+                                    <input
+                                        class="form-check-input"
+                                        type="checkbox"
+                                        v-model="form.show_all_locations"
                                         id="show_all_locations"
                                     />
                                     <label class="form-check-label" for="show_all_locations">
-                                        Show all locations already
+                                        Show all locations on the sign-up form
                                     </label>
+                                    <small class="d-block text-muted">Includes finished locations. When off, the sign-up form only lists locations from 2 days ago to 3 weeks ahead.</small>
+                                </div>
+                                <div class="form-check mt-2">
+                                    <input
+                                        class="form-check-input"
+                                        type="checkbox"
+                                        v-model="form.show_all_locations_draw"
+                                        id="show_all_locations_draw"
+                                    />
+                                    <label class="form-check-label" for="show_all_locations_draw">
+                                        Show all locations on the Pick a Winner login
+                                    </label>
+                                    <small class="d-block text-muted">Includes finished locations. When off, the draw only lists locations from 7 days ago onwards.</small>
                                 </div>
                             </div>
                             <div class="modal-footer">

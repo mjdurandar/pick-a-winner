@@ -9,16 +9,22 @@ use Illuminate\Support\Str;
 class Events extends Model
 {
     use HasFactory;
+
+    /** Fallback support number shown on the host guide when an event has no coordinator phone. */
+    public const DEFAULT_COORDINATOR_PHONE = '0485 952 778';
+
     protected $fillable = [
         'event_name',
         'is_enabled',
         'show_all_locations',
+        'show_all_locations_draw',
         'event_date',
         'event_year',
         'event_banner',
         'event_logo',
         'event_coordinator',
         'event_coordinator_email',
+        'event_coordinator_phone',
         'event_country',
         'event_uuid',
         'instructions_password',

@@ -327,10 +327,10 @@ async function copyText(text, key) {
                     </li>
                     <li>• Or call
                         <a
-                            href="tel:0485952778"
+                            :href="`tel:${event.event_coordinator_phone.replace(/\s/g, '')}`"
                             class="font-semibold underline"
                             style="color: #16C3D9;"
-                        >0485 952 778</a>.
+                        >{{ event.event_coordinator_phone }}</a>.
                     </li>
                 </ul>
             </div>

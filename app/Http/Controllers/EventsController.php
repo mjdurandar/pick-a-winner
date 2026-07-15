@@ -33,11 +33,13 @@ class EventsController extends Controller
             'event_logo' => 'nullable|image|mimes:jpeg,png,jpg,gif|max:2048',
             'event_coordinator' => 'required|string',
             'event_coordinator_email' => 'required|email',
+            'event_coordinator_phone' => 'nullable|string|max:50',
             'event_country' => 'required|string',
             'film_id' => 'required|exists:films,id',
             'instructions_password' => 'nullable|string|max:255',
             'is_enabled' => 'nullable|boolean',
             'show_all_locations' => 'nullable|boolean',
+            'show_all_locations_draw' => 'nullable|boolean',
         ]);
 
         // Store banner file
@@ -73,6 +75,7 @@ class EventsController extends Controller
                 'event_logo' => $logoPath,
                 'is_enabled' => $request->has('is_enabled') ? (bool)$request->is_enabled : false,
                 'show_all_locations' => $request->has('show_all_locations') ? (bool)$request->show_all_locations : false,
+                'show_all_locations_draw' => $request->has('show_all_locations_draw') ? (bool)$request->show_all_locations_draw : false,
             ]
         ));
     
@@ -92,11 +95,13 @@ class EventsController extends Controller
             'event_logo' => 'nullable|image|mimes:jpeg,png,jpg,gif|max:2048',
             'event_coordinator' => 'required|string',
             'event_coordinator_email' => 'required|email',
+            'event_coordinator_phone' => 'nullable|string|max:50',
             'event_country' => 'required|string',
             'film_id' => 'required|exists:films,id',
             'instructions_password' => 'nullable|string|max:255',
             'is_enabled' => 'nullable|boolean',
             'show_all_locations' => 'nullable|boolean',
+            'show_all_locations_draw' => 'nullable|boolean',
         ]);
 
         // Prepare update data
@@ -105,6 +110,7 @@ class EventsController extends Controller
         // Handle is_enabled checkbox (convert to boolean)
         $updateData['is_enabled'] = $request->has('is_enabled') ? (bool)$request->is_enabled : false;
         $updateData['show_all_locations'] = $request->has('show_all_locations') ? (bool)$request->show_all_locations : false;
+        $updateData['show_all_locations_draw'] = $request->has('show_all_locations_draw') ? (bool)$request->show_all_locations_draw : false;
 
         // Handle banner upload - only update if new file is provided
         if ($request->hasFile('event_banner')) {

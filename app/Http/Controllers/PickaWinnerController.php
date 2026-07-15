@@ -91,6 +91,8 @@ class PickaWinnerController extends Controller
             'event_country' => $event->event_country,
             'event_coordinator' => $event->event_coordinator,
             'event_coordinator_email' => $event->event_coordinator_email,
+            // Falls back to the general support number when the event has none.
+            'event_coordinator_phone' => $event->event_coordinator_phone ?: Events::DEFAULT_COORDINATOR_PHONE,
             'event_uuid' => $event->event_uuid,
         ];
 
@@ -189,16 +191,19 @@ class PickaWinnerController extends Controller
 
     /**
      * Get locations for the Pick a Winner dropdown.
-     * With "show all locations" enabled on the event, return every location.
+     * With "show all locations" enabled for the draw, return every location.
      * Otherwise drop locations more than a week past — a host can still draw a
      * recently-finished one — while keeping every upcoming location listed.
+     *
+     * Note this reads show_all_locations_draw, not show_all_locations: the draw
+     * and the sign-up form each have their own toggle.
      */
     public function getLocations(Events $event)
     {
         $locationsQuery = Location::where('event_id', $event->id)
             ->select(['id', 'name', 'date', 'time']);
 
-        if (! $event->show_all_locations) {
+        if (! $event->show_all_locations_draw) {
             $locationsQuery->where('date', '>=', now()->subDays(7)->format('Y-m-d'));
         }
 
