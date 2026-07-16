@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Str;
@@ -19,6 +20,7 @@ class Events extends Model
         'show_all_locations',
         'show_all_locations_draw',
         'event_date',
+        'event_end_date',
         'event_year',
         'event_banner',
         'event_logo',
@@ -38,6 +40,27 @@ class Events extends Model
     protected $casts = [
         'auto_import_enabled' => 'boolean',
     ];
+
+    // event_date / event_end_date are intentionally left uncast: the admin form's
+    // ScrollDatePicker binds to the raw Y-m-d string, and casting would serialize
+    // them as ISO timestamps.
+
+    protected $appends = [
+        'is_signup_closed',
+    ];
+
+    /**
+     * Sign-ups close at the end of event_end_date, so the last day is still open.
+     * An event with no end date never closes.
+     */
+    public function getIsSignupClosedAttribute(): bool
+    {
+        if (empty($this->event_end_date)) {
+            return false;
+        }
+
+        return Carbon::parse($this->event_end_date)->endOfDay()->isPast();
+    }
 
     protected static function boot()
     {

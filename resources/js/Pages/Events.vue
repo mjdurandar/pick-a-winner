@@ -76,6 +76,7 @@ const form = useForm({
     id: null,
     event_name: '',
     event_date: '',
+    event_end_date: '',
     event_year: '',
     event_logo: null,
     event_banner: null, // File input
@@ -90,13 +91,24 @@ const form = useForm({
     show_all_locations_draw: false
 });
 
+// Object URLs for a newly picked file, revoked on replace so they don't leak.
+const bannerPreview = ref(null);
+const logoPreview = ref(null);
+
+const setPreview = (previewRef, file) => {
+    if (previewRef.value) URL.revokeObjectURL(previewRef.value);
+    previewRef.value = file ? URL.createObjectURL(file) : null;
+};
+
 // File input reference
 const handleFileChange = (event) => {
-    form.event_banner = event.target.files[0]; // Assign file to form
+    form.event_banner = event.target.files[0] || null; // Assign file to form
+    setPreview(bannerPreview, form.event_banner);
 };
 
 const handleLogoChange = (event) => {
-    form.event_logo = event.target.files[0]; // Assign file to form
+    form.event_logo = event.target.files[0] || null; // Assign file to form
+    setPreview(logoPreview, form.event_logo);
 };
 
 // Open Modal for Creating a New Event
@@ -105,6 +117,8 @@ const openCreateModal = () => {
     form.reset(); // Clear form
     existingBanner.value = null;
     existingLogo.value = null;
+    setPreview(bannerPreview, null);
+    setPreview(logoPreview, null);
     document.getElementById('event_banner').value = '';
     document.getElementById('event_logo').value = '';
     let modalElement = new bootstrap.Modal(document.getElementById('createEventModal'));
@@ -115,6 +129,10 @@ const openCreateModal = () => {
 const existingBanner = ref(null);
 const existingLogo = ref(null);
 
+// Preview the newly picked file if there is one, otherwise the image already on the event.
+const bannerPreviewSrc = computed(() => bannerPreview.value || (existingBanner.value ? '/storage/' + existingBanner.value : null));
+const logoPreviewSrc = computed(() => logoPreview.value || (existingLogo.value ? '/storage/' + existingLogo.value : null));
+
 // Open Modal for Editing an Existing Event
 const openEditModal = (event) => {
     isEditing.value = true;
@@ -122,6 +140,7 @@ const openEditModal = (event) => {
     form.event_name = event.event_name;
     form.event_year = event.event_year;
     form.event_date = event.event_date;
+    form.event_end_date = event.event_end_date || '';
     form.event_coordinator = event.event_coordinator;
     form.event_coordinator_email = event.event_coordinator_email;
     form.event_coordinator_phone = event.event_coordinator_phone || '';
@@ -133,6 +152,12 @@ const openEditModal = (event) => {
     form.show_all_locations_draw = event.show_all_locations_draw ? true : false;
     form.event_banner = null; // Reset file input - new file will override
     form.event_logo = null; // Reset file input - new file will override
+    // Also clear the inputs themselves, otherwise a file picked for a previously
+    // edited event lingers in the control while form.event_banner is null.
+    document.getElementById('event_banner').value = '';
+    document.getElementById('event_logo').value = '';
+    setPreview(bannerPreview, null);
+    setPreview(logoPreview, null);
     existingBanner.value = event.event_banner; // Store existing banner path
     existingLogo.value = event.event_logo; // Store existing logo path
 
@@ -153,6 +178,8 @@ const saveEvent = () => {
     data.append('event_name', form.event_name);
     data.append('event_year', form.event_year);
     data.append('event_date', form.event_date);
+    // Always sent (even when blank) so clearing the field reopens sign-ups.
+    data.append('event_end_date', form.event_end_date ?? '');
     if (form.event_banner) {
         data.append('event_banner', form.event_banner);
     }
@@ -182,9 +209,11 @@ const saveEvent = () => {
             modalElement.hide();
             Swal.fire('Updated!', 'Event has been updated.', 'success');
             form.reset();
+            setPreview(bannerPreview, null);
+            setPreview(logoPreview, null);
         },
         onError: (errors) => {
-            Swal.fire('Error!', 'There was an issue updating the event.', 'error');
+            Swal.fire('Error!', errors.event_end_date || 'There was an issue updating the event.', 'error');
             console.log(errors);
         }
     });
@@ -195,9 +224,11 @@ const saveEvent = () => {
                 modalElement.hide();
                 Swal.fire('Success!', 'Event has been created.', 'success');
                 form.reset();
+                setPreview(bannerPreview, null);
+                setPreview(logoPreview, null);
             },
             onError: (errors) => {
-                Swal.fire('Error!', 'There was an issue creating the event.', 'error');
+                Swal.fire('Error!', errors.event_end_date || 'There was an issue creating the event.', 'error');
                 console.log(errors);
             }
         });
@@ -682,6 +713,10 @@ const closeSheetsModal = () => {
                                 <h5 class="card-title">{{ event.event_name }}</h5>
                                 <p class="card-text mb-1" style="font-size: 14px; font-weight: 500;">{{ event.event_country }}</p>
                                 <p class="text-muted">📅 First show at {{ formatEventDate(event.event_date) }}</p>
+                                <p class="text-muted mb-1" v-if="event.event_end_date">
+                                    🏁 Sign-ups close after {{ formatEventDate(event.event_end_date) }}
+                                    <span v-if="event.is_signup_closed" class="badge bg-secondary ms-1">Closed</span>
+                                </p>
                                 <p class="text-muted">👤 Event Coordinator: {{ event.event_coordinator }}</p>
                                 <div class="d-flex justify-content-between align-items-center mt-3" v-if="userRole === 'admin' || userRole === 'host'">
                                     <div class="d-flex align-items-center gap-2">
@@ -775,6 +810,11 @@ const closeSheetsModal = () => {
                                     <ScrollDatePicker v-model="form.event_date" :min-year="2015" :max-year="new Date().getFullYear() + 5" />
                                 </div>
                                 <div class="col-12 col-md-4">
+                                    <label class="form-label">End Date</label>
+                                    <ScrollDatePicker v-model="form.event_end_date" :min-year="2015" :max-year="new Date().getFullYear() + 5" />
+                                    <small class="d-block text-muted">Last day people can sign up. After this date the sign-up form closes. Leave blank to keep it open.</small>
+                                </div>
+                                <div class="col-12 col-md-4">
                                     <label class="form-label">Country</label>
                                     <select v-model="form.event_country" class="form-select" required>
                                         <option value="AUSTRALIA & NEW ZEALAND">AUSTRALIA & NEW ZEALAND</option>
@@ -807,19 +847,27 @@ const closeSheetsModal = () => {
                                     <small class="text-muted">Shown on the host guide. Leave blank to use the default number.</small>
                                 </div>
 
-                                <div class="col-12 col-md-6">
+                                <div class="col-12 col-md-4">
                                     <label class="form-label">Event Logo</label>
-                                    <input type="file" @change="handleLogoChange" id="event_logo" class="form-control" />
-                                    <small v-if="isEditing && existingLogo" class="text-muted">
-                                        Current: {{ existingLogo.split('/').pop() }} (leave empty to keep current)
-                                    </small>
+                                    <input type="file" accept="image/*" @change="handleLogoChange" id="event_logo" class="form-control" />
+                                    <div v-if="logoPreviewSrc" class="mt-2">
+                                        <img :src="logoPreviewSrc" alt="Event logo preview" class="border rounded p-1 w-100" style="height: 120px; object-fit: contain; background: #fff;" />
+                                        <small class="d-block text-muted mt-1">
+                                            <span v-if="logoPreview">New logo — not saved until you click {{ isEditing ? 'Update' : 'Create' }}.</span>
+                                            <span v-else>Current logo. Leave empty to keep it.</span>
+                                        </small>
+                                    </div>
                                 </div>
-                                <div class="col-12 col-md-6">
+                                <div class="col-12 col-md-4">
                                     <label class="form-label">Event Banner</label>
-                                    <input type="file" @change="handleFileChange" id="event_banner" class="form-control" />
-                                    <small v-if="isEditing && existingBanner" class="text-muted">
-                                        Current: {{ existingBanner.split('/').pop() }} (leave empty to keep current)
-                                    </small>
+                                    <input type="file" accept="image/*" @change="handleFileChange" id="event_banner" class="form-control" />
+                                    <div v-if="bannerPreviewSrc" class="mt-2">
+                                        <img :src="bannerPreviewSrc" alt="Event banner preview" class="border rounded p-1 w-100" style="height: 120px; object-fit: contain; background: #fff;" />
+                                        <small class="d-block text-muted mt-1">
+                                            <span v-if="bannerPreview">New banner — not saved until you click {{ isEditing ? 'Update' : 'Create' }}.</span>
+                                            <span v-else>Current banner. Leave empty to keep it.</span>
+                                        </small>
+                                    </div>
                                 </div>
 
                                 <div class="col-12"><hr class="my-1" /></div>

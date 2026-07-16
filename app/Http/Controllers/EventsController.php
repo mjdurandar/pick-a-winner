@@ -28,6 +28,7 @@ class EventsController extends Controller
         $request->validate([
             'event_name' => 'required|string|max:255',
             'event_date' => 'required|date',
+            'event_end_date' => 'nullable|date|after_or_equal:event_date',
             'event_year' => 'required|integer',
             'event_banner' => 'nullable|image|mimes:jpeg,png,jpg,gif|max:2048',
             'event_logo' => 'nullable|image|mimes:jpeg,png,jpg,gif|max:2048',
@@ -73,6 +74,8 @@ class EventsController extends Controller
             [
                 'event_banner' => $bannerPath,
                 'event_logo' => $logoPath,
+                // Blank means "no end date" — sign-ups then stay open indefinitely.
+                'event_end_date' => $request->filled('event_end_date') ? $request->event_end_date : null,
                 'is_enabled' => $request->has('is_enabled') ? (bool)$request->is_enabled : false,
                 'show_all_locations' => $request->has('show_all_locations') ? (bool)$request->show_all_locations : false,
                 'show_all_locations_draw' => $request->has('show_all_locations_draw') ? (bool)$request->show_all_locations_draw : false,
@@ -90,6 +93,7 @@ class EventsController extends Controller
         $request->validate([
             'event_name' => 'required|string|max:255',
             'event_date' => 'required|date',
+            'event_end_date' => 'nullable|date|after_or_equal:event_date',
             'event_year' => 'required|integer',
             'event_banner' => 'nullable|image|mimes:jpeg,png,jpg,gif|max:2048',
             'event_logo' => 'nullable|image|mimes:jpeg,png,jpg,gif|max:2048',
@@ -106,7 +110,10 @@ class EventsController extends Controller
 
         // Prepare update data
         $updateData = $request->except(['event_banner', 'event_logo']);
-        
+
+        // Blank means "no end date" — sign-ups then stay open indefinitely.
+        $updateData['event_end_date'] = $request->filled('event_end_date') ? $request->event_end_date : null;
+
         // Handle is_enabled checkbox (convert to boolean)
         $updateData['is_enabled'] = $request->has('is_enabled') ? (bool)$request->is_enabled : false;
         $updateData['show_all_locations'] = $request->has('show_all_locations') ? (bool)$request->show_all_locations : false;

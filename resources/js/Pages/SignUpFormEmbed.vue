@@ -10,6 +10,10 @@ const props = defineProps({
     locations: Array
 });
 
+// Past the event's end date the form is replaced by a closed notice. The server
+// computes is_signup_closed and also rejects the POST, so this is display only.
+const isSignupClosed = computed(() => !!props.event?.is_signup_closed);
+
 const hasAddressFields = computed(() => {
     return JSON.parse(props.form.questions).some(question => 
         ['street_address', 'street_address_2', 'city', 'state', 'zip_code', 'country'].includes(question.column_name)
@@ -231,7 +235,9 @@ const isOptionSelected = (question, option) => {
 // Handle form submission
 const submitForm = async () => {
     if (isSubmitting.value) return; // Prevent multiple submissions
-    
+
+    if (isSignupClosed.value) return; // Sign-ups have ended
+
     // ✅ Validate if location is selected
     if (!selectedLocation.value) {
         Swal.fire('Error!', 'Please select a location.', 'error');
@@ -306,7 +312,11 @@ const submitForm = async () => {
         },
         onError: (errors) => {
             isSubmitting.value = false; // Reset loading state
-            if(errors.email){
+            if (errors.signup_closed) {
+                // The page was open when sign-ups closed — reload so the closed card replaces the form.
+                Swal.fire('Sign-ups closed', errors.signup_closed, 'info').then(() => router.reload());
+            }
+            else if(errors.email){
                 Swal.fire('Error!', errors.email, 'error');
             }
             else{
@@ -678,14 +688,23 @@ onMounted(() => {
                      style="object-fit: contain; max-height: 500px;">
             </div>
 
+            <!-- ✅ Sign-ups Closed Card (Shown once the event's end date has passed) -->
+            <div v-if="isSignupClosed" class="text-center p-5">
+                <div class="mb-3" style="font-size: 40px; line-height: 1;">🎬</div>
+                <h2 class="mb-3 fw-bold" style="font-size: 20px;">Sign-ups are now closed</h2>
+                <p class="mb-2">Thanks for your interest! Sign-ups for {{ event.event_name }} closed on
+                    {{ formatDate(event.event_end_date) }}.</p>
+                <p class="mb-0 text-muted" style="font-size: 14px;">Stay tuned for further announcements.</p>
+            </div>
+
             <!-- ✅ Thank You Card (Shown after submission) -->
-            <div v-if="isSubmitted" class="text-center p-5 border rounded shadow-sm bg-light">
+            <div v-else-if="isSubmitted" class="text-center p-5 border rounded shadow-sm bg-light">
                 <h2 class="mb-3 fw-bold" style="font-size: 20px;">Thank you for joining!</h2>
                 <p class="mb-3">You're now part of our community—stay tuned for exciting news, updates, and the chance to win amazing prizes!</p>
             </div>
 
             <!-- ✅ Event Details (Shown before submission) -->
-            <div class="p-4" v-if="!isSubmitted">
+            <div class="p-4" v-else>
                 <h2 class="mt-2 mb-3 fw-bold" style="font-size: 19px;">{{ form.heading }}</h2>
                 <p class="mb-3" style="font-size: 14px;">{{ form.event_description }}</p>
                 <p class="mb-2">
@@ -695,10 +714,10 @@ onMounted(() => {
             </div>
         </div>
 
-        <!-- ✅ Sign-up Form (Hidden after submission) -->
-        <form @submit.prevent="submitForm" 
-              class="p-3 border rounded shadow-sm bg-light col-12 col-md-8 col-lg-5" 
-              v-if="!isSubmitted">
+        <!-- ✅ Sign-up Form (Hidden after submission and once sign-ups close) -->
+        <form @submit.prevent="submitForm"
+              class="p-3 border rounded shadow-sm bg-light col-12 col-md-8 col-lg-5"
+              v-if="!isSubmitted && !isSignupClosed">
             <input type="hidden" :value="csrfToken" name="_token">
 
             <label class="block font-medium text-gray-800 mb-1">Events Location</label>

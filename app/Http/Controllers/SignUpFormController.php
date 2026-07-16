@@ -13,6 +13,7 @@ use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
+use Illuminate\Validation\ValidationException;
 
 class SignUpFormController extends Controller
 {
@@ -461,6 +462,15 @@ class SignUpFormController extends Controller
     public function storeEmbeddedData(Request $request, $event_uuid)
     {
         $event = Events::where('event_uuid', $event_uuid)->firstOrFail();
+
+        // The page hides the form past the end date, but a direct POST would otherwise
+        // still land in the table, so the close has to be enforced here too.
+        if ($event->is_signup_closed) {
+            throw ValidationException::withMessages([
+                'signup_closed' => 'Sign-ups for this event have closed.',
+            ]);
+        }
+
         $form = SignUpForm::where('event_id', $event->id)->firstOrFail();
         $tableName = $form->table_name; // Ensure correct table
 
