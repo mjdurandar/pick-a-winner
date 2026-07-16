@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Jobs\AutoImportFinishedLocationsJob;
 use App\Jobs\EventImportAllToMailchimpJob;
 use App\Jobs\EventImportLocationToMailchimpJob;
 use App\Jobs\ManualImportToMailchimpJob;
@@ -9,6 +10,7 @@ use App\Models\Events;
 use App\Models\Location;
 use App\Models\MailchimpAutoImportRun;
 use App\Models\MailchimpImportLog;
+use App\Services\FinishedLocationSelector;
 use App\Services\MailchimpService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
@@ -416,6 +418,127 @@ class MailchimpImportLogsController extends Controller
         }
 
         return back()->with('message', "All import logs deleted ({$deleted} logs).");
+    }
+
+    /**
+     * Preview which finished locations the manual "run now" button would import, without
+     * touching Mailchimp. Same eligibility rules as the daily job, so what you see here is
+     * exactly what runAutoImportNow() will process.
+     */
+    public function previewAutoImportNow(Request $request, FinishedLocationSelector $selector)
+    {
+        $data = $this->validateAutoImportNow($request);
+
+        $events = Events::whereIn('id', $data['event_ids'])->with('locations')->get();
+        $items = $selector->select($events, $data['days'], [
+            'list_id' => $data['list_id'],
+            'list_name' => $data['list_name'] ?? null,
+            'account' => $data['account'],
+        ]);
+
+        $eventNames = $events->keyBy('id');
+
+        return response()->json([
+            'days' => $data['days'],
+            'total' => count($items),
+            'events_processed' => count(array_unique(array_column($items, 'event_id'))),
+            'locations' => array_map(fn ($i) => [
+                'location_id' => $i['location_id'],
+                'location_name' => $i['location_name'],
+                'event_name' => $eventNames->get($i['event_id'])?->event_name ?? '—',
+            ], $items),
+        ]);
+    }
+
+    /**
+     * Manually run the finished-locations import for operator-chosen events + audience.
+     *
+     * Queued rather than run inline: a catch-up across many locations polls the Mailchimp batch
+     * API per location and would blow the request timeout. Production drains the queue every
+     * minute via cron, so the run starts within ~60s and the panel's counters tick up as it goes.
+     */
+    public function runAutoImportNow(Request $request, FinishedLocationSelector $selector)
+    {
+        $data = $this->validateAutoImportNow($request);
+
+        // One run at a time. A second run started while the first is still going would re-import
+        // the same locations: the "already imported" check reads MailchimpImportLog, which the
+        // in-flight run has not written yet. Mirrors the schedule's withoutOverlapping().
+        // Matches the command's staleness rule so a dead run can't block the button forever.
+        $inFlight = MailchimpAutoImportRun::where('status', 'running')
+            ->where('ran_at', '>=', now()->subHours(2))
+            ->first();
+        if ($inFlight) {
+            return response()->json([
+                'success' => false,
+                'message' => 'An import run is already in progress (started '.$inFlight->ran_at->diffForHumans().'). Wait for it to finish, then run again.',
+            ], 409);
+        }
+
+        $events = Events::whereIn('id', $data['event_ids'])->with('locations')->get();
+        $items = $selector->select($events, $data['days'], [
+            'list_id' => $data['list_id'],
+            'list_name' => $data['list_name'] ?? null,
+            'account' => $data['account'],
+        ]);
+
+        if (empty($items)) {
+            return response()->json([
+                'success' => false,
+                'message' => 'No eligible locations. Every finished screening for those events was already imported into this audience, has no ticket or sign-up data, or has not passed the '.$data['days'].'-day mark yet.',
+            ], 422);
+        }
+
+        $run = MailchimpAutoImportRun::create([
+            'ran_at' => now(),
+            'days_threshold' => $data['days'],
+            'dry_run' => false,
+            'triggered_by' => 'manual',
+            'triggered_by_user_id' => auth()->id(),
+            'events_processed' => count(array_unique(array_column($items, 'event_id'))),
+            'locations_imported' => 0,
+            'locations_skipped' => 0,
+            'total_new' => 0,
+            'total_updated' => 0,
+            'total_errors' => 0,
+            'details' => [],
+            'status' => 'running',
+        ]);
+
+        AutoImportFinishedLocationsJob::dispatch($run->id, $items);
+
+        Log::info('Manual auto-import queued', [
+            'run_id' => $run->id,
+            'locations' => count($items),
+            'user_id' => auth()->id(),
+        ]);
+
+        return response()->json([
+            'success' => true,
+            'run_id' => $run->id,
+            'queued' => count($items),
+            'message' => 'Queued '.count($items).' location(s). The run starts within a minute — counts update as it goes.',
+        ]);
+    }
+
+    /**
+     * Shared validation for the manual run endpoints. `days` is capped at a year so a stray
+     * value can't widen the net to every screening ever held.
+     */
+    private function validateAutoImportNow(Request $request): array
+    {
+        $data = $request->validate([
+            'event_ids' => 'required|array|min:1',
+            'event_ids.*' => 'required|integer|exists:events,id',
+            'list_id' => 'required|string|max:64',
+            'list_name' => 'nullable|string|max:255',
+            'account' => 'required|string|in:anz,usa',
+            'days' => 'nullable|integer|min:0|max:365',
+        ]);
+
+        $data['days'] = isset($data['days']) ? (int) $data['days'] : 4;
+
+        return $data;
     }
 
     /**

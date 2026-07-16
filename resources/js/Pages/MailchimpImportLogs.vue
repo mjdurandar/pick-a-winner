@@ -669,6 +669,107 @@ const deleteAllAutoRuns = () => {
     });
 };
 
+// "Run finished screenings now" — manual catch-up for finished locations that the daily job
+// won't touch (usually because the event was never opted in to auto-import). Same eligibility
+// rules as the schedule: 4+ days past, not already in the chosen audience, has data to import.
+const showRunNowModal = ref(false);
+const runNowAccount = ref('anz');
+const runNowListId = ref('');
+const runNowLists = ref([]);
+const runNowListsLoading = ref(false);
+const runNowEventIds = ref([]);
+const runNowPreview = ref(null);
+const runNowPreviewing = ref(false);
+const runNowRunning = ref(false);
+
+const runNowSelectedList = computed(() => runNowLists.value.find((l) => l.id === runNowListId.value) || null);
+const runNowCanSubmit = computed(() => !!runNowListId.value && runNowEventIds.value.length > 0);
+
+const openRunNowModal = () => {
+    showRunNowModal.value = true;
+    runNowListId.value = '';
+    runNowLists.value = [];
+    runNowEventIds.value = [];
+    runNowPreview.value = null;
+    loadRunNowLists(runNowAccount.value);
+};
+
+const loadRunNowLists = async (account) => {
+    runNowListsLoading.value = true;
+    runNowListId.value = '';
+    runNowLists.value = [];
+    runNowPreview.value = null;
+    try {
+        const res = await axios.get(route('location.mailchimpLists'), { params: { account: account || runNowAccount.value } });
+        runNowLists.value = res.data.lists || [];
+    } catch (e) {
+        runNowLists.value = [];
+        Swal.fire('Error', 'Could not load audiences for that account.', 'error');
+    } finally {
+        runNowListsLoading.value = false;
+    }
+};
+
+const toggleRunNowEvent = (id) => {
+    const idx = runNowEventIds.value.indexOf(id);
+    if (idx === -1) runNowEventIds.value = [...runNowEventIds.value, id];
+    else runNowEventIds.value = runNowEventIds.value.filter((x) => x !== id);
+    runNowPreview.value = null; // stale once the selection changes
+};
+
+const runNowPayload = () => ({
+    event_ids: runNowEventIds.value,
+    list_id: runNowListId.value,
+    list_name: runNowSelectedList.value?.name || null,
+    account: runNowAccount.value,
+});
+
+const previewRunNow = async () => {
+    if (!runNowCanSubmit.value) return;
+    runNowPreviewing.value = true;
+    runNowPreview.value = null;
+    try {
+        const res = await axios.post(route('mailchimpImportLogs.previewAutoRun'), runNowPayload());
+        runNowPreview.value = res.data;
+    } catch (e) {
+        Swal.fire('Error', e.response?.data?.message || 'Could not check eligible locations.', 'error');
+    } finally {
+        runNowPreviewing.value = false;
+    }
+};
+
+const submitRunNow = async () => {
+    if (!runNowCanSubmit.value) return;
+    const count = runNowPreview.value?.total;
+    const confirmed = await Swal.fire({
+        title: 'Run finished screenings now?',
+        html: `This will import${count != null ? ` <strong>${count}</strong>` : ''} finished location(s) into <strong>${runNowSelectedList.value?.name || 'the selected audience'}</strong>.<br><br>Locations already imported into this audience are skipped.`,
+        icon: 'question',
+        showCancelButton: true,
+        confirmButtonText: 'Yes, run it',
+        cancelButtonText: 'Cancel',
+        confirmButtonColor: '#2563eb',
+    });
+    if (!confirmed.isConfirmed) return;
+
+    runNowRunning.value = true;
+    try {
+        const res = await axios.post(route('mailchimpImportLogs.runAutoRunNow'), runNowPayload());
+        showRunNowModal.value = false;
+        showAutoRuns.value = true;
+        await Swal.fire('Queued', res.data.message, 'success');
+        router.reload({ only: ['autoImportRuns'] });
+    } catch (e) {
+        const status = e.response?.status;
+        const message = e.response?.data?.message;
+        if (status === 422 && message) Swal.fire('Nothing to run', message, 'info');
+        else if (status === 409 && message) Swal.fire('Already running', message, 'warning');
+        else Swal.fire('Error', message || 'Could not start the run.', 'error');
+    } finally {
+        runNowRunning.value = false;
+    }
+};
+
 const deletingAllLogs = ref(false);
 const deletingSelectedLogs = ref(false);
 
@@ -1044,9 +1145,18 @@ const exportToCsv = () => {
                                 <p class="text-sm text-gray-600 mb-3">
                                     Daily job that imports locations finished 4+ days ago for events with auto-import enabled.
                                     Turn it on per event via <span class="font-medium">Mailchimp Auto-Sync Settings</span> on a location page.
+                                    To catch up on events that were never opted in, use <span class="font-medium">Run finished screenings now</span>.
                                 </p>
-                                <div v-if="autoImportRuns.length" class="mb-2 flex justify-end">
+                                <div class="mb-2 flex items-center justify-between gap-3">
                                     <button
+                                        type="button"
+                                        class="inline-flex items-center px-3 py-1.5 text-xs font-medium text-white bg-blue-600 rounded hover:bg-blue-700"
+                                        @click="openRunNowModal"
+                                    >
+                                        <i class="fa-solid fa-play mr-1"></i>Run finished screenings now
+                                    </button>
+                                    <button
+                                        v-if="autoImportRuns.length"
                                         type="button"
                                         class="text-xs text-red-600 hover:underline"
                                         @click="deleteAllAutoRuns"
@@ -1076,6 +1186,7 @@ const exportToCsv = () => {
                                                     <td class="py-2 pr-4 whitespace-nowrap">
                                                         {{ formatImportDate(run.ran_at) }}
                                                         <span v-if="run.dry_run" class="ml-1 inline-block px-1.5 py-0.5 text-xs bg-gray-100 text-gray-600 rounded">dry run</span>
+                                                        <span v-if="run.triggered_by === 'manual'" class="ml-1 inline-block px-1.5 py-0.5 text-xs bg-blue-100 text-blue-700 rounded">manual</span>
                                                     </td>
                                                     <td class="py-2 pr-4">{{ runEventLabel(run) }}</td>
                                                     <td class="py-2 pr-4">
@@ -1644,6 +1755,104 @@ const exportToCsv = () => {
         </div>
 
         <!-- Manual import modal: same flow as other Mailchimp imports — select audience, upload CSV, map columns, add tags -->
+        <!-- Run finished screenings now: pick events + audience, import every eligible finished location -->
+        <div v-if="showRunNowModal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+            <div class="bg-white rounded-lg shadow-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto p-6">
+                <div class="flex items-start justify-between mb-4">
+                    <div>
+                        <h3 class="text-lg font-semibold text-gray-800">
+                            <i class="fa-solid fa-play text-blue-600 mr-1"></i>Run finished screenings now
+                        </h3>
+                        <p class="text-sm text-gray-600 mt-1">
+                            Imports every screening that finished 4+ days ago for the events you pick.
+                            Locations already imported into the chosen audience are skipped.
+                        </p>
+                    </div>
+                    <button type="button" class="text-gray-400 hover:text-gray-600" @click="showRunNowModal = false">
+                        <i class="fa-solid fa-xmark"></i>
+                    </button>
+                </div>
+
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-2">Mailchimp account</label>
+                        <select v-model="runNowAccount" class="w-full border rounded px-3 py-2" @change="loadRunNowLists(runNowAccount)">
+                            <option value="anz">ANZ</option>
+                            <option value="usa">USA</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-2">Mailchimp audience</label>
+                        <select v-model="runNowListId" class="w-full border rounded px-3 py-2" :disabled="runNowListsLoading" @change="runNowPreview = null">
+                            <option value="">{{ runNowListsLoading ? 'Loading...' : 'Select audience...' }}</option>
+                            <option v-for="list in runNowLists" :key="list.id" :value="list.id">
+                                {{ list.name }} ({{ list.stats?.member_count ?? 0 }} members)
+                            </option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="mb-4">
+                    <label class="block text-sm font-medium text-gray-700 mb-2">
+                        Events <span class="font-normal text-gray-500">({{ runNowEventIds.length }} selected)</span>
+                    </label>
+                    <div class="border rounded max-h-56 overflow-y-auto divide-y divide-gray-100">
+                        <label
+                            v-for="ev in events"
+                            :key="ev.id"
+                            class="flex items-center gap-2 px-3 py-2 text-sm cursor-pointer hover:bg-gray-50"
+                        >
+                            <input
+                                type="checkbox"
+                                class="rounded border-gray-300"
+                                :checked="runNowEventIds.includes(ev.id)"
+                                @change="toggleRunNowEvent(ev.id)"
+                            />
+                            <span>{{ ev.event_name }}</span>
+                        </label>
+                    </div>
+                </div>
+
+                <div v-if="runNowPreview" class="mb-4 p-3 rounded bg-gray-50 border border-gray-200">
+                    <p v-if="runNowPreview.total === 0" class="text-sm text-gray-600">
+                        No eligible locations — everything finished for those events is already in this audience, has no ticket or sign-up data, or hasn't passed the {{ runNowPreview.days }}-day mark.
+                    </p>
+                    <template v-else>
+                        <p class="text-sm font-medium text-gray-800 mb-2">
+                            {{ runNowPreview.total }} location(s) across {{ runNowPreview.events_processed }} event(s) will be imported:
+                        </p>
+                        <div class="max-h-40 overflow-y-auto text-xs text-gray-700">
+                            <div v-for="(loc, i) in runNowPreview.locations" :key="i" class="py-0.5">
+                                <span class="text-gray-400">{{ loc.event_name }} · </span>{{ loc.location_name }}
+                            </div>
+                        </div>
+                    </template>
+                </div>
+
+                <div class="flex justify-end gap-2">
+                    <button type="button" class="px-4 py-2 text-sm border rounded text-gray-700 hover:bg-gray-50" @click="showRunNowModal = false">
+                        Cancel
+                    </button>
+                    <button
+                        type="button"
+                        class="px-4 py-2 text-sm border border-blue-600 text-blue-600 rounded hover:bg-blue-50 disabled:opacity-50"
+                        :disabled="!runNowCanSubmit || runNowPreviewing"
+                        @click="previewRunNow"
+                    >
+                        {{ runNowPreviewing ? 'Checking...' : 'Check what will run' }}
+                    </button>
+                    <button
+                        type="button"
+                        class="px-4 py-2 text-sm bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50"
+                        :disabled="!runNowCanSubmit || runNowRunning"
+                        @click="submitRunNow"
+                    >
+                        {{ runNowRunning ? 'Starting...' : 'Run import' }}
+                    </button>
+                </div>
+            </div>
+        </div>
+
         <div v-if="showManualImportModal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
             <div class="bg-white p-6 rounded-lg shadow-xl max-w-4xl w-full mx-4 max-h-[90vh] overflow-y-auto">
                 <div class="flex justify-between items-center mb-4">

@@ -90,6 +90,8 @@ Route::middleware(['auth', RoleMiddleware::class . ':admin,host'])->group(functi
     Route::post('/mailchimp-import-logs/reimport-failed', [MailchimpImportLogsController::class, 'reimportFailedRows'])->name('mailchimpImportLogs.reimportFailed');
     Route::delete('/mailchimp-import-logs/all', [MailchimpImportLogsController::class, 'destroyAll'])->name('mailchimpImportLogs.destroyAll');
     Route::post('/mailchimp-import-logs/destroy-multiple', [MailchimpImportLogsController::class, 'destroyMultiple'])->name('mailchimpImportLogs.destroyMultiple');
+    Route::post('/mailchimp-import-logs/auto-runs/preview', [MailchimpImportLogsController::class, 'previewAutoImportNow'])->name('mailchimpImportLogs.previewAutoRun');
+    Route::post('/mailchimp-import-logs/auto-runs/run-now', [MailchimpImportLogsController::class, 'runAutoImportNow'])->name('mailchimpImportLogs.runAutoRunNow');
     Route::delete('/mailchimp-import-logs/auto-runs/all', [MailchimpImportLogsController::class, 'destroyAllAutoImportRuns'])->name('mailchimpImportLogs.destroyAllAutoRuns');
     Route::delete('/mailchimp-import-logs/auto-runs/{id}', [MailchimpImportLogsController::class, 'destroyAutoImportRun'])->name('mailchimpImportLogs.destroyAutoRun');
     Route::delete('/mailchimp-import-logs/{id}', [MailchimpImportLogsController::class, 'destroy'])->name('mailchimpImportLogs.destroy');

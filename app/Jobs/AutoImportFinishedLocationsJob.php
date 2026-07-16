@@ -58,7 +58,7 @@ class AutoImportFinishedLocationsJob implements ShouldQueue
 
     /**
      * @param  int  $runId  MailchimpAutoImportRun id to write the summary into.
-     * @param  array<int, array{event_id:int, location_id:int, location_name:string, list_id:string, list_name:?string, account:string}>  $items
+     * @param  array<int, array{event_id:int, event_name:?string, location_id:int, location_name:string, list_id:string, list_name:?string, account:string}>  $items
      */
     public function __construct(
         public int $runId,
@@ -90,6 +90,7 @@ class AutoImportFinishedLocationsJob implements ShouldQueue
             $listId = (string) $item['list_id'];
             $account = (string) $item['account'];
             $listName = $item['list_name'] ?? null;
+            $eventName = $item['event_name'] ?? null;
 
             $location = Location::with('event')->find($locationId);
             if (! $location) {
@@ -98,6 +99,7 @@ class AutoImportFinishedLocationsJob implements ShouldQueue
                     'location_id' => $locationId,
                     'location_name' => $item['location_name'] ?? (string) $locationId,
                     'event_id' => $eventId,
+                    'event_name' => $eventName,
                     'status' => 'skipped',
                     'reason' => 'location not found',
                 ];
@@ -147,6 +149,7 @@ class AutoImportFinishedLocationsJob implements ShouldQueue
                         'location_id' => $locationId,
                         'location_name' => $location->name,
                         'event_id' => $eventId,
+                        'event_name' => $eventName ?? $location->event->event_name ?? null,
                         'status' => 'skipped',
                         'reason' => 'no ticket or form data',
                     ];
@@ -174,7 +177,7 @@ class AutoImportFinishedLocationsJob implements ShouldQueue
                     'location_id' => $locationId,
                     'location_name' => $location->name,
                     'event_id' => $eventId,
-                    'event_name' => $location->event->event_name ?? null,
+                    'event_name' => $eventName ?? $location->event->event_name ?? null,
                     'list_name' => $listName,
                     'account' => $account,
                     'status' => 'imported',
@@ -190,6 +193,7 @@ class AutoImportFinishedLocationsJob implements ShouldQueue
                     'location_id' => $locationId,
                     'location_name' => $location->name ?? (string) $locationId,
                     'event_id' => $eventId,
+                    'event_name' => $eventName,
                     'status' => 'error',
                     'reason' => substr($e->getMessage(), 0, 300),
                 ];

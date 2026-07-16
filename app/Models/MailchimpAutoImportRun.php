@@ -13,6 +13,8 @@ class MailchimpAutoImportRun extends Model
         'ran_at',
         'days_threshold',
         'dry_run',
+        'triggered_by',
+        'triggered_by_user_id',
         'events_processed',
         'locations_imported',
         'locations_skipped',
