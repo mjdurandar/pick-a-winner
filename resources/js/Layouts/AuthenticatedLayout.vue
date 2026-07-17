@@ -52,7 +52,7 @@ const userRole = computed(() => user.value?.role);
                                     :href="route('events.index')"
                                     :active="route().current('events.index')"
                                 >
-                                    Events
+                                    Films
                                 </NavLink>
                                 <NavLink
                                     v-if="userRole === 'admin' || userRole === 'host'"
@@ -233,7 +233,7 @@ const userRole = computed(() => user.value?.role);
                                     :href="route('events.index')"
                                     :active="route().current('events.index')"
                                 >
-                                    Events
+                                    Films
                         </ResponsiveNavLink>
                         <ResponsiveNavLink
                                 v-if="userRole === 'admin' || userRole === 'host'"

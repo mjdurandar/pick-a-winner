@@ -680,7 +680,7 @@ const closeSheetsModal = () => {
     <AuthenticatedLayout>
         <template #header>
             <div class="d-flex justify-content-between align-items-center">
-                <h2 class="text-xl font-semibold leading-tight text-gray-800">Events</h2>
+                <h2 class="text-xl font-semibold leading-tight text-gray-800">Films</h2>
                 <div class="d-flex align-items-center gap-2">
                     <select 
                         v-model="selectedFilmFilter" 
