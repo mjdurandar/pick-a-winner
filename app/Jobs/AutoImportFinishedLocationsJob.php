@@ -2,12 +2,8 @@
 
 namespace App\Jobs;
 
-use App\Models\Location;
 use App\Models\MailchimpAutoImportRun;
-use App\Models\MailchimpImportLog;
-use App\Models\TicketAttendee;
-use App\Services\AutoMailchimpService;
-use App\Services\MailchimpLocationImportService;
+use App\Services\AutoImportLocationRunner;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
@@ -16,9 +12,14 @@ use Illuminate\Queue\SerializesModels;
 use Illuminate\Support\Facades\Log;
 
 /**
- * Imports a batch of "finished" locations to Mailchimp for the scheduled auto-import.
- * Reuses MailchimpLocationImportService (same path as the manual import) so logging and
- * per-line dedup behave identically, then aggregates a run summary into MailchimpAutoImportRun.
+ * Imports a batch of "finished" locations to Mailchimp INLINE, for the scheduled auto-import.
+ *
+ * The scheduled command dispatchSync()s this on shared hosting that only runs the schedule:run cron
+ * (no always-on queue worker), so the whole batch runs in one process — the daily cadence makes a
+ * longer run acceptable. The MANUAL "Run now" button does NOT use this job; it fans out one short
+ * {@see AutoImportLocationJob} per location so a worker restart can't blow up the whole run.
+ *
+ * Both paths share the exact same per-location logic via {@see AutoImportLocationRunner}.
  *
  * @see \App\Console\Commands\AutoImportFinishedLocations for how eligible items are chosen.
  */
@@ -32,31 +33,6 @@ class AutoImportFinishedLocationsJob implements ShouldQueue
     public $tries = 1;
 
     /**
-     * Ticket rows carry the venue's city/state (not the contact's home address), so we only
-     * map name — mirroring the manual "Import All" ticket mode in LocationPage.vue.
-     */
-    private const TICKET_FIELD_MAPPING = [
-        'FNAME' => 'first_name',
-        'LNAME' => 'last_name',
-    ];
-
-    /**
-     * Full field mapping for win/sign-up-form rows (they carry the contact's real address).
-     * Mirrors the tagToDefault map in LocationPage.vue. SMSPHONE is intentionally omitted.
-     */
-    private const FORM_FIELD_MAPPING = [
-        'FNAME' => 'first_name', 'LNAME' => 'last_name',
-        'PHONE' => 'mobile_number', 'MERGE4' => 'mobile_number', 'MERGE30' => 'mobile_number',
-        'ADDRESSWIN' => 'address_full', 'MMERGE10' => 'address_full', 'MERGE10' => 'address_full', 'MERGE11' => 'address_full',
-        'SHOWCITY' => 'city', 'CITY' => 'city', 'MERGE3' => 'city', 'MERGE5' => 'city',
-        'STATEWIN' => 'state', 'STATE' => 'state', 'MERGE6' => 'state',
-        'ZIPCODEWIN' => 'zip_code', 'ZIPCODE' => 'zip_code', 'MERGE7' => 'zip_code',
-        'COUNTRYWIN' => 'country', 'COUNTRY' => 'country', 'MERGE8' => 'country',
-        'GENDER' => 'gender', 'MERGE17' => 'gender',
-        'AGEWIN' => 'age', 'MERGE14' => 'age', 'MMERGE14' => 'age',
-    ];
-
-    /**
      * @param  int  $runId  MailchimpAutoImportRun id to write the summary into.
      * @param  array<int, array{event_id:int, event_name:?string, location_id:int, location_name:string, list_id:string, list_name:?string, account:string}>  $items
      */
@@ -65,7 +41,7 @@ class AutoImportFinishedLocationsJob implements ShouldQueue
         public array $items
     ) {}
 
-    public function handle(): void
+    public function handle(AutoImportLocationRunner $runner): void
     {
         $run = MailchimpAutoImportRun::find($this->runId);
         if (! $run) {
@@ -74,126 +50,34 @@ class AutoImportFinishedLocationsJob implements ShouldQueue
             return;
         }
 
-        $service = new MailchimpLocationImportService;
-        $tagBuilder = app(AutoMailchimpService::class);
-
-        $details = [];
         $imported = 0;
         $skipped = 0;
         $totalNew = 0;
         $totalUpdated = 0;
         $totalErrors = 0;
+        $details = [];
 
         foreach ($this->items as $item) {
-            $locationId = (int) $item['location_id'];
-            $eventId = (int) $item['event_id'];
-            $listId = (string) $item['list_id'];
-            $account = (string) $item['account'];
-            $listName = $item['list_name'] ?? null;
-            $eventName = $item['event_name'] ?? null;
-
-            $location = Location::with('event')->find($locationId);
-            if (! $location) {
-                $skipped++;
-                $details[] = [
-                    'location_id' => $locationId,
-                    'location_name' => $item['location_name'] ?? (string) $locationId,
-                    'event_id' => $eventId,
-                    'event_name' => $eventName,
-                    'status' => 'skipped',
-                    'reason' => 'location not found',
-                ];
-
-                continue;
-            }
+            $locationId = (int) ($item['location_id'] ?? 0);
 
             try {
-                $attendees = TicketAttendee::where('location_id', $locationId)->get()->map(function ($a) {
-                    return [
-                        'email' => $a->email,
-                        'first_name' => $a->first_name ?? '',
-                        'last_name' => $a->last_name ?? '',
-                        'phone' => $a->phone ?? '',
-                        'city' => $a->city ?? '',
-                        'state' => $a->state ?? '',
-                        'country' => $a->country ?? '',
-                    ];
-                })->all();
+                $result = $runner->importOneLocation($item);
 
-                // Ticket and form run as separate imports because they need different field mappings
-                // (ticket = name only; form = full address). Each writes its own per-source log line.
-                $ticketResult = ['imported' => 0, 'skipped' => true];
-                if (! empty($attendees)) {
-                    $ticketResult = $service->runForOneLocation($eventId, $listId, $account, $listName, [
-                        'location_id' => $locationId,
-                        'import_ticket' => true,
-                        'import_form' => false,
-                        'attendees' => $attendees,
-                        'tags' => $tagBuilder->buildLocationTags($location, 'ticket'),
-                        'form_tags' => [],
-                    ], 0, self::TICKET_FIELD_MAPPING);
-                }
-
-                $formResult = $service->runForOneLocation($eventId, $listId, $account, $listName, [
-                    'location_id' => $locationId,
-                    'import_ticket' => false,
-                    'import_form' => true,
-                    'attendees' => [],
-                    'tags' => [],
-                    'form_tags' => $tagBuilder->buildLocationTags($location, 'form'),
-                ], 0, self::FORM_FIELD_MAPPING);
-
-                if ($ticketResult['skipped'] && $formResult['skipped']) {
-                    $skipped++;
-                    $details[] = [
-                        'location_id' => $locationId,
-                        'location_name' => $location->name,
-                        'event_id' => $eventId,
-                        'event_name' => $eventName ?? $location->event->event_name ?? null,
-                        'status' => 'skipped',
-                        'reason' => 'no ticket or form data',
-                    ];
-
-                    continue;
-                }
-
-                // Read back the per-source log rows this import just wrote/updated for accurate counts.
-                $logs = MailchimpImportLog::where('location_id', $locationId)
-                    ->where('list_id', $listId)
-                    ->where('mailchimp_account', $account)
-                    ->whereIn('source', ['ticket_data', 'signup_form'])
-                    ->get();
-
-                $new = (int) $logs->sum('new_contacts');
-                $updated = (int) $logs->sum('updated_data');
-                $errors = (int) $logs->sum('data_with_error');
-
-                $imported++;
-                $totalNew += $new;
-                $totalUpdated += $updated;
-                $totalErrors += $errors;
-
-                $details[] = [
-                    'location_id' => $locationId,
-                    'location_name' => $location->name,
-                    'event_id' => $eventId,
-                    'event_name' => $eventName ?? $location->event->event_name ?? null,
-                    'list_name' => $listName,
-                    'account' => $account,
-                    'status' => 'imported',
-                    'new' => $new,
-                    'updated' => $updated,
-                    'errors' => $errors,
-                    'sources' => $logs->pluck('source')->values()->all(),
-                ];
+                $imported += $result['imported'];
+                $skipped += $result['skipped'];
+                $totalNew += $result['new'];
+                $totalUpdated += $result['updated'];
+                $totalErrors += $result['errors'];
+                $details[] = $result['detail'];
             } catch (\Throwable $e) {
+                // Inline path: one bad location must not abort the whole batch — record and continue.
                 $skipped++;
                 $totalErrors++;
                 $details[] = [
                     'location_id' => $locationId,
-                    'location_name' => $location->name ?? (string) $locationId,
-                    'event_id' => $eventId,
-                    'event_name' => $eventName,
+                    'location_name' => $item['location_name'] ?? (string) $locationId,
+                    'event_id' => $item['event_id'] ?? null,
+                    'event_name' => $item['event_name'] ?? null,
                     'status' => 'error',
                     'reason' => substr($e->getMessage(), 0, 300),
                 ];

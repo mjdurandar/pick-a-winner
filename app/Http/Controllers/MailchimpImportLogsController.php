@@ -2,7 +2,7 @@
 
 namespace App\Http\Controllers;
 
-use App\Jobs\AutoImportFinishedLocationsJob;
+use App\Jobs\AutoImportLocationJob;
 use App\Jobs\EventImportAllToMailchimpJob;
 use App\Jobs\EventImportLocationToMailchimpJob;
 use App\Jobs\ManualImportToMailchimpJob;
@@ -498,6 +498,9 @@ class MailchimpImportLogsController extends Controller
             'events_processed' => count(array_unique(array_column($items, 'event_id'))),
             'locations_imported' => 0,
             'locations_skipped' => 0,
+            // Completion counter: each per-location child job decrements this; the one that hits 0
+            // flips the run to "completed". Set before dispatching so no child can finish early.
+            'pending_locations' => count($items),
             'total_new' => 0,
             'total_updated' => 0,
             'total_errors' => 0,
@@ -505,7 +508,12 @@ class MailchimpImportLogsController extends Controller
             'status' => 'running',
         ]);
 
-        AutoImportFinishedLocationsJob::dispatch($run->id, $items);
+        // Fan out one short job per location instead of a single hour-long batch job. A worker
+        // restart, a low queue retry_after, or a shared-hosting process kill then only retries one
+        // location — not the whole run — which is what caused MaxAttemptsExceededException before.
+        foreach ($items as $item) {
+            AutoImportLocationJob::dispatch($run->id, $item);
+        }
 
         Log::info('Manual auto-import queued', [
             'run_id' => $run->id,
@@ -518,6 +526,48 @@ class MailchimpImportLogsController extends Controller
             'run_id' => $run->id,
             'queued' => count($items),
             'message' => 'Queued '.count($items).' location(s). The run starts within a minute — counts update as it goes.',
+        ]);
+    }
+
+    /**
+     * Mark stuck "running" auto-import runs as failed so the Run-now button unblocks and the
+     * locations become eligible again. A run can hang at "running" if a worker process is killed
+     * mid-run (common on shared hosting) and no child job ever reaches the finaliser.
+     *
+     * Guardrails: a specific `id` can be forced; otherwise only runs started more than 10 minutes
+     * ago are reset, so a genuinely-fresh run mid-flight is never killed by accident.
+     */
+    public function resetStuckAutoImportRuns(Request $request)
+    {
+        $query = MailchimpAutoImportRun::where('status', 'running');
+
+        if ($request->filled('id')) {
+            $query->where('id', (int) $request->input('id'));
+        } else {
+            $query->where('ran_at', '<', now()->subMinutes(10));
+        }
+
+        $runs = $query->get();
+        foreach ($runs as $run) {
+            $run->update([
+                'status' => 'failed',
+                'pending_locations' => 0,
+                'error' => 'Run manually reset by admin (marked failed to unblock imports).',
+            ]);
+        }
+
+        Log::info('Auto-import runs reset', [
+            'count' => $runs->count(),
+            'ids' => $runs->pluck('id')->all(),
+            'user_id' => auth()->id(),
+        ]);
+
+        return response()->json([
+            'success' => true,
+            'reset' => $runs->count(),
+            'message' => $runs->count()
+                ? 'Reset '.$runs->count().' stuck run(s). You can start a new import now.'
+                : 'No stuck runs found (only runs started over 10 minutes ago can be reset).',
         ]);
     }
 

@@ -18,6 +18,7 @@ class MailchimpAutoImportRun extends Model
         'events_processed',
         'locations_imported',
         'locations_skipped',
+        'pending_locations',
         'total_new',
         'total_updated',
         'total_errors',

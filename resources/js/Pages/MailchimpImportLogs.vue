@@ -763,10 +763,47 @@ const submitRunNow = async () => {
         const status = e.response?.status;
         const message = e.response?.data?.message;
         if (status === 422 && message) Swal.fire('Nothing to run', message, 'info');
-        else if (status === 409 && message) Swal.fire('Already running', message, 'warning');
-        else Swal.fire('Error', message || 'Could not start the run.', 'error');
+        else if (status === 409 && message) {
+            const choice = await Swal.fire({
+                title: 'Already running',
+                text: message + ' If it is stuck, you can reset it.',
+                icon: 'warning',
+                showCancelButton: true,
+                confirmButtonText: 'Reset stuck run',
+                cancelButtonText: 'Wait',
+                confirmButtonColor: '#dc2626',
+            });
+            if (choice.isConfirmed) await resetStuckRun();
+        } else Swal.fire('Error', message || 'Could not start the run.', 'error');
     } finally {
         runNowRunning.value = false;
+    }
+};
+
+// Mark a stuck "running" auto-import run as failed so the Run-now button unblocks. Used from the
+// in-progress banner and offered when Run-now returns 409 (already running).
+const resettingStuckRun = ref(false);
+const resetStuckRun = async (runId = null) => {
+    const confirmed = await Swal.fire({
+        title: 'Reset stuck run?',
+        text: 'This marks the in-progress run as failed so you can start a new import. Use it only if a run is stuck and not finishing.',
+        icon: 'warning',
+        showCancelButton: true,
+        confirmButtonText: 'Yes, reset it',
+        cancelButtonText: 'Cancel',
+        confirmButtonColor: '#dc2626',
+    });
+    if (!confirmed.isConfirmed) return;
+
+    resettingStuckRun.value = true;
+    try {
+        const res = await axios.post(route('mailchimpImportLogs.resetStuckAutoRuns'), runId ? { id: runId } : {});
+        await Swal.fire(res.data.reset ? 'Reset' : 'Nothing to reset', res.data.message, res.data.reset ? 'success' : 'info');
+        router.reload({ only: ['autoImportRuns'] });
+    } catch (e) {
+        Swal.fire('Error', e.response?.data?.message || 'Could not reset the run.', 'error');
+    } finally {
+        resettingStuckRun.value = false;
     }
 };
 
@@ -1240,9 +1277,20 @@ const exportToCsv = () => {
                                         </tbody>
                                     </table>
                                 </div>
-                                <p v-if="autoImportRuns.length && autoImportRuns[0].status === 'running'" class="text-xs text-gray-500 mt-2">
-                                    A run is in progress — counts update as locations finish importing. Refresh to see the latest.
-                                </p>
+                                <div v-if="autoImportRuns.length && autoImportRuns[0].status === 'running'" class="flex items-center justify-between gap-3 mt-2">
+                                    <p class="text-xs text-gray-500">
+                                        A run is in progress — counts update as locations finish importing. Refresh to see the latest.
+                                    </p>
+                                    <button
+                                        type="button"
+                                        :disabled="resettingStuckRun"
+                                        class="text-xs font-medium text-red-600 hover:text-red-700 hover:underline disabled:opacity-50 whitespace-nowrap"
+                                        title="Mark this run as failed if it is stuck and not finishing"
+                                        @click="resetStuckRun(autoImportRuns[0].id)"
+                                    >
+                                        {{ resettingStuckRun ? 'Resetting…' : 'Reset stuck run' }}
+                                    </button>
+                                </div>
                             </div>
                         </div>
 
