@@ -690,17 +690,19 @@ onMounted(() => {
 
             <!-- ✅ Sign-ups Closed Card (Shown once the event's end date has passed) -->
             <div v-if="isSignupClosed" class="text-center p-5">
-                <div class="mb-3" style="font-size: 40px; line-height: 1;">🎬</div>
                 <h2 class="mb-3 fw-bold" style="font-size: 20px;">Sign-ups are now closed</h2>
                 <p class="mb-2">Thanks for your interest! Sign-ups for {{ event.event_name }} closed on
                     {{ formatDate(event.event_end_date) }}.</p>
-                <p class="mb-0 text-muted" style="font-size: 14px;">Stay tuned for further announcements.</p>
+                <p class="mb-0 text-muted" style="font-size: 14px;">In the meantime, check out other films from Adventure Entertainment at
+                    <a href="https://adventureentertainment.com" target="_blank" class="text-decoration-none" style="color: #0000EE;">adventureentertainment.com</a>.</p>
             </div>
 
             <!-- ✅ Thank You Card (Shown after submission) -->
             <div v-else-if="isSubmitted" class="text-center p-5 border rounded shadow-sm bg-light">
                 <h2 class="mb-3 fw-bold" style="font-size: 20px;">Thank you for joining!</h2>
-                <p class="mb-3">You're now part of our community—stay tuned for exciting news, updates, and the chance to win amazing prizes!</p>
+                <p class="mb-3">You're now part of our community and in the running to win amazing prizes!</p>
+                <p class="mb-0">While you wait, check out other films from Adventure Entertainment at
+                    <a href="https://adventureentertainment.com" target="_blank" class="text-decoration-none" style="color: #0000EE;">adventureentertainment.com</a>.</p>
             </div>
 
             <!-- ✅ Event Details (Shown before submission) -->
