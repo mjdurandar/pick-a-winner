@@ -2,23 +2,23 @@
 
 use App\Http\Controllers\AttendeesController;
 use App\Http\Controllers\DashboardController;
-use App\Http\Controllers\ProfileController;
 use App\Http\Controllers\EventsController;
-use App\Http\Controllers\UsersController;
-use App\Http\Controllers\PickaWinnerController;
-use App\Http\Controllers\SignUpFormController;
-use App\Http\Controllers\PrizeController;
-use App\Http\Controllers\LocationController;
-use App\Http\Controllers\LaravelLogsController;
 use App\Http\Controllers\ExportLogsController;
-use App\Http\Controllers\MailchimpImportLogsController;
-use App\Http\Controllers\MailchimpAutoSyncController;
 use App\Http\Controllers\FilmsController;
+use App\Http\Controllers\LaravelLogsController;
+use App\Http\Controllers\LocationController;
+use App\Http\Controllers\MailchimpAutoSyncController;
+use App\Http\Controllers\MailchimpImportLogsController;
 use App\Http\Controllers\MasterSheetController;
 use App\Http\Controllers\McDashboardController;
+use App\Http\Controllers\PickaWinnerController;
+use App\Http\Controllers\PrizeController;
+use App\Http\Controllers\ProfileController;
+use App\Http\Controllers\SignUpFormController;
+use App\Http\Controllers\UsersController;
+use App\Http\Middleware\RoleMiddleware;
 use Illuminate\Support\Facades\Route;
 use Inertia\Inertia;
-use App\Http\Middleware\RoleMiddleware;
 
 // Public Pick a Winner Routes
 Route::get('/pickawinner', [PickaWinnerController::class, 'index'])->name('pickawinner.index');
@@ -45,6 +45,7 @@ Route::middleware('pickawinner.access')->group(function () {
     Route::post('/prize/alllocation', [PrizeController::class, 'addPrizeAllLocation'])->name('prize.storeAllLocation');
     Route::post('/prize/multiple', [PrizeController::class, 'storeMultiple'])->name('prize.storeMultiple');
     Route::delete('/prize/{prize}', [PrizeController::class, 'destroy'])->name('prize.destroy');
+    Route::post('/prize/delete', [PrizeController::class, 'destroyQueued'])->name('prize.destroyQueued');
     Route::post('/prize/winner/{prize}', [PrizeController::class, 'addWinner'])->name('prize.assignWinner');
 });
 
@@ -56,29 +57,29 @@ Route::get('/form/{event_uuid}', [SignUpFormController::class, 'embed'])->name('
 Route::post('/form/{event_uuid}', [SignUpFormController::class, 'storeEmbeddedData'])->name('signup.storeEmbedded');
 Route::post('/form/{event_uuid}/check-subscription', [SignUpFormController::class, 'checkSubscription'])->name('signup.checkSubscription');
 
-//SHARED ROUTES
-Route::middleware(['auth', RoleMiddleware::class . ':admin,host'])->group(function () {
-    //events page
+// SHARED ROUTES
+Route::middleware(['auth', RoleMiddleware::class.':admin,host'])->group(function () {
+    // events page
     Route::get('/events', [EventsController::class, 'index'])->name('events.index');
-    
-    //films page
+
+    // films page
     Route::get('/films', [FilmsController::class, 'index'])->name('films.index');
     Route::get('/films/{film}/report', [FilmsController::class, 'report'])->name('films.report');
 
-    //master sheet page
+    // master sheet page
     Route::get('/master-sheet', [MasterSheetController::class, 'index'])->name('mastersheet.index');
     Route::patch('/master-sheet/{location}', [MasterSheetController::class, 'update'])->name('mastersheet.update');
 
-    //LARAVEL LOGS (view / clear app log)
+    // LARAVEL LOGS (view / clear app log)
     Route::get('/laravel-logs', [LaravelLogsController::class, 'index'])->name('laravelLogs.index');
     Route::post('/laravel-logs/clear', [LaravelLogsController::class, 'clear'])->name('laravelLogs.clear');
 
-    //MC DASHBOARD
+    // MC DASHBOARD
     Route::get('/mc-dashboard', [McDashboardController::class, 'index'])->name('mcDashboard.index');
     Route::post('/mc-dashboard/snapshot', [McDashboardController::class, 'snapshotNow'])->name('mcDashboard.snapshotNow');
     Route::delete('/mc-dashboard/{snapshot}', [McDashboardController::class, 'destroy'])->name('mcDashboard.destroy');
 
-    //MAILCHIMP IMPORT LOGS (dedicated page + export)
+    // MAILCHIMP IMPORT LOGS (dedicated page + export)
     Route::get('/mailchimp-import-logs', [MailchimpImportLogsController::class, 'index'])->name('mailchimpImportLogs.index');
     Route::post('/mailchimp-import-logs/log-manual-import', [MailchimpImportLogsController::class, 'logManualImport'])->name('mailchimpImportLogs.logManualImport');
     Route::post('/mailchimp-import-logs/queue-manual-import', [MailchimpImportLogsController::class, 'queueManualImport'])->name('mailchimpImportLogs.queueManualImport');
@@ -97,7 +98,7 @@ Route::middleware(['auth', RoleMiddleware::class . ':admin,host'])->group(functi
     Route::delete('/mailchimp-import-logs/auto-runs/{id}', [MailchimpImportLogsController::class, 'destroyAutoImportRun'])->name('mailchimpImportLogs.destroyAutoRun');
     Route::delete('/mailchimp-import-logs/{id}', [MailchimpImportLogsController::class, 'destroy'])->name('mailchimpImportLogs.destroy');
 
-    //ATTENDEES ROUTES
+    // ATTENDEES ROUTES
     Route::get('/attendees/{eventId}', [AttendeesController::class, 'index'])->name('attendees.index');
     Route::get('/attendees/{eventId}/export-all', [AttendeesController::class, 'exportAll'])->middleware('log.exports')->name('attendees.exportAll');
     Route::get('/attendees/{eventId}/export-csv', [AttendeesController::class, 'exportCsv'])->middleware('log.exports')->name('attendees.exportCsv');
@@ -108,10 +109,10 @@ Route::middleware(['auth', RoleMiddleware::class . ':admin,host'])->group(functi
     Route::delete('/attendee/{attendee}/event/{event}', [AttendeesController::class, 'destroy'])->name('attendees.destroy');
     Route::delete('/attendee/{attendee}/event/{event}/location/{location}', [AttendeesController::class, 'destroyFromLocation'])->name('attendees.destroyFromLocation');
 
-    //SIGN UP FORM ROUTES
+    // SIGN UP FORM ROUTES
     Route::get('/signup-form/index/{eventId}', [SignUpFormController::class, 'index'])->name('signup.index');
 
-    //LOCATION ROUTES
+    // LOCATION ROUTES
     Route::get('/location', [LocationController::class, 'index'])->name('location.index');
     Route::get('/location/{eventId}', [LocationController::class, 'locationpage'])->name('location.locationpage');
     Route::put('/location/{location}/password', [LocationController::class, 'updatePassword'])->name('location.updatePassword');
@@ -122,7 +123,7 @@ Route::middleware(['auth', RoleMiddleware::class . ':admin,host'])->group(functi
     Route::delete('/location/{location}', [LocationController::class, 'destroy'])->name('location.destroy');
     Route::delete('/location/delete-all/{eventId}', [LocationController::class, 'deleteAllLocations'])->name('location.deleteAll');
 
-    //IMPORT DATA TO MAILCHIMP ROUTES
+    // IMPORT DATA TO MAILCHIMP ROUTES
     Route::post('/location/import-data-to-mailchimp', [LocationController::class, 'importDataToMailChimp'])->name('location.importDataToMailChimp');
     Route::post('/location/manual-import-to-mailchimp', [LocationController::class, 'manualImportToMailchimp'])->name('location.manualImportToMailchimp');
     Route::post('/location/log-mailchimp-import', [LocationController::class, 'logMailchimpImport'])->name('location.logMailchimpImport');
@@ -131,8 +132,8 @@ Route::middleware(['auth', RoleMiddleware::class . ':admin,host'])->group(functi
     Route::get('/api/location/mailchimp/lists', [LocationController::class, 'getMailchimpLists'])->name('location.mailchimpLists');
     Route::get('/api/location/mailchimp/merge-fields', [LocationController::class, 'getMailchimpMergeFields'])->name('location.mailchimpMergeFields');
     Route::get('/api/location/subscribers', [LocationController::class, 'getSubscribers'])->name('location.getSubscribers');
-    
-    //EVENTBRITE ROUTES
+
+    // EVENTBRITE ROUTES
     Route::post('/location/fetch-eventbrite-attendees', [LocationController::class, 'fetchEventbriteAttendees'])->name('location.fetchEventbriteAttendees');
     Route::post('/location/fetch-eventbrite-attendees-preview', [LocationController::class, 'fetchEventbriteAttendeesPreview'])->name('location.fetchEventbriteAttendeesPreview');
     Route::post('/location/import-eventbrite-to-mailchimp', [LocationController::class, 'importEventbriteToMailchimp'])->name('location.importEventbriteToMailchimp');
@@ -140,57 +141,57 @@ Route::middleware(['auth', RoleMiddleware::class . ':admin,host'])->group(functi
     Route::get('/event/{eventId}/import-source-columns', [LocationController::class, 'getImportSourceColumns'])->name('event.importSourceColumns');
     Route::post('/event/import-all', [LocationController::class, 'eventImportAll'])->name('event.importAll');
 
-    //MANUAL CSV IMPORT (ticket attendees)
+    // MANUAL CSV IMPORT (ticket attendees)
     Route::post('/location/import-csv-ticket-attendees', [LocationController::class, 'importCsvTicketAttendees'])->name('location.importCsvTicketAttendees');
     Route::get('/location/{locationId}/ticket-attendees', [LocationController::class, 'getTicketAttendees'])->name('location.getTicketAttendees');
-    
-    //TICKET REPORTING ROUTES
+
+    // TICKET REPORTING ROUTES
     Route::get('/location/{locationId}/ticket-report', [LocationController::class, 'getLocationTicketReport'])->name('location.ticketReport');
     Route::get('/film/{filmId}/ticket-report', [LocationController::class, 'getFilmTicketReport'])->name('film.ticketReport');
     Route::get('/event/{eventId}/ticket-report', [LocationController::class, 'getEventTicketReport'])->name('event.ticketReport');
     Route::get('/event/{eventId}/mailchimp-report', [LocationController::class, 'getMailchimpEventReport'])->name('event.mailchimpReport');
-    
-    //EXPORT ROUTES
+
+    // EXPORT ROUTES
     Route::get('/location/{locationId}/export', [LocationController::class, 'exportLocationData'])->middleware('log.exports')->name('location.export');
     Route::get('/event/{eventId}/export-all', [LocationController::class, 'exportEventData'])->middleware('log.exports')->name('event.exportAll');
-    
-    //SHEETS DATA ROUTES
+
+    // SHEETS DATA ROUTES
     Route::get('/location/sheets-data/{eventId}', [LocationController::class, 'getSheetsData'])->name('location.getSheetsData');
     Route::post('/location/save-sheets-data', [LocationController::class, 'saveSheetsData'])->name('location.saveSheetsData');
 });
 
-Route::middleware(['auth', RoleMiddleware::class . ':admin'])->group(function () {
-    //EXPORT AUDIT LOGS
+Route::middleware(['auth', RoleMiddleware::class.':admin'])->group(function () {
+    // EXPORT AUDIT LOGS
     Route::get('/admin/export-logs', [ExportLogsController::class, 'index'])->name('admin.exportLogs.index');
     Route::get('/admin/export-logs/export', [ExportLogsController::class, 'export'])->name('admin.exportLogs.export');
 
-    //DASHBOARD
+    // DASHBOARD
     Route::get('/dashboard', [DashboardController::class, 'index'])->name('dashboard');
     Route::get('/dashboard/{event}', [DashboardController::class, 'filter'])->name('dashboard.filter');
 
-    //EVENTS ROUTES
+    // EVENTS ROUTES
     Route::post('/events', [EventsController::class, 'store'])->name('events.store');
     Route::patch('/events/{event}', [EventsController::class, 'update'])->name('events.update');
     Route::delete('/events/{event}', [EventsController::class, 'destroy'])->name('events.destroy');
 
-    //SIGN UP FORM ROUTES
+    // SIGN UP FORM ROUTES
     Route::post('/signup-form/{eventId}', [SignUpFormController::class, 'store'])->name('signup.store');
     Route::get('/signup-form/create/{eventId}', [SignUpFormController::class, 'create'])->name('signup.create');
     Route::post('/signup-form/generate/{eventId}', [SignUpFormController::class, 'generate'])->name('signup.generate');
 
     Route::delete('/signup-form/{eventId}', [SignUpFormController::class, 'destroy'])->name('signup.destroy');
 
-    //EDIT SIGN UP FORM ROUTES
+    // EDIT SIGN UP FORM ROUTES
     Route::get('/signup-form/edit/{formId}', [SignUpFormController::class, 'edit'])->name('signup.edit');
-    //UPDATE SIGN UP FORM ROUTES
+    // UPDATE SIGN UP FORM ROUTES
     Route::post('/signup-form/update/{eventId}', [SignUpFormController::class, 'update'])->name('signup.update');
 
-    //USERS ROUTES
+    // USERS ROUTES
     Route::get('/users', [UsersController::class, 'index'])->name('users.index');
     Route::patch('/users/{userId}', [UsersController::class, 'update'])->name('users.update');
     Route::delete('/users/{userId}', [UsersController::class, 'destroy'])->name('users.destroy');
 
-    //FILMS ROUTES
+    // FILMS ROUTES
     Route::post('/films', [FilmsController::class, 'store'])->name('films.store');
     Route::patch('/films/{film}', [FilmsController::class, 'update'])->name('films.update');
     Route::delete('/films/{film}', [FilmsController::class, 'destroy'])->name('films.destroy');
@@ -201,7 +202,7 @@ Route::middleware(['auth', RoleMiddleware::class . ':admin'])->group(function ()
 });
 
 // Authenticated reporting / Mailchimp settings routes (admin + host).
-Route::middleware(['auth', RoleMiddleware::class . ':admin,host'])->group(function () {
+Route::middleware(['auth', RoleMiddleware::class.':admin,host'])->group(function () {
     // Mailchimp Auto-sync Settings Routes
     Route::get('/mailchimp/autosync/settings', [MailchimpAutoSyncController::class, 'getSettings'])->name('mailchimp.autosync.settings');
     Route::post('/mailchimp/autosync/update', [MailchimpAutoSyncController::class, 'updateSettings'])->name('mailchimp.autosync.update');

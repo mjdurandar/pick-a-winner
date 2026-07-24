@@ -1,10 +1,11 @@
 <script setup>
 import Swal from 'sweetalert2';
-import { ref, computed, onMounted } from 'vue';
+import { ref, computed, onMounted, onUnmounted } from 'vue';
 import { useForm, router } from '@inertiajs/vue3';
 import PickaWinnerLayout from '@/Layouts/PickaWinnerLayout.vue';
 import { Head } from '@inertiajs/vue3';
 import { debounce } from 'lodash';
+import { syncState, enqueue, removeItem, pruneSynced, processQueue, startAutoSync } from '@/stores/winnerSync';
 
 // Track if we are editing an event
 const isEditing = ref(false);
@@ -423,7 +424,9 @@ const openEditModal = (prize) => {
 };
 
 // Delete Prize
-const destroy = (id) => {
+// ✅ Queued so it works offline: the row disappears immediately and the
+// database delete syncs in the background.
+const destroy = (prize) => {
     Swal.fire({
         title: 'Are you sure?',
         text: 'This action cannot be undone! If you delete this prize the winner for this Prize will be gone! To confirm, type DELETE below.',
@@ -440,11 +443,30 @@ const destroy = (id) => {
         }
     }).then((result) => {
         if (result.isConfirmed) {
-            router.delete(route('prize.destroy', id), {
-                onSuccess: () => {
-                    Swal.fire('Deleted!', 'Prize has been deleted.', 'success');
-                }
+            removeItem('assign-' + prize.id); // Drop any queued winner assignment for this prize
+            enqueue({
+                key: 'delete-' + prize.id,
+                url: route('prize.destroyQueued'),
+                payload: {
+                    event_id: props.event.id,
+                    prize_id: prize.id,
+                    client_uuid: prize.client_uuid || null,
+                },
+                meta: {
+                    type: 'delete-winner',
+                    event_id: props.event.id,
+                    prize_id: prize.id,
+                    client_uuid: prize.client_uuid || null,
+                },
             });
+            const offline = typeof navigator !== 'undefined' && !navigator.onLine;
+            Swal.fire(
+                'Deleted!',
+                offline
+                    ? 'Prize has been removed and will be deleted from the server once internet is back.'
+                    : 'Prize has been deleted.',
+                'success'
+            );
         }
     });
 };
@@ -496,24 +518,40 @@ const openPickWinnerModal = (prize) => {
 };
 
 // ✅ Save the Winner to the Prize
+// Saved locally right away (offline sync queue) so slow/no internet never
+// blocks the draw — it syncs to the server in the background.
 const confirmWinner = () => {
     if (!selectedPrize.value || !selectedWinner.value) {
         Swal.fire('Error', 'No prize or winner selected.', 'error');
         return;
     }
 
-    // ✅ Send update request to backend
-    router.post(route('prize.assignWinner', selectedPrize.value.id), {
-        winner_name: selectedWinner.value.first_name + " " + selectedWinner.value.last_name,
-        winner_email: selectedWinner.value.email_address,
-        winner_mobile_number: selectedWinner.value.mobile_number
-    }, {
-        onSuccess: () => {
-            let modalElement = bootstrap.Modal.getInstance(document.getElementById('pickWinnerModal'));
-            modalElement.hide();
-            Swal.fire('Winner Selected!', `${selectedWinner.value.first_name} has been chosen.`, 'success');
-        }
+    enqueue({
+        key: 'assign-' + selectedPrize.value.id,
+        url: route('prize.assignWinner', selectedPrize.value.id),
+        payload: {
+            winner_name: selectedWinner.value.first_name + " " + selectedWinner.value.last_name,
+            winner_email: selectedWinner.value.email_address,
+            winner_mobile_number: selectedWinner.value.mobile_number
+        },
+        meta: {
+            type: 'assign-winner',
+            event_id: props.event.id,
+            prize_id: selectedPrize.value.id,
+        },
     });
+
+    let modalElement = bootstrap.Modal.getInstance(document.getElementById('pickWinnerModal'));
+    modalElement.hide();
+
+    const offline = typeof navigator !== 'undefined' && !navigator.onLine;
+    Swal.fire(
+        'Winner Selected!',
+        offline
+            ? `${selectedWinner.value.first_name} has been saved on this device and will sync automatically once internet is back.`
+            : `${selectedWinner.value.first_name} has been chosen.`,
+        'success'
+    );
 };
 
 const confirmCancel = () => {
@@ -533,15 +571,76 @@ const confirmCancel = () => {
     });
 };
 
+// ✅ Server prizes overlaid with locally saved (not-yet-synced) winner
+// assignments, minus any prizes with a queued delete.
+const displayPrizes = computed(() => {
+    return props.prizes
+        .filter(prize => !syncState.items.some(item =>
+            item.meta?.type === 'delete-winner' && item.meta.prize_id === prize.id
+        ))
+        .map(prize => {
+            const queued = syncState.items.find(item =>
+                item.meta?.type === 'assign-winner' && item.meta.prize_id === prize.id
+            );
+            if (queued && prize.winner_email !== queued.payload.winner_email) {
+                return {
+                    ...prize,
+                    winner: queued.payload.winner_name,
+                    winner_email: queued.payload.winner_email,
+                    winner_mobile_number: queued.payload.winner_mobile_number,
+                    __pending: queued.status === 'pending',
+                };
+            }
+            return prize;
+        });
+});
+
+// ✅ Count of winner assignments / deletes still waiting to reach the server
+const pendingSyncCount = computed(() =>
+    syncState.items.filter(item =>
+        ['assign-winner', 'delete-winner'].includes(item.meta?.type) &&
+        item.meta.event_id === props.event.id &&
+        item.status === 'pending'
+    ).length
+);
+
 // ✅ Eligible attendees considering both filters and winners
+// Uses displayPrizes so locally saved (not-yet-synced) winners are excluded too.
 const eligibleAttendees = computed(() => {
-    return filteredAttendees.value.filter(attendee => 
-        !props.prizes.some(prize => prize.winner_email === attendee.email_address)
+    return filteredAttendees.value.filter(attendee =>
+        !displayPrizes.value.some(prize => prize.winner_email === attendee.email_address)
     );
+});
+
+// ✅ Background sync + light polling to refresh prizes from the server
+let prizesPollingInterval = null;
+
+onMounted(() => {
+    startAutoSync();
+    processQueue();
+    prizesPollingInterval = setInterval(() => {
+        if (typeof navigator !== 'undefined' && !navigator.onLine) return;
+        router.reload({
+            only: ['prizes'],
+            preserveState: true,
+            onSuccess: () => pruneSynced(props.prizes),
+        });
+    }, 10000);
+});
+
+onUnmounted(() => {
+    if (prizesPollingInterval) clearInterval(prizesPollingInterval);
 });
 </script>
 
 <style scoped>
+/* Sticky offline-sync banner — stays visible above the table while scrolling */
+.paw-sync-banner {
+    top: 0;
+    z-index: 1080;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
+}
+
 /* Override Bootstrap's input focus styles */
 .form-control:focus {
     background-color: #1f2937 !important;
@@ -585,8 +684,20 @@ input:-webkit-autofill:active {
                             >
                         </div>
                         <h2 class="text-2xl font-bold text-center text-white">
-                            {{ event.event_name }} 
+                            {{ event.event_name }}
                         </h2>
+                    </div>
+
+                    <!-- Offline sync status banner — sticky + loud so unsynced winners can't be missed -->
+                    <div v-if="pendingSyncCount > 0" class="paw-sync-banner sticky-top text-center py-2 px-3 fw-bold"
+                        :class="syncState.isOnline ? 'bg-warning text-dark' : 'bg-danger text-white'">
+                        <span v-if="!syncState.isOnline">
+                            ⚠️ 📴 Offline — {{ pendingSyncCount }} winner(s) are ONLY on this device.
+                            Keep this page open until they sync — they will send automatically when internet is back.
+                        </span>
+                        <span v-else>
+                            ⏳ Syncing {{ pendingSyncCount }} winner(s) to the server — please keep this page open until it finishes.
+                        </span>
                     </div>
                     <div class="overflow-hidden border border-gray-700 shadow-sm" style="background-color: #151515;">
                         <div class="p-6 text-white">
@@ -616,19 +727,22 @@ input:-webkit-autofill:active {
 
                                     <!-- :class="{'bg-cyan-700': prize.winner_email} -->
                                     <tbody style="background-color: #151515;">
-                                        <tr v-for="(prize, index) in prizes"
-                                            :key="index"
+                                        <tr v-for="(prize, index) in displayPrizes"
+                                            :key="prize.id || index"
                                             class="text-left"
 
                                         >
                                             <td class="border border-gray-700 p-2">{{ prize.prize_name }}</td>
-                                            <td class="border border-gray-700 p-2">{{ prize.winner }}</td>
+                                            <td class="border border-gray-700 p-2">
+                                                {{ prize.winner }}
+                                                <span v-if="prize.__pending" class="badge bg-warning text-dark ms-1" title="Saved on this device — waiting for internet to sync">⏳ syncing</span>
+                                            </td>
                                             <td class="border border-gray-700 p-2">{{ prize.winner_email || 'No Winner Yet' }}</td>
                                             <td class="border border-gray-700 p-2">{{ prize.winner_mobile_number || 'No Winner Yet' }}</td>
                                             <td class="border border-gray-700 p-2 flex flex-col md:flex-row gap-2 justify-center">
                                                 <a class="btn btn-success" @click="openPickWinnerModal(prize)">Pick a Winner</a>
                                                 <a class="btn btn-primary" @click="openEditModal(prize)"><i class="fa-solid fa-pen-to-square"></i></a>
-                                                <a class="btn btn-danger" @click="destroy(prize.id)"><i class="fa-solid fa-trash"></i></a>
+                                                <a class="btn btn-danger" @click="destroy(prize)"><i class="fa-solid fa-trash"></i></a>
                                             </td>
                                         </tr>
                                         <tr v-if="prizes.length === 0">
