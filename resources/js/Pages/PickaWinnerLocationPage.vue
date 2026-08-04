@@ -4,7 +4,7 @@ import { ref, computed, onMounted, onUnmounted, watch, nextTick } from 'vue';
 import { useForm, router } from '@inertiajs/vue3';
 import PickaWinnerLayout from '@/Layouts/PickaWinnerLayout.vue';
 import { Head } from '@inertiajs/vue3';
-import { syncState, enqueue, removeItem, pruneSynced, processQueue, startAutoSync, makeUuid } from '@/stores/winnerSync';
+import { syncState, enqueue, removeItem, pruneSynced, processQueue, startAutoSync, makeUuid, connectionQuality, pendingSyncDetail } from '@/stores/winnerSync';
 
 // Track if we are editing an event
 const isEditing = ref(false);
@@ -282,6 +282,11 @@ const props = defineProps({
     form: Object,       // ✅ Signup form with questions for dynamic filtering
 });
 
+// ✅ 'online' | 'weak' | 'offline' — weak means the device claims to be online
+// but winners are not actually reaching the server (see stores/winnerSync.js).
+const connection = computed(() => connectionQuality());
+const syncDetail = computed(() => pendingSyncDetail());
+
 // ✅ Winners saved on this device for this location (offline sync queue)
 const queuedWinners = computed(() => {
     return syncState.items.filter(item =>
@@ -383,17 +388,32 @@ const savePrize = () => {
 
 // ✅ Polling to Refresh Table Every 5 Seconds
 let pollingInterval;
+let isPolling = false;
+let lastPollAt = 0;
 
 const fetchAttendees = () => {
     if (typeof navigator !== 'undefined' && !navigator.onLine) {
         return; // ✅ Skip polling while offline — everything runs from local data
     }
+    if (isPolling) {
+        return; // ✅ Never stack reloads — on a slow link they pile up and choke it
+    }
+    // ✅ On a weak signal back off to 30s so the winner sync queue gets the
+    // bandwidth. Refreshing the table matters far less than saving winners.
+    if (connection.value === 'weak' && Date.now() - lastPollAt < 30000) {
+        return;
+    }
+    isPolling = true;
+    lastPollAt = Date.now();
     router.reload({
         only: ['attendees', 'prizes'], // ✅ Reloads only the attendees + prizes data, not the whole page
         preserveState: true, // ✅ Keeps the existing page state
         onSuccess: () => {
             // ✅ Drop local queue copies once the server confirms them
             pruneSynced(props.prizes);
+        },
+        onFinish: () => {
+            isPolling = false;
         },
     });
 };
@@ -510,12 +530,13 @@ const destroy = (prize) => {
     }).then((result) => {
         if (result.isConfirmed) {
             queueDelete(prize);
-            const offline = typeof navigator !== 'undefined' && !navigator.onLine;
             Swal.fire(
                 'Deleted!',
-                offline
+                connection.value === 'offline'
                     ? 'Prize has been removed and will be deleted from the server once internet is back.'
-                    : 'Prize has been deleted.',
+                    : connection.value === 'weak'
+                        ? 'Prize has been removed on this device. The internet is weak, so it will keep trying to delete it from the server — keep this page open.'
+                        : 'Prize has been deleted.',
                 'success'
             );
         }
@@ -680,12 +701,14 @@ const confirmWinner = () => {
     let modalElement = bootstrap.Modal.getInstance(document.getElementById('pickWinnerModal'));
     modalElement.hide();
 
-    const offline = typeof navigator !== 'undefined' && !navigator.onLine;
+    const firstName = selectedWinner.value.first_name;
     Swal.fire(
         'Winner Selected!',
-        offline
-            ? `${selectedWinner.value.first_name} has been saved on this device and will sync automatically once internet is back.`
-            : `${selectedWinner.value.first_name} has been selected!`,
+        connection.value === 'offline'
+            ? `${firstName} has been saved on this device and will sync automatically once internet is back. You can keep picking.`
+            : connection.value === 'weak'
+                ? `${firstName} has been saved on this device. The internet is weak, so it is still sending in the background — you can keep picking, just leave this page open.`
+                : `${firstName} has been selected!`,
         'success'
     );
     isSubmitting.value = false;
@@ -857,6 +880,12 @@ const handleModalClose = () => {
     top: 0;
     z-index: 1080;
     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
+}
+
+/* Weak signal — orange, so it reads as worse than "syncing" (yellow) but not
+   yet fully offline (red). */
+.paw-sync-weak {
+    background-color: #d9480f;
 }
 
 /* Override Bootstrap's input focus styles */
@@ -1084,12 +1113,22 @@ input:-webkit-autofill:active {
                         </div>
                     </div>
 
-                    <!-- Offline sync status banner — sticky + loud so unsynced winners can't be missed -->
+                    <!-- Offline / weak-signal sync banner — sticky + loud so unsynced winners can't be missed -->
                     <div v-if="pendingSyncCount > 0" class="paw-sync-banner sticky-top text-center py-2 px-3 fw-bold"
-                        :class="syncState.isOnline ? 'bg-warning text-dark' : 'bg-danger text-white'">
-                        <span v-if="!syncState.isOnline">
-                            ⚠️ 📴 Offline — {{ pendingSyncCount }} winner(s) are ONLY on this device.
-                            Keep this page open until they sync — they will send automatically when internet is back.
+                        :class="{
+                            'bg-danger text-white': connection === 'offline',
+                            'paw-sync-weak text-white': connection === 'weak',
+                            'bg-warning text-dark': connection === 'online',
+                        }">
+                        <span v-if="connection === 'offline'">
+                            📴 Offline — keep drawing, picking still works.
+                            {{ pendingSyncCount }} winner(s) are saved on this device only and will send
+                            automatically when internet is back. Just keep this page open.
+                        </span>
+                        <span v-else-if="connection === 'weak'">
+                            📶 Weak signal — keep drawing, picking still works.
+                            {{ pendingSyncCount }} winner(s) are saved on this device only{{ syncDetail }}
+                            and will keep sending automatically. Just keep this page open.
                         </span>
                         <span v-else>
                             ⏳ Syncing {{ pendingSyncCount }} winner(s) to the server — please keep this page open until it finishes.

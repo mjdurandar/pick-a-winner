@@ -167,46 +167,107 @@ const exportDemographicsSpreadsheet = () => {
     Swal.fire('Success', 'Demographics spreadsheet download started. Open the new tab if it was blocked.', 'success');
 };
 
-const exportReport = () => {
+const exportReport = async () => {
     if (!startDate.value || !endDate.value) {
         Swal.fire('Error', 'Please select both start and end dates', 'error');
         return;
     }
-    
-    // Create a form and submit it to trigger the download
-    const form = document.createElement('form');
-    form.method = 'POST';
-    form.action = route('weekly-report.export');
-    form.style.display = 'none';
-    
-    // Add CSRF token
-    const csrfInput = document.createElement('input');
-    csrfInput.type = 'hidden';
-    csrfInput.name = '_token';
-    csrfInput.value = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || 
-                     document.querySelector('input[name="_token"]')?.value;
-    
-    // Add start date
-    const startDateInput = document.createElement('input');
-    startDateInput.type = 'hidden';
-    startDateInput.name = 'start_date';
-    startDateInput.value = startDate.value;
-    
-    // Add end date
-    const endDateInput = document.createElement('input');
-    endDateInput.type = 'hidden';
-    endDateInput.name = 'end_date';
-    endDateInput.value = endDate.value;
-    
-    form.appendChild(csrfInput);
-    form.appendChild(startDateInput);
-    form.appendChild(endDateInput);
-    
-    document.body.appendChild(form);
-    form.submit();
-    document.body.removeChild(form);
-    
-    Swal.fire('Success', 'CSV export initiated', 'success');
+
+    try {
+        const response = await axios.post(
+            route('weekly-report.export'),
+            { start_date: startDate.value, end_date: endDate.value },
+            { headers: { ...csrfHeaders(), Accept: 'text/csv' }, responseType: 'blob' }
+        );
+
+        const fallback = `weekly_report_${startDate.value}_to_${endDate.value}.csv`;
+        downloadBlob(response.data, filenameFromResponse(response, fallback));
+        Swal.fire('Success', 'CSV exported successfully', 'success');
+    } catch (error) {
+        console.error('Error exporting CSV:', error);
+        await reportExportError(error, 'CSV');
+    }
+};
+
+// Laravel refreshes the XSRF-TOKEN cookie on every response, so it stays valid for the
+// life of the session. The <meta> token is only baked in at page load, and on a
+// long-lived Inertia page it goes stale and the export comes back 419 "Page Expired".
+const csrfHeaders = () => {
+    const cookie = document.cookie.split('; ').find(c => c.startsWith('XSRF-TOKEN='));
+    if (cookie) {
+        return { 'X-XSRF-TOKEN': decodeURIComponent(cookie.split('=').slice(1).join('=')) };
+    }
+    const meta = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content');
+    if (meta) {
+        return { 'X-CSRF-TOKEN': meta };
+    }
+    throw new Error('CSRF token not found');
+};
+
+const downloadBlob = (blob, filename) => {
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    a.style.display = 'none';
+    document.body.appendChild(a);
+    a.click();
+    window.URL.revokeObjectURL(url);
+    document.body.removeChild(a);
+};
+
+// Honour the server's Content-Disposition filename when it sends one.
+const filenameFromResponse = (response, fallback) => {
+    const disposition = response.headers?.['content-disposition'] || '';
+    const match = disposition.match(/filename\*?=(?:UTF-8'')?"?([^";]+)"?/i);
+    return match ? decodeURIComponent(match[1].trim()) : fallback;
+};
+
+// With responseType 'blob' axios hands back error bodies as Blobs too, so unwrap
+// before reporting. Never dump raw HTML into the alert — that is how the Laravel
+// error page's inline CSS used to end up in the message.
+const reportExportError = async (error, label = 'PDF') => {
+    const status = error.response?.status;
+
+    if (status === 419 || status === 401) {
+        const result = await Swal.fire({
+            icon: 'warning',
+            title: 'Session expired',
+            text: 'Your session has expired. Refresh the page and sign in again, then retry the export.',
+            confirmButtonText: 'Refresh now',
+            showCancelButton: true,
+            cancelButtonText: 'Stay here'
+        });
+        if (result.isConfirmed) {
+            window.location.reload();
+        }
+        return;
+    }
+
+    let message = error.message || `${label} export failed`;
+    const data = error.response?.data;
+
+    if (data) {
+        const text = data instanceof Blob
+            ? await data.text()
+            : (typeof data === 'string' ? data : JSON.stringify(data));
+        try {
+            const parsed = JSON.parse(text);
+            message = parsed?.error || parsed?.message || message;
+        } catch (_) {
+            const stripped = text
+                .replace(/<(style|script)[^>]*>[\s\S]*?<\/\1>/gi, '')
+                .replace(/<[^>]*>/g, ' ')
+                .replace(/\s+/g, ' ')
+                .trim()
+                .slice(0, 300);
+            message = status
+                ? `${label} export failed (HTTP ${status})${stripped ? `: ${stripped}` : ''}`
+                : (stripped || message);
+        }
+    }
+
+    Swal.fire('Error', `Failed to export ${label}: ${message}`, 'error');
 };
 
 const exportPdf = async () => {
@@ -214,49 +275,19 @@ const exportPdf = async () => {
         Swal.fire('Error', 'Please select both start and end dates', 'error');
         return;
     }
-    
+
     try {
-        // Get CSRF token
-        const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || 
-                         document.querySelector('input[name="_token"]')?.value;
-        
-        if (!csrfToken) {
-            throw new Error('CSRF token not found');
-        }
-        
-        // Use fetch to make the request
-        const response = await fetch(route('weekly-report.export-pdf'), {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'X-CSRF-TOKEN': csrfToken,
-                'Accept': 'application/pdf'
-            },
-            body: JSON.stringify({
-                start_date: startDate.value,
-                end_date: endDate.value
-            })
-        });
-        
-        if (response.ok) {
-            const blob = await response.blob();
-            const url = window.URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = `weekly_report_${startDate.value}_to_${endDate.value}.pdf`;
-            a.style.display = 'none';
-            document.body.appendChild(a);
-            a.click();
-            window.URL.revokeObjectURL(url);
-            document.body.removeChild(a);
-            
-            Swal.fire('Success', 'PDF exported successfully', 'success');
-        } else {
-            throw new Error('PDF export failed');
-        }
+        const response = await axios.post(
+            route('weekly-report.export-pdf'),
+            { start_date: startDate.value, end_date: endDate.value },
+            { headers: { ...csrfHeaders(), Accept: 'application/pdf' }, responseType: 'blob' }
+        );
+
+        downloadBlob(response.data, `weekly_report_${startDate.value}_to_${endDate.value}.pdf`);
+        Swal.fire('Success', 'PDF exported successfully', 'success');
     } catch (error) {
         console.error('Error exporting PDF:', error);
-        Swal.fire('Error', `Failed to export PDF: ${error.message}`, 'error');
+        await reportExportError(error);
     }
 };
 
@@ -272,93 +303,36 @@ const exportEventBreakdownPdf = async () => {
     }
     
     try {
-        // Get CSRF token
-        const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || 
-                         document.querySelector('input[name="_token"]')?.value;
-        
-        if (!csrfToken) {
-            throw new Error('CSRF token not found');
-        }
-        
-        // Use fetch to make the request
-        const response = await fetch(route('weekly-report.event-breakdown.export-pdf'), {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'X-CSRF-TOKEN': csrfToken,
-                'Accept': 'application/pdf'
-            },
-            body: JSON.stringify({
-                event_id: selectedEventId.value
-            })
-        });
-        
-        if (response.ok) {
-            const blob = await response.blob();
-            const url = window.URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url;
-            const eventName = eventBreakdown.value.event.name.replace(/[^a-z0-9]/gi, '_').toLowerCase();
-            a.download = `event_breakdown_${eventName}_${new Date().toISOString().split('T')[0]}.pdf`;
-            a.style.display = 'none';
-            document.body.appendChild(a);
-            a.click();
-            window.URL.revokeObjectURL(url);
-            document.body.removeChild(a);
-            
-            Swal.fire('Success', 'PDF exported successfully', 'success');
-        } else {
-            const errorData = await response.json();
-            throw new Error(errorData.error || 'PDF export failed');
-        }
+        const response = await axios.post(
+            route('weekly-report.event-breakdown.export-pdf'),
+            { event_id: selectedEventId.value },
+            { headers: { ...csrfHeaders(), Accept: 'application/pdf' }, responseType: 'blob' }
+        );
+
+        const eventName = eventBreakdown.value.event.name.replace(/[^a-z0-9]/gi, '_').toLowerCase();
+        downloadBlob(response.data, `event_breakdown_${eventName}_${new Date().toISOString().split('T')[0]}.pdf`);
+        Swal.fire('Success', 'PDF exported successfully', 'success');
     } catch (error) {
         console.error('Error exporting event breakdown PDF:', error);
-        Swal.fire('Error', `Failed to export PDF: ${error.message}`, 'error');
+        await reportExportError(error);
     }
 };
 
 const doExportEndOfFilmTourPdf = async (lastFilmSignups, lastFilmYear) => {
-    const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') ||
-        document.querySelector('input[name="_token"]')?.value;
-    if (!csrfToken) throw new Error('CSRF token not found');
     const body = { event_id: selectedEventId.value };
     if (lastFilmSignups != null && lastFilmYear != null) {
         body.last_film_signups = parseInt(lastFilmSignups, 10);
         body.last_film_year = parseInt(lastFilmYear, 10);
     }
-    const response = await fetch(route('weekly-report.end-of-film-tour.export-pdf'), {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-            'X-CSRF-TOKEN': csrfToken,
-            'Accept': 'application/pdf'
-        },
-        body: JSON.stringify(body)
-    });
-    if (!response.ok) {
-        const text = await response.text();
-        let message = `PDF export failed (HTTP ${response.status})`;
-        try {
-            const errorData = JSON.parse(text);
-            if (errorData?.error) message = errorData.error;
-            else if (errorData?.message) message = errorData.message;
-        } catch (_) {
-            const stripped = text.replace(/<[^>]*>/g, '').trim().slice(0, 300);
-            if (stripped) message = `${message}: ${stripped}`;
-        }
-        throw new Error(message);
-    }
-    const blob = await response.blob();
-    const url = window.URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
+
+    const response = await axios.post(
+        route('weekly-report.end-of-film-tour.export-pdf'),
+        body,
+        { headers: { ...csrfHeaders(), Accept: 'application/pdf' }, responseType: 'blob' }
+    );
+
     const eventName = (eventBreakdown.value?.event?.name || 'event').replace(/[^a-z0-9]/gi, '_').toLowerCase();
-    a.download = `end_of_film_tour_${eventName}_${new Date().toISOString().split('T')[0]}.pdf`;
-    a.style.display = 'none';
-    document.body.appendChild(a);
-    a.click();
-    window.URL.revokeObjectURL(url);
-    document.body.removeChild(a);
+    downloadBlob(response.data, `end_of_film_tour_${eventName}_${new Date().toISOString().split('T')[0]}.pdf`);
     Swal.fire('Success', 'End of film tour report exported', 'success');
 };
 
@@ -401,7 +375,7 @@ const exportEndOfFilmTourPdf = () => {
             const { lastFilmSignups, lastFilmYear } = result.value || {};
             doExportEndOfFilmTourPdf(lastFilmSignups, lastFilmYear).catch((error) => {
                 console.error('Error exporting end of film tour PDF:', error);
-                Swal.fire('Error', `Failed to export PDF: ${error.message}`, 'error');
+                return reportExportError(error);
             });
         }
     });
