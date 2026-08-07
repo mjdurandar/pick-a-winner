@@ -9,6 +9,8 @@ use App\Models\MailchimpImport;
 use App\Services\CsvImportParser;
 use App\Services\MailchimpApi;
 use App\Services\MailchimpAuditLog;
+use App\Services\MailchimpCredentialResolver;
+use App\Services\MailchimpCredentials;
 use App\Services\MergeFieldMatcher;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -33,21 +35,30 @@ class MailchimpImportController extends Controller
     public function __construct(
         protected CsvImportParser $parser,
         protected MergeFieldMatcher $matcher,
+        protected MailchimpCredentialResolver $credentials,
     ) {}
 
     public function index(): Response
     {
+        // An account is offered when it is reachable at all — by OAuth connection or
+        // by the API key already configured for it.
+        $accounts = collect(MailchimpConnection::ACCOUNTS)
+            ->map(function (string $label, string $key) {
+                $status = $this->credentials->describe($key);
+                $connection = MailchimpConnection::where('account', $key)->first();
+
+                return [
+                    'key' => $key,
+                    'label' => $label,
+                    'name' => $connection?->mailchimp_account_name,
+                    'active' => $status['usable'],
+                    'source' => $status['source'],
+                ];
+            })
+            ->values();
+
         return Inertia::render('MailchimpImport', [
-            'accounts' => MailchimpConnection::query()
-                ->orderBy('account')
-                ->get()
-                ->map(fn (MailchimpConnection $connection) => [
-                    'key' => $connection->account,
-                    'label' => MailchimpConnection::ACCOUNTS[$connection->account] ?? $connection->account,
-                    'name' => $connection->mailchimp_account_name,
-                    'active' => $connection->isActive(),
-                ])
-                ->values(),
+            'accounts' => $accounts,
             'maxUploadMb' => self::MAX_UPLOAD_KB / 1024,
         ]);
     }
@@ -73,7 +84,7 @@ class MailchimpImportController extends Controller
             'file.mimetypes' => 'Only .csv files can be imported.',
         ]);
 
-        $connection = $this->activeConnection($validated['account']);
+        $credentials = $this->credentialsFor($validated['account']);
 
         $file = $request->file('file');
         $originalName = $file->getClientOriginalName();
@@ -100,7 +111,7 @@ class MailchimpImportController extends Controller
         }
 
         $import = MailchimpImport::create([
-            'account' => $connection->account,
+            'account' => $credentials->account,
             'filename' => $originalName,
             'stored_path' => $storedPath,
             'file_size' => $size,
@@ -137,7 +148,7 @@ class MailchimpImportController extends Controller
             'account' => ['required', 'string', 'in:'.implode(',', array_keys(MailchimpConnection::ACCOUNTS))],
         ]);
 
-        $api = MailchimpApi::for($this->activeConnection($validated['account']));
+        $api = MailchimpApi::for($this->credentialsFor($validated['account']));
 
         try {
             return response()->json(['audiences' => $api->lists()]);
@@ -158,7 +169,7 @@ class MailchimpImportController extends Controller
             'audience_id' => ['required', 'string'],
         ]);
 
-        $api = MailchimpApi::for($this->activeConnection($import->account));
+        $api = MailchimpApi::for($this->credentialsFor($import->account));
 
         try {
             $audience = $api->list($validated['audience_id']);
@@ -205,7 +216,7 @@ class MailchimpImportController extends Controller
             ]);
         }
 
-        $api = MailchimpApi::for($this->activeConnection($import->account));
+        $api = MailchimpApi::for($this->credentialsFor($import->account));
 
         try {
             $audience = $api->list($validated['audience_id']);
@@ -241,23 +252,21 @@ class MailchimpImportController extends Controller
     /**
      * @throws ValidationException
      */
-    protected function activeConnection(string $account): MailchimpConnection
+    protected function credentialsFor(string $account): MailchimpCredentials
     {
-        $connection = MailchimpConnection::where('account', $account)->first();
+        $credentials = $this->credentials->resolveOrNull($account);
 
-        if (! $connection) {
+        if (! $credentials) {
+            $connection = MailchimpConnection::where('account', $account)->first();
+
             throw ValidationException::withMessages([
-                'account' => 'That Mailchimp account is not connected yet.',
+                'account' => $connection
+                    ? 'This Mailchimp connection needs to be reconnected before importing.'
+                    : 'That Mailchimp account has no credentials. Connect it on the integration page, or configure an API key for it.',
             ]);
         }
 
-        if (! $connection->isActive()) {
-            throw ValidationException::withMessages([
-                'account' => 'This Mailchimp connection needs to be reconnected before importing.',
-            ]);
-        }
-
-        return $connection;
+        return $credentials;
     }
 
     protected function assertConfigurable(MailchimpImport $import): void

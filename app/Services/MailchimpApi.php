@@ -3,31 +3,31 @@
 namespace App\Services;
 
 use App\Exceptions\MailchimpApiException;
-use App\Models\MailchimpConnection;
 use Illuminate\Http\Client\PendingRequest;
 use Illuminate\Http\Client\Response;
 use Illuminate\Support\Facades\Http;
 
 /**
- * Marketing API client bound to one OAuth connection.
+ * Marketing API client for one account, authorized by either an OAuth token or
+ * the configured API key — MailchimpCredentials knows which.
  *
- * Every call is addressed at the datacenter stored with the connection. A 401
- * means the token was revoked or expired on Mailchimp's side, which no retry
- * fixes — the connection is flipped to needs_reconnect so the settings page can
- * say so and running jobs can stop instead of burning attempts.
+ * Every call is addressed at that credential's datacenter. A 401 means the
+ * credential was rejected outright, which no retry fixes: an OAuth connection is
+ * flipped to needs_reconnect so the settings page can say so and running jobs can
+ * stop, and a bad API key is reported as server configuration.
  */
 class MailchimpApi
 {
-    public function __construct(protected MailchimpConnection $connection) {}
+    public function __construct(protected MailchimpCredentials $credentials) {}
 
-    public static function for(MailchimpConnection $connection): self
+    public static function for(MailchimpCredentials $credentials): self
     {
-        return new self($connection);
+        return new self($credentials);
     }
 
-    public function connection(): MailchimpConnection
+    public function credentials(): MailchimpCredentials
     {
-        return $this->connection;
+        return $this->credentials;
     }
 
     /**
@@ -111,17 +111,17 @@ class MailchimpApi
 
     protected function url(string $path): string
     {
-        return $this->connection->apiBaseUrl().$path;
+        return $this->credentials->baseUrl().$path;
     }
 
     protected function request(): PendingRequest
     {
-        // Bearer is what Mailchimp's own SDK sends for an OAuth access token. The
-        // metadata endpoint is the odd one out and wants "OAuth <token>", which is
-        // why it lives in MailchimpOAuth rather than here.
-        return Http::withToken($this->connection->access_token)
-            ->acceptJson()
-            ->timeout(30);
+        // Bearer for an OAuth token, basic auth for an API key. The OAuth metadata
+        // endpoint is the odd one out and wants "OAuth <token>", which is why it
+        // lives in MailchimpOAuth rather than here.
+        return $this->credentials->authorize(
+            Http::acceptJson()->timeout(30)
+        );
     }
 
     /**
@@ -134,13 +134,22 @@ class MailchimpApi
         $response = $callback($this->request());
 
         if ($response->status() === 401) {
-            $this->connection->markNeedsReconnect();
+            $this->credentials->markRejected();
 
             MailchimpAuditLog::record(MailchimpAuditLog::NEEDS_RECONNECT, [
-                'account' => $this->connection->account,
+                'account' => $this->credentials->account,
+                'credential_source' => $this->credentials->source,
             ]);
 
-            throw MailchimpApiException::needsReconnect();
+            throw new MailchimpApiException(
+                $this->credentials->rejectionMessage(),
+                401,
+                'credential rejected',
+                // Only an OAuth connection can be repaired from the settings page;
+                // a bad API key needs an environment change, so the UI must not
+                // send the admin to a reconnect button that cannot help.
+                $this->credentials->isOAuth(),
+            );
         }
 
         if ($response->failed()) {

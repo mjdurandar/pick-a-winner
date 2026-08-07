@@ -119,9 +119,19 @@ async function disconnect(account) {
                                                         : 'bg-green-100 text-green-800',
                                             ]"
                                         >
-                                            {{ !account.connected ? 'Not connected' : account.needs_reconnect ? 'Reconnect required' : 'Connected' }}
+                                            {{ !account.connected ? (account.credential_source === 'api_key' ? 'API key' : 'Not connected') : account.needs_reconnect ? 'Reconnect required' : 'Connected (OAuth)' }}
                                         </span>
                                     </div>
+
+                                    <p
+                                        v-if="!account.connected && account.credential_source === 'api_key'"
+                                        class="mt-2 text-sm text-gray-600"
+                                    >
+                                        Using the API key configured on the server
+                                        (<span class="font-mono">{{ account.credential_datacenter }}</span>).
+                                        Imports work without connecting, but the key is shared server
+                                        configuration — connecting records who granted access and when.
+                                    </p>
 
                                     <dl v-if="account.connected" class="mt-2 space-y-1 text-sm text-gray-600">
                                         <div class="flex gap-2">
@@ -142,8 +152,12 @@ async function disconnect(account) {
                                         </div>
                                     </dl>
 
-                                    <p v-else class="mt-2 text-sm text-gray-500">
-                                        No connection stored for this account.
+                                    <p
+                                        v-else-if="!account.credential_source"
+                                        class="mt-2 text-sm text-gray-500"
+                                    >
+                                        No credentials for this account — imports are unavailable until it is
+                                        connected or an API key is configured.
                                     </p>
                                 </div>
 

@@ -23,16 +23,6 @@ class MailchimpApiException extends Exception
         parent::__construct($message);
     }
 
-    public static function needsReconnect(): self
-    {
-        return new self(
-            'Mailchimp rejected the stored credentials. Reconnect the account to continue.',
-            401,
-            'token rejected',
-            true,
-        );
-    }
-
     public static function fromResponse(Response $response): self
     {
         // Mailchimp returns RFC 7807 problem documents: title, detail, status.

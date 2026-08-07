@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Exceptions\MailchimpOAuthException;
 use App\Models\MailchimpConnection;
 use App\Services\MailchimpAuditLog;
+use App\Services\MailchimpCredentialResolver;
 use App\Services\MailchimpOAuth;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -22,7 +23,10 @@ use Symfony\Component\HttpFoundation\Response as SymfonyResponse;
  */
 class MailchimpIntegrationController extends Controller
 {
-    public function __construct(protected MailchimpOAuth $oauth) {}
+    public function __construct(
+        protected MailchimpOAuth $oauth,
+        protected MailchimpCredentialResolver $credentials,
+    ) {}
 
     public function index(): Response
     {
@@ -33,6 +37,7 @@ class MailchimpIntegrationController extends Controller
         $accounts = collect(MailchimpConnection::ACCOUNTS)
             ->map(function (string $label, string $key) use ($connections) {
                 $connection = $connections->get($key);
+                $status = $this->credentials->describe($key);
 
                 return [
                     'key' => $key,
@@ -41,6 +46,11 @@ class MailchimpIntegrationController extends Controller
                     // The token is $hidden on the model, so nothing here can leak it.
                     'connection' => $connection,
                     'needs_reconnect' => $connection?->needsReconnect() ?? false,
+                    // Which credential this account actually uses right now. Never
+                    // the credential itself.
+                    'credential_source' => $status['source'],
+                    'credential_datacenter' => $status['datacenter'],
+                    'usable' => $status['usable'],
                 ];
             })
             ->values();
