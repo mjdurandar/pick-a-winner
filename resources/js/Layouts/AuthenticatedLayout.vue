@@ -147,6 +147,12 @@ const userRole = computed(() => user.value?.role);
                                         </DropdownLink>
                                         <DropdownLink
                                             v-if="userRole === 'admin'"
+                                            :href="route('mailchimp.integration.index')"
+                                        >
+                                            MC Integration
+                                        </DropdownLink>
+                                        <DropdownLink
+                                            v-if="userRole === 'admin'"
                                             :href="route('admin.exportLogs.index')"
                                         >
                                             Activity Logs

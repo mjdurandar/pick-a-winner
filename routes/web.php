@@ -9,6 +9,7 @@ use App\Http\Controllers\LaravelLogsController;
 use App\Http\Controllers\LocationController;
 use App\Http\Controllers\MailchimpAutoSyncController;
 use App\Http\Controllers\MailchimpImportLogsController;
+use App\Http\Controllers\MailchimpIntegrationController;
 use App\Http\Controllers\MasterSheetController;
 use App\Http\Controllers\McDashboardController;
 use App\Http\Controllers\PickaWinnerController;
@@ -223,6 +224,21 @@ Route::middleware(['auth', RoleMiddleware::class.':admin,host'])->group(function
     Route::get('/location/mailchimp-logs/download', [LocationController::class, 'downloadMailchimpLogs'])
         ->middleware('log.exports')
         ->name('location.downloadMailchimpLogs');
+});
+
+// Mailchimp CSV import — OAuth connection settings. Admin only; anyone else gets
+// a 403 from RoleMiddleware. The callback is rate limited because it is the one
+// entry point here that an outside party can drive.
+Route::middleware(['auth', RoleMiddleware::class.':admin'])->prefix('settings/integrations/mailchimp')->group(function () {
+    Route::get('/', [MailchimpIntegrationController::class, 'index'])->name('mailchimp.integration.index');
+    Route::post('/connect', [MailchimpIntegrationController::class, 'connect'])
+        ->middleware('throttle:10,1')
+        ->name('mailchimp.integration.connect');
+    Route::get('/callback', [MailchimpIntegrationController::class, 'callback'])
+        ->middleware('throttle:20,1')
+        ->name('mailchimp.integration.callback');
+    Route::delete('/{connection}', [MailchimpIntegrationController::class, 'disconnect'])
+        ->name('mailchimp.integration.disconnect');
 });
 
 // API Routes

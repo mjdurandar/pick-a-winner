@@ -73,6 +73,18 @@ return [
             'replace_placeholders' => true,
         ],
 
+        // Audit trail for the Mailchimp CSV import feature: connect, disconnect and
+        // every import run, with user id and IP. Kept on its own channel with a long
+        // retention so it is not rotated out with debug noise. Email addresses are
+        // masked before they reach here.
+        'mailchimp_audit' => [
+            'driver' => 'daily',
+            'path' => storage_path('logs/mailchimp-audit.log'),
+            'level' => 'info',
+            'days' => env('MAILCHIMP_AUDIT_DAYS', 365),
+            'replace_placeholders' => true,
+        ],
+
         'slack' => [
             'driver' => 'slack',
             'url' => env('LOG_SLACK_WEBHOOK_URL'),

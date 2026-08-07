@@ -22,6 +22,15 @@ class MailchimpConnection extends Model
 
     public const STATUS_NEEDS_RECONNECT = 'needs_reconnect';
 
+    /**
+     * The account slots this application connects, matching the keys already used
+     * by sms_campaigns.account and mailchimp_import_logs.mailchimp_account.
+     */
+    public const ACCOUNTS = [
+        'anz' => 'ANZ',
+        'usa' => 'USA',
+    ];
+
     protected $fillable = [
         'account',
         'access_token',

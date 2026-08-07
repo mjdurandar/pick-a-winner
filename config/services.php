@@ -36,6 +36,17 @@ return [
     ],
 
     'mailchimp' => [
+        // OAuth2 credentials from a Mailchimp Registered App (Account -> Extras ->
+        // Registered Apps). Used only by the CSV import feature, which connects per
+        // account rather than reading the static API keys below. The redirect must
+        // match what is registered with Mailchimp exactly; left null it falls back
+        // to the callback route.
+        'oauth' => [
+            'client_id' => env('MAILCHIMP_OAUTH_CLIENT_ID'),
+            'client_secret' => env('MAILCHIMP_OAUTH_CLIENT_SECRET'),
+            'redirect' => env('MAILCHIMP_OAUTH_REDIRECT'),
+        ],
+
         'anz' => [
             'key' => env('MAILCHIMP_API_KEY'),
             'server' => env('MAILCHIMP_SERVER_PREFIX'),
