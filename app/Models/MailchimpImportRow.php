@@ -19,9 +19,16 @@ class MailchimpImportRow extends Model
     // Dry-run outcomes.
     public const WILL_SUBSCRIBE = 'will_subscribe';
 
-    public const ALREADY_MEMBER = 'already_member';
+    /**
+     * Already in the audience as unsubscribed, cleaned or archived. Mailchimp only
+     * refuses these when the contact is in a compliance state, and it does not say
+     * so on the member object — SignUpFormController discovers it by attempting the
+     * PATCH. So the dry run cannot tell the two apart and lands here optimistically;
+     * the ones Mailchimp refuses come back as BLOCKED_UNSUBSCRIBED at run time.
+     */
+    public const WILL_RESUBSCRIBE = 'will_resubscribe';
 
-    public const BLOCKED_UNSUBSCRIBED = 'blocked_unsubscribed';
+    public const ALREADY_MEMBER = 'already_member';
 
     public const BLOCKED_INVALID = 'blocked_invalid';
 
@@ -32,7 +39,37 @@ class MailchimpImportRow extends Model
     // Post-run outcomes.
     public const SUBSCRIBED = 'subscribed';
 
+    public const RESUBSCRIBED = 'resubscribed';
+
+    /**
+     * Run-time only: Mailchimp returned 400 Compliance State, so this contact can
+     * never be re-subscribed through the API. Only they can opt back in, via
+     * Mailchimp's own hosted form.
+     */
+    public const BLOCKED_UNSUBSCRIBED = 'blocked_unsubscribed';
+
     public const FAILED = 'failed';
+
+    /**
+     * Outcomes the dry run can produce. The preview is built only from these.
+     */
+    public const DRY_RUN_OUTCOMES = [
+        self::WILL_SUBSCRIBE,
+        self::WILL_RESUBSCRIBE,
+        self::ALREADY_MEMBER,
+        self::BLOCKED_INVALID,
+        self::BLOCKED_DUPLICATE,
+        self::BLOCKED_MISSING,
+    ];
+
+    /**
+     * Dry-run outcomes the import job will act on. Everything else is recorded and
+     * left alone.
+     */
+    public const ACTIONABLE_OUTCOMES = [
+        self::WILL_SUBSCRIBE,
+        self::WILL_RESUBSCRIBE,
+    ];
 
     /**
      * Rows Mailchimp will reject or that never had a usable address. Counted
@@ -47,12 +84,14 @@ class MailchimpImportRow extends Model
 
     public const OUTCOME_LABELS = [
         self::WILL_SUBSCRIBE => 'Will subscribe',
+        self::WILL_RESUBSCRIBE => 'Will resubscribe',
         self::ALREADY_MEMBER => 'Already a member',
-        self::BLOCKED_UNSUBSCRIBED => 'Previously unsubscribed',
         self::BLOCKED_INVALID => 'Invalid email',
         self::BLOCKED_DUPLICATE => 'Duplicate in file',
         self::BLOCKED_MISSING => 'Missing email',
         self::SUBSCRIBED => 'Subscribed',
+        self::RESUBSCRIBED => 'Resubscribed',
+        self::BLOCKED_UNSUBSCRIBED => 'Blocked by Mailchimp (compliance)',
         self::FAILED => 'Failed',
     ];
 
@@ -88,6 +127,21 @@ class MailchimpImportRow extends Model
     public function isBlocked(): bool
     {
         return in_array($this->outcome, self::BLOCKED_OUTCOMES, true);
+    }
+
+    /**
+     * True when the import job still has work to do for this row. Resubscribes are
+     * not sent through the batch endpoint — update_existing stays false, so batch
+     * skips existing members — and are PATCHed individually instead.
+     */
+    public function isActionable(): bool
+    {
+        return in_array($this->outcome, self::ACTIONABLE_OUTCOMES, true);
+    }
+
+    public function needsResubscribe(): bool
+    {
+        return $this->outcome === self::WILL_RESUBSCRIBE;
     }
 
     /**

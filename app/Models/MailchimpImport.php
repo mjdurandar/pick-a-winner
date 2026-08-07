@@ -47,6 +47,7 @@ class MailchimpImport extends Model
         'status',
         'last_batch_index',
         'subscribed_count',
+        'resubscribed_count',
         'skipped_count',
         'failed_count',
         'started_at',
