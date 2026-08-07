@@ -246,11 +246,11 @@ Route::middleware(['auth', RoleMiddleware::class.':admin'])->prefix('settings/in
 // because it accepts a 10 MB body and parses it.
 Route::middleware(['auth', RoleMiddleware::class.':admin'])->prefix('mailchimp-import')->group(function () {
     Route::get('/', [MailchimpImportController::class, 'index'])->name('mailchimpImport.index');
-    Route::post('/upload', [MailchimpImportController::class, 'upload'])
+    Route::get('/audiences', [MailchimpImportController::class, 'audiences'])->name('mailchimpImport.audiences');
+    Route::post('/start', [MailchimpImportController::class, 'start'])->name('mailchimpImport.start');
+    Route::post('/{import}/upload', [MailchimpImportController::class, 'upload'])
         ->middleware('throttle:20,1')
         ->name('mailchimpImport.upload');
-    Route::get('/audiences', [MailchimpImportController::class, 'audiences'])->name('mailchimpImport.audiences');
-    Route::get('/{import}/merge-fields', [MailchimpImportController::class, 'mergeFields'])->name('mailchimpImport.mergeFields');
     Route::post('/{import}/configure', [MailchimpImportController::class, 'configure'])->name('mailchimpImport.configure');
 });
 
