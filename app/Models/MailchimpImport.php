@@ -44,6 +44,7 @@ class MailchimpImport extends Model
         'double_optin',
         'consent_confirmed_by_user_id',
         'consent_confirmed_at',
+        'consent_source',
         'status',
         'last_batch_index',
         'subscribed_count',

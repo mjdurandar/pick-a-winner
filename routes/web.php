@@ -8,6 +8,7 @@ use App\Http\Controllers\FilmsController;
 use App\Http\Controllers\LaravelLogsController;
 use App\Http\Controllers\LocationController;
 use App\Http\Controllers\MailchimpAutoSyncController;
+use App\Http\Controllers\MailchimpImportController;
 use App\Http\Controllers\MailchimpImportLogsController;
 use App\Http\Controllers\MailchimpIntegrationController;
 use App\Http\Controllers\MasterSheetController;
@@ -239,6 +240,18 @@ Route::middleware(['auth', RoleMiddleware::class.':admin'])->prefix('settings/in
         ->name('mailchimp.integration.callback');
     Route::delete('/{connection}', [MailchimpIntegrationController::class, 'disconnect'])
         ->name('mailchimp.integration.disconnect');
+});
+
+// Mailchimp CSV import wizard. Admin only. The upload endpoint is rate limited
+// because it accepts a 10 MB body and parses it.
+Route::middleware(['auth', RoleMiddleware::class.':admin'])->prefix('mailchimp-import')->group(function () {
+    Route::get('/', [MailchimpImportController::class, 'index'])->name('mailchimpImport.index');
+    Route::post('/upload', [MailchimpImportController::class, 'upload'])
+        ->middleware('throttle:20,1')
+        ->name('mailchimpImport.upload');
+    Route::get('/audiences', [MailchimpImportController::class, 'audiences'])->name('mailchimpImport.audiences');
+    Route::get('/{import}/merge-fields', [MailchimpImportController::class, 'mergeFields'])->name('mailchimpImport.mergeFields');
+    Route::post('/{import}/configure', [MailchimpImportController::class, 'configure'])->name('mailchimpImport.configure');
 });
 
 // API Routes
