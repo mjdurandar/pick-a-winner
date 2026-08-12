@@ -10,9 +10,9 @@ use App\Http\Controllers\LocationController;
 use App\Http\Controllers\MailchimpAutoSyncController;
 use App\Http\Controllers\MailchimpImportController;
 use App\Http\Controllers\MailchimpImportLogsController;
-use App\Http\Controllers\MailchimpIntegrationController;
 use App\Http\Controllers\MasterSheetController;
 use App\Http\Controllers\McDashboardController;
+use App\Http\Controllers\NewsletterResubscribeReportController;
 use App\Http\Controllers\PickaWinnerController;
 use App\Http\Controllers\PrizeController;
 use App\Http\Controllers\ProfileController;
@@ -227,21 +227,6 @@ Route::middleware(['auth', RoleMiddleware::class.':admin,host'])->group(function
         ->name('location.downloadMailchimpLogs');
 });
 
-// Mailchimp CSV import — OAuth connection settings. Admin only; anyone else gets
-// a 403 from RoleMiddleware. The callback is rate limited because it is the one
-// entry point here that an outside party can drive.
-Route::middleware(['auth', RoleMiddleware::class.':admin'])->prefix('settings/integrations/mailchimp')->group(function () {
-    Route::get('/', [MailchimpIntegrationController::class, 'index'])->name('mailchimp.integration.index');
-    Route::post('/connect', [MailchimpIntegrationController::class, 'connect'])
-        ->middleware('throttle:10,1')
-        ->name('mailchimp.integration.connect');
-    Route::get('/callback', [MailchimpIntegrationController::class, 'callback'])
-        ->middleware('throttle:20,1')
-        ->name('mailchimp.integration.callback');
-    Route::delete('/{connection}', [MailchimpIntegrationController::class, 'disconnect'])
-        ->name('mailchimp.integration.disconnect');
-});
-
 // Mailchimp CSV import wizard. Admin only. The upload endpoint is rate limited
 // because it accepts a 10 MB body and parses it.
 Route::middleware(['auth', RoleMiddleware::class.':admin'])->prefix('mailchimp-import')->group(function () {
@@ -252,6 +237,26 @@ Route::middleware(['auth', RoleMiddleware::class.':admin'])->prefix('mailchimp-i
         ->middleware('throttle:20,1')
         ->name('mailchimpImport.upload');
     Route::post('/{import}/configure', [MailchimpImportController::class, 'configure'])->name('mailchimpImport.configure');
+    Route::post('/{import}/dry-run', [MailchimpImportController::class, 'dryRun'])->name('mailchimpImport.dryRun');
+    Route::get('/{import}/preview', [MailchimpImportController::class, 'preview'])->name('mailchimpImport.preview');
+    Route::post('/{import}/run', [MailchimpImportController::class, 'run'])->name('mailchimpImport.run');
+    Route::get('/{import}/download', [MailchimpImportController::class, 'download'])
+        ->middleware('log.exports')
+        ->name('mailchimpImport.download');
+});
+
+// Newsletter resubscribes made by the sign-up form, per film. Separate from the CSV
+// import wizard above — these are recovered contacts, not uploaded ones.
+Route::middleware(['auth', RoleMiddleware::class.':admin'])->group(function () {
+    Route::get('/newsletter-resubscribes/download', [NewsletterResubscribeReportController::class, 'download'])
+        ->middleware('log.exports')
+        ->name('newsletterResubscribes.download');
+
+    // Declared after /download so the literal segment wins; whereNumber keeps the
+    // two from overlapping either way.
+    Route::get('/newsletter-resubscribes/{event}', [NewsletterResubscribeReportController::class, 'index'])
+        ->whereNumber('event')
+        ->name('newsletterResubscribes.index');
 });
 
 // API Routes

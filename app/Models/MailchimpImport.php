@@ -18,6 +18,8 @@ class MailchimpImport extends Model
 
     public const STATUS_PENDING = 'pending';
 
+    public const STATUS_DRY_RUN_RUNNING = 'dry_run_running';
+
     public const STATUS_DRY_RUN_COMPLETE = 'dry_run_complete';
 
     public const STATUS_RUNNING = 'running';
@@ -112,6 +114,34 @@ class MailchimpImport extends Model
     public function nextBatchIndex(): int
     {
         return $this->last_batch_index === null ? 0 : $this->last_batch_index + 1;
+    }
+
+    /**
+     * Row counts by outcome, read back from the row log rather than from any
+     * counter, so the preview and the final report are the same numbers computed
+     * the same way. Outcomes with no rows are present as zero.
+     *
+     * @return array<string, int>
+     */
+    public function outcomeCounts(): array
+    {
+        return array_merge(
+            array_fill_keys(MailchimpImportRow::DRY_RUN_OUTCOMES, 0),
+            $this->rows()
+                ->selectRaw('outcome, count(*) as total')
+                ->groupBy('outcome')
+                ->pluck('total', 'outcome')
+                ->map(fn ($total) => (int) $total)
+                ->all(),
+        );
+    }
+
+    /**
+     * How many contacts this import would actually act on.
+     */
+    public function actionableCount(): int
+    {
+        return $this->rows()->whereIn('outcome', MailchimpImportRow::ACTIONABLE_OUTCOMES)->count();
     }
 
     public function isConsentConfirmed(): bool

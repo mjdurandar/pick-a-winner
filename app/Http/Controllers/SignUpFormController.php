@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\Events;
 use App\Models\Location;
 use App\Models\MailchimpImportLog;
+use App\Models\NewsletterResubscribeAttempt;
 use App\Models\SignUpForm;
 use App\Services\MailchimpService;
 use Illuminate\Database\Schema\Blueprint;
@@ -58,6 +59,42 @@ class SignUpFormController extends Controller
     private function pendingResubCacheKey(int $eventId, string $email): string
     {
         return 'newsletter_resub_pending:'.$eventId.':'.md5(strtolower(trim($email)));
+    }
+
+    /**
+     * Record what happened to one contact we tried to bring back, successes and
+     * refusals alike.
+     *
+     * The per-location counters below only ever counted successes, so a refused
+     * contact left no trace at all. This is what makes a "could not resubscribe"
+     * report possible, per event and so per film.
+     */
+    private function recordResubscribeAttempt(
+        Events $event,
+        string $email,
+        string $outcome,
+        array $info,
+        ?string $detail = null,
+        ?int $locationId = null,
+    ): void {
+        try {
+            NewsletterResubscribeAttempt::create([
+                'event_id' => $event->id,
+                'location_id' => $locationId,
+                'email' => $email,
+                'mailchimp_account' => $info['account'] ?? null,
+                'list_id' => $info['list_id'] ?? null,
+                'list_name' => $info['list_name'] ?? null,
+                'outcome' => $outcome,
+                'detail' => $detail,
+            ]);
+        } catch (\Exception $e) {
+            // Reporting must never cost someone their entry to the draw.
+            \Illuminate\Support\Facades\Log::error('Could not record newsletter resubscribe attempt', [
+                'event_id' => $event->id,
+                'error' => $e->getMessage(),
+            ]);
+        }
     }
 
     /**
@@ -181,15 +218,39 @@ class SignUpFormController extends Controller
             // Try to resubscribe now to detect compliance state early
             $isCompliance = false;
             $resubSucceeded = false;
+            $listInfo = ['account' => $account, 'list_id' => $listId, 'list_name' => $audienceName];
+
             try {
                 $resubResult = $mailchimpService->resubscribe($listId, $request->email);
                 if (is_array($resubResult) && ($resubResult['status'] ?? null) === 'compliance_skipped') {
                     $isCompliance = true;
+                    $this->recordResubscribeAttempt(
+                        $event,
+                        $request->email,
+                        NewsletterResubscribeAttempt::BLOCKED_COMPLIANCE,
+                        $listInfo,
+                        $resubResult['detail'] ?? null,
+                    );
                 } else {
                     $resubSucceeded = true;
+                    $this->recordResubscribeAttempt(
+                        $event,
+                        $request->email,
+                        NewsletterResubscribeAttempt::RESUBSCRIBED,
+                        $listInfo,
+                    );
                 }
             } catch (\Exception $e) {
-                // Resubscribe failed for other reasons — not compliance
+                // Resubscribe failed for other reasons — not compliance. Recorded
+                // rather than discarded, so a run of these is visible instead of
+                // looking like nobody ever needed bringing back.
+                $this->recordResubscribeAttempt(
+                    $event,
+                    $request->email,
+                    NewsletterResubscribeAttempt::FAILED,
+                    $listInfo,
+                    $e->getMessage(),
+                );
             }
 
             // Stash a pending resub so storeEmbeddedData can attribute it to the
@@ -573,21 +634,34 @@ class SignUpFormController extends Controller
                 $listId = $this->findNewsletterListId($mailchimpService, $audienceName);
 
                 if ($listId) {
+                    $listInfo = ['account' => $account, 'list_id' => $listId, 'list_name' => $audienceName];
                     $status = $mailchimpService->getSubscriberStatus($listId, $email);
                     if ($status['exists'] && $status['status'] !== 'subscribed') {
                         $resubResult = $mailchimpService->resubscribe($listId, $email);
                         if (is_array($resubResult) && ($resubResult['status'] ?? null) === 'compliance_skipped') {
+                            $this->recordResubscribeAttempt(
+                                $event,
+                                $email,
+                                NewsletterResubscribeAttempt::BLOCKED_COMPLIANCE,
+                                $listInfo,
+                                $resubResult['detail'] ?? null,
+                                $locationId,
+                            );
                             \Illuminate\Support\Facades\Log::info('Newsletter resubscribe skipped (compliance state) on form submit', [
                                 'email' => $email,
                                 'account' => $account,
                                 'audience' => $audienceName,
                             ]);
                         } else {
-                            $this->recordNewsletterResubscribe($locationId, [
-                                'account' => $account,
-                                'list_id' => $listId,
-                                'list_name' => $audienceName,
-                            ]);
+                            $this->recordNewsletterResubscribe($locationId, $listInfo);
+                            $this->recordResubscribeAttempt(
+                                $event,
+                                $email,
+                                NewsletterResubscribeAttempt::RESUBSCRIBED,
+                                $listInfo,
+                                null,
+                                $locationId,
+                            );
                             \Illuminate\Support\Facades\Log::info('Auto-resubscribed to newsletter on form submit', [
                                 'email' => $email,
                                 'account' => $account,
@@ -598,6 +672,14 @@ class SignUpFormController extends Controller
                 }
             } catch (\Exception $e) {
                 // Don't block form submission if resubscribe fails
+                $this->recordResubscribeAttempt(
+                    $event,
+                    $email,
+                    NewsletterResubscribeAttempt::FAILED,
+                    ['account' => $account ?? null, 'list_id' => $listId ?? null, 'list_name' => $audienceName ?? null],
+                    $e->getMessage(),
+                    $locationId,
+                );
                 \Illuminate\Support\Facades\Log::error('Auto-resubscribe on form submit failed', [
                     'email' => $email,
                     'error' => $e->getMessage(),

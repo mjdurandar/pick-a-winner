@@ -25,8 +25,8 @@ class MailchimpCredentialResolver
 
         if (! $credentials) {
             throw new MailchimpApiException(
-                "No Mailchimp credentials for the {$account} account. Connect it on the integration page, "
-                .'or configure an API key for it in the server environment.'
+                "No Mailchimp credentials for the {$account} account. Configure an API key for it "
+                .'in the server environment.'
             );
         }
 

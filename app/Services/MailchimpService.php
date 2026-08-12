@@ -641,12 +641,26 @@ class MailchimpService
             return $response->json();
         }
 
-        // Compliance state — nothing we can do via API, skip silently
-        if ($response->status() === 400 && str_contains($response->body(), 'Compliance State')) {
+        // Compliance state — nothing we can do via API, skip silently.
+        //
+        // Matched case-insensitively. Mailchimp's detail line reads "... is in a
+        // compliance state ..." in lower case while the title is "Forgotten Email
+        // Not Subscribed"; the old check looked for "Compliance State" exactly and
+        // so never matched, which sent every refusal down the throw path below and
+        // had callers report these contacts as successfully resubscribed.
+        $body = strtolower($response->body());
+
+        if ($response->status() === 400
+            && (str_contains($body, 'compliance state') || str_contains($body, 'forgotten email'))) {
             \Illuminate\Support\Facades\Log::info('Member in compliance state, skipping resubscribe (must self-subscribe via Mailchimp form)', [
                 'email' => $email,
             ]);
-            return ['status' => 'compliance_skipped'];
+
+            return [
+                'status' => 'compliance_skipped',
+                // Mailchimp's own words, so the report can say why rather than guess.
+                'detail' => $response->json('detail') ?: $response->json('title'),
+            ];
         }
 
         throw new \Exception('Failed to resubscribe: ' . $response->body());

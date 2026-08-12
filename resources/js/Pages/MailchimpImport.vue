@@ -1,5 +1,5 @@
 <script setup>
-import { computed, ref, watch } from 'vue';
+import { computed, onBeforeUnmount, ref, watch } from 'vue';
 import axios from 'axios';
 import Swal from 'sweetalert2';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout.vue';
@@ -18,9 +18,17 @@ const STEPS = [
     { key: 'upload', label: 'Upload CSV' },
     { key: 'map', label: 'Map & confirm' },
     { key: 'preview', label: 'Preview' },
+    { key: 'run', label: 'Import' },
 ];
 const step = ref('audience');
-const stepIndex = computed(() => STEPS.findIndex((s) => s.key === step.value));
+
+// The last two steps share one screen — the preview becomes the report once the
+// send starts — so the chip is driven by the run's state, not by `step`.
+const stepIndex = computed(() =>
+    step.value === 'preview' && (running.value || finished.value)
+        ? STEPS.length - 1
+        : STEPS.findIndex((s) => s.key === step.value)
+);
 
 const usableAccounts = computed(() => props.accounts.filter((a) => a.active));
 const account = ref(usableAccounts.value[0]?.key ?? null);
@@ -46,6 +54,78 @@ const consentConfirmed = ref(false);
 const consentSource = ref('');
 const saving = ref(false);
 const configErrors = ref({});
+
+// Preview. The dry run reads the audience and classifies the file on the queue,
+// so the page starts it and then polls until the row log is written.
+const POLL_MS = 2000;
+// Roughly two minutes. A dry run that has not been picked up by then almost
+// always means no queue worker is running, which no amount of waiting fixes.
+const MAX_POLLS = 60;
+const BLOCKED_OUTCOMES = ['blocked_invalid', 'blocked_duplicate', 'blocked_missing'];
+
+const preview = ref(null);
+const previewError = ref('');
+const outcomeFilter = ref(null);
+const loadingRows = ref(false);
+let pollTimer = null;
+let polls = 0;
+// The idle counter resets whenever a poll shows movement, so a long import is
+// never mistaken for a stalled one — only genuine silence trips MAX_POLLS.
+let lastProgress = -1;
+
+const previewReady = computed(() => preview.value?.ready === true);
+const running = computed(() => preview.value?.running === true);
+const finished = computed(() => preview.value?.finished === true);
+const counts = computed(() => preview.value?.counts ?? {});
+const labels = computed(() => preview.value?.labels ?? {});
+const blockedTotal = computed(() =>
+    BLOCKED_OUTCOMES.reduce((total, key) => total + (counts.value[key] ?? 0), 0)
+);
+
+const sending = ref(false);
+
+// The poll gave up while a send was in flight, rather than while the preview was
+// being built. The two need opposite recovery actions.
+const stalledSend = computed(() => !!previewError.value && preview.value?.status === 'running');
+
+// Once the run starts, the same rows carry post-run outcomes, so the report reads
+// from these instead of the will_* counts.
+const sent = computed(
+    () => (counts.value.subscribed ?? 0) + (counts.value.resubscribed ?? 0)
+);
+const complianceBlocked = computed(() => counts.value.blocked_unsubscribed ?? 0);
+const runProgress = computed(() => {
+    // `actionable` is what is still outstanding — it shrinks as rows are written
+    // back — so the total is whatever is done plus whatever is left.
+    const remaining = preview.value?.actionable ?? 0;
+    const done = sent.value + complianceBlocked.value + (counts.value.failed ?? 0);
+    if (!remaining) return done ? 100 : 0;
+    return Math.min(100, Math.round((done / (done + remaining)) * 100));
+});
+
+// Ordered for reading: what happened (or will) first, what did not last. Post-run
+// outcomes sit alongside the dry-run ones — a finished import has both, because
+// rows that were never actionable keep their original classification.
+const OUTCOME_ORDER = [
+    'will_subscribe',
+    'will_resubscribe',
+    'subscribed',
+    'resubscribed',
+    'already_member',
+    'blocked_unsubscribed',
+    'blocked_invalid',
+    'blocked_duplicate',
+    'blocked_missing',
+    'failed',
+];
+
+const breakdown = computed(() =>
+    OUTCOME_ORDER.map((key) => ({
+        key,
+        label: labels.value[key] ?? key,
+        total: counts.value[key] ?? 0,
+    })).filter((row) => row.total > 0)
+);
 
 const selectedAudience = computed(() => audiences.value.find((a) => a.id === audienceId.value));
 const emailMapped = computed(() => Object.values(fieldMap.value).includes('EMAIL'));
@@ -175,6 +255,7 @@ async function saveConfiguration() {
             consent_source: consentSource.value,
         });
         step.value = 'preview';
+        startDryRun();
     } catch (err) {
         if (err.response?.status === 422) {
             configErrors.value = err.response.data.errors || {};
@@ -186,7 +267,151 @@ async function saveConfiguration() {
     }
 }
 
+async function startDryRun() {
+    stopPolling();
+    preview.value = null;
+    previewError.value = '';
+    outcomeFilter.value = null;
+    polls = 0;
+
+    try {
+        const { data } = await axios.post(
+            route('mailchimpImport.dryRun', { import: importRecord.value.id })
+        );
+        preview.value = data;
+        if (!data.ready) schedulePoll();
+    } catch (err) {
+        previewError.value =
+            err.response?.data?.errors?.field_map?.[0] ||
+            err.response?.data?.errors?.file?.[0] ||
+            err.response?.data?.message ||
+            'The preview could not be started.';
+    }
+}
+
+function schedulePoll() {
+    pollTimer = setTimeout(pollPreview, POLL_MS);
+}
+
+function stopPolling() {
+    if (pollTimer) clearTimeout(pollTimer);
+    pollTimer = null;
+}
+
+async function pollPreview() {
+    pollTimer = null;
+
+    // The admin navigated away from the preview while the queue was still working.
+    if (step.value !== 'preview' || !importRecord.value) return;
+
+    try {
+        const { data } = await axios.get(
+            route('mailchimpImport.preview', { import: importRecord.value.id }),
+            { params: outcomeFilter.value ? { outcome: outcomeFilter.value } : {} }
+        );
+        preview.value = data;
+
+        // Done in both senses: the send finished, or the dry run landed and is now
+        // waiting on the admin to press the button.
+        if (data.finished) return;
+        if (data.ready && !data.running) return;
+
+        // A dry run that fails puts the import back to pending and leaves a reason
+        // behind, which is the only way a run that never finishes is
+        // distinguishable from one still going.
+        if (data.failure_reason && !data.running) {
+            previewError.value = data.failure_reason;
+            return;
+        }
+
+        const progress = sent.value + complianceBlocked.value + (counts.value.failed ?? 0);
+        if (progress !== lastProgress) {
+            lastProgress = progress;
+            polls = 0;
+        }
+
+        if (++polls >= MAX_POLLS) {
+            previewError.value = running.value
+                ? 'The import stopped reporting progress. Check the queue worker, then reload this page — whatever was already sent is recorded.'
+                : 'The preview did not finish. Check that the queue worker is running (php artisan queue:work).';
+            return;
+        }
+
+        schedulePoll();
+    } catch (err) {
+        previewError.value = err.response?.data?.message || 'The preview could not be loaded.';
+    }
+}
+
+async function filterRows(outcome) {
+    outcomeFilter.value = outcome;
+    loadingRows.value = true;
+    try {
+        const { data } = await axios.get(
+            route('mailchimpImport.preview', { import: importRecord.value.id }),
+            { params: outcome ? { outcome } : {} }
+        );
+        preview.value = data;
+    } catch (err) {
+        previewError.value = err.response?.data?.message || 'Those rows could not be loaded.';
+    } finally {
+        loadingRows.value = false;
+    }
+}
+
+async function startRun() {
+    const target = preview.value.actionable.toLocaleString();
+    const verb = preview.value.import.double_optin ? 'invited' : 'subscribed';
+
+    const confirmed = await Swal.fire({
+        title: 'Send this import?',
+        html:
+            `<p><strong>${target}</strong> contacts will be ${verb} in ` +
+            `<strong>${preview.value.import.audience_name}</strong>.</p>` +
+            '<p class="mt-2">This writes to Mailchimp and cannot be undone from here.</p>',
+        icon: 'warning',
+        showCancelButton: true,
+        confirmButtonText: 'Send to Mailchimp',
+        confirmButtonColor: '#166534',
+        cancelButtonText: 'Cancel',
+    });
+
+    if (!confirmed.isConfirmed) return;
+
+    sending.value = true;
+    previewError.value = '';
+    polls = 0;
+    lastProgress = -1;
+
+    try {
+        const { data } = await axios.post(
+            route('mailchimpImport.run', { import: importRecord.value.id })
+        );
+        preview.value = data;
+        if (!data.finished) schedulePoll();
+    } catch (err) {
+        previewError.value =
+            err.response?.data?.errors?.field_map?.[0] ||
+            err.response?.data?.errors?.consent_confirmed?.[0] ||
+            err.response?.data?.errors?.file?.[0] ||
+            err.response?.data?.message ||
+            'The import could not be started.';
+    } finally {
+        sending.value = false;
+    }
+}
+
+function backToMapping() {
+    stopPolling();
+    preview.value = null;
+    previewError.value = '';
+    step.value = 'map';
+}
+
+onBeforeUnmount(stopPolling);
+
 function startOver() {
+    stopPolling();
     step.value = 'audience';
     audienceId.value = '';
     importRecord.value = null;
@@ -200,6 +425,9 @@ function startOver() {
     consentSource.value = '';
     configErrors.value = {};
     uploadError.value = '';
+    preview.value = null;
+    previewError.value = '';
+    outcomeFilter.value = null;
 }
 </script>
 
@@ -235,9 +463,7 @@ function startOver() {
                 <div v-if="!usableAccounts.length" class="rounded-md border border-amber-300 bg-amber-50 p-4">
                     <p class="text-sm font-semibold text-amber-900">No Mailchimp account is available</p>
                     <p class="mt-1 text-sm text-amber-800">
-                        Connect an account on the
-                        <a :href="route('mailchimp.integration.index')" class="underline">Mailchimp Integration</a>
-                        page, or configure an API key for it.
+                        Configure a Mailchimp API key for it in the server environment.
                     </p>
                 </div>
 
@@ -422,15 +648,420 @@ function startOver() {
 
                         <!-- ── 4. Preview ─────────────────────────────────────── -->
                         <div v-show="step === 'preview'">
-                            <div class="rounded border border-dashed border-gray-300 bg-gray-50 p-6 text-center">
-                                <p class="text-sm font-medium text-gray-700">
-                                    Configuration saved. The dry run is not built yet.
-                                </p>
-                                <p class="mt-1 text-sm text-gray-500">Nothing has been sent to Mailchimp.</p>
+                            <!-- Failed to start, or the run gave up. -->
+                            <div v-if="previewError" class="rounded border border-red-300 bg-red-50 p-4">
+                                <p class="text-sm font-semibold text-red-900">The preview could not be built</p>
+                                <p class="mt-1 text-sm text-red-800">{{ previewError }}</p>
+                                <p class="mt-2 text-sm text-red-800">Nothing has been sent to Mailchimp.</p>
+                                <div class="mt-3 flex flex-wrap items-center gap-3">
+                                    <!-- A send that went quiet must never be answered by
+                                         re-running the preview: that would throw away the
+                                         record of what already reached Mailchimp. -->
+                                    <button
+                                        type="button"
+                                        class="rounded bg-red-700 px-3 py-1.5 text-sm font-medium text-white hover:bg-red-600"
+                                        @click="stalledSend ? startRun() : startDryRun()"
+                                    >
+                                        {{ stalledSend ? 'Resume the import' : 'Try again' }}
+                                    </button>
+                                    <button
+                                        v-if="!stalledSend"
+                                        type="button"
+                                        class="text-sm text-red-800 underline"
+                                        @click="backToMapping"
+                                    >
+                                        Back to mapping
+                                    </button>
+                                    <a
+                                        v-if="stalledSend"
+                                        :href="route('mailchimpImport.download', { import: importRecord.id })"
+                                        class="text-sm text-red-800 underline"
+                                    >
+                                        Download what was sent so far
+                                    </a>
+                                </div>
                             </div>
-                            <button type="button" class="mt-4 text-sm text-gray-600 underline" @click="startOver">
-                                Start over
-                            </button>
+
+                            <!-- Queued or working. -->
+                            <div
+                                v-else-if="!previewReady"
+                                class="rounded border border-dashed border-gray-300 bg-gray-50 p-6 text-center"
+                            >
+                                <svg
+                                    class="mx-auto h-6 w-6 animate-spin text-gray-500"
+                                    viewBox="0 0 24 24"
+                                    fill="none"
+                                >
+                                    <circle
+                                        class="opacity-25"
+                                        cx="12"
+                                        cy="12"
+                                        r="10"
+                                        stroke="currentColor"
+                                        stroke-width="4"
+                                    />
+                                    <path
+                                        class="opacity-75"
+                                        fill="currentColor"
+                                        d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"
+                                    />
+                                </svg>
+                                <p class="mt-3 text-sm font-medium text-gray-700">
+                                    Checking {{ importRecord?.row_count?.toLocaleString() }} rows against
+                                    {{ importRecord?.audience_name }}…
+                                </p>
+                                <p class="mt-1 text-sm text-gray-500">
+                                    Reading the audience and matching every address. Nothing is being sent to
+                                    Mailchimp.
+                                </p>
+                            </div>
+
+                            <!-- The dry run, the run in progress, and the report. -->
+                            <div v-else>
+                                <!-- Finished. -->
+                                <div
+                                    v-if="finished"
+                                    :class="[
+                                        'rounded border p-4',
+                                        preview.status === 'failed'
+                                            ? 'border-red-300 bg-red-50'
+                                            : 'border-green-300 bg-green-50',
+                                    ]"
+                                >
+                                    <p
+                                        :class="[
+                                            'text-sm font-semibold',
+                                            preview.status === 'failed' ? 'text-red-900' : 'text-green-900',
+                                        ]"
+                                    >
+                                        {{
+                                            preview.status === 'failed'
+                                                ? 'The import stopped before it finished'
+                                                : 'Import complete'
+                                        }}
+                                    </p>
+                                    <p
+                                        :class="[
+                                            'mt-1 text-sm',
+                                            preview.status === 'failed' ? 'text-red-800' : 'text-green-800',
+                                        ]"
+                                    >
+                                        <span v-if="preview.failure_reason">{{ preview.failure_reason }}</span>
+                                        <span v-else>
+                                            {{ sent.toLocaleString() }} contacts reached
+                                            {{ preview.import.audience_name }}.
+                                        </span>
+                                    </p>
+                                    <p v-if="preview.status === 'failed'" class="mt-2 text-sm text-red-800">
+                                        Everything below was recorded as Mailchimp answered for it, so it reflects
+                                        what actually went through.
+                                    </p>
+                                </div>
+
+                                <!-- Sending. -->
+                                <div v-else-if="running" class="rounded border border-blue-300 bg-blue-50 p-4">
+                                    <p class="text-sm font-semibold text-blue-900">
+                                        Sending to {{ preview.import.audience_name }}…
+                                    </p>
+                                    <div class="mt-3 h-2 overflow-hidden rounded bg-blue-100">
+                                        <div
+                                            class="h-full bg-blue-600 transition-all duration-500"
+                                            :style="{ width: runProgress + '%' }"
+                                        />
+                                    </div>
+                                    <p class="mt-2 text-sm text-blue-800">
+                                        {{ sent.toLocaleString() }} done,
+                                        {{ preview.actionable.toLocaleString() }} to go. Safe to leave this page —
+                                        the run continues on the server.
+                                    </p>
+                                </div>
+
+                                <!-- Previewed, waiting on the admin. -->
+                                <div v-else class="rounded border border-green-300 bg-green-50 p-4">
+                                    <p class="text-sm font-semibold text-green-900">
+                                        Preview only — nothing has been sent to Mailchimp
+                                    </p>
+                                    <p class="mt-1 text-sm text-green-800">
+                                        {{ preview.import.filename }} was checked against
+                                        {{ preview.import.audience_name }}.
+                                    </p>
+                                </div>
+
+                                <dl
+                                    :class="[
+                                        'mt-4 grid grid-cols-2 gap-3',
+                                        finished ? 'sm:grid-cols-5' : 'sm:grid-cols-4',
+                                    ]"
+                                >
+                                    <div class="rounded border border-gray-200 p-3">
+                                        <dt class="text-xs font-medium uppercase text-gray-500">Rows in file</dt>
+                                        <dd class="mt-1 text-2xl font-semibold text-gray-900">
+                                            {{ preview.import.row_count.toLocaleString() }}
+                                        </dd>
+                                    </div>
+                                    <div class="rounded border border-green-200 bg-green-50 p-3">
+                                        <dt class="text-xs font-medium uppercase text-green-700">
+                                            {{ finished ? 'Subscribed' : labels.will_subscribe }}
+                                        </dt>
+                                        <dd class="mt-1 text-2xl font-semibold text-green-900">
+                                            {{
+                                                (finished
+                                                    ? (counts.subscribed ?? 0)
+                                                    : (counts.will_subscribe ?? 0)
+                                                ).toLocaleString()
+                                            }}
+                                        </dd>
+                                    </div>
+                                    <div class="rounded border border-blue-200 bg-blue-50 p-3">
+                                        <dt class="text-xs font-medium uppercase text-blue-700">
+                                            {{ finished ? 'Resubscribed' : 'Will resubscribe' }}
+                                        </dt>
+                                        <dd class="mt-1 text-2xl font-semibold text-blue-900">
+                                            {{
+                                                (finished
+                                                    ? (counts.resubscribed ?? 0)
+                                                    : (counts.will_resubscribe ?? 0)
+                                                ).toLocaleString()
+                                            }}
+                                        </dd>
+                                    </div>
+                                    <!-- Refused by Mailchimp, which is not the same as
+                                         failing — nothing went wrong, the contact simply
+                                         cannot be brought back by anyone but themselves. -->
+                                    <div
+                                        v-if="finished"
+                                        :class="[
+                                            'rounded border p-3',
+                                            complianceBlocked ? 'border-amber-200 bg-amber-50' : 'border-gray-200',
+                                        ]"
+                                    >
+                                        <dt
+                                            :class="[
+                                                'text-xs font-medium uppercase',
+                                                complianceBlocked ? 'text-amber-700' : 'text-gray-500',
+                                            ]"
+                                        >
+                                            Can't resubscribe
+                                        </dt>
+                                        <dd
+                                            :class="[
+                                                'mt-1 text-2xl font-semibold',
+                                                complianceBlocked ? 'text-amber-900' : 'text-gray-900',
+                                            ]"
+                                        >
+                                            {{ complianceBlocked.toLocaleString() }}
+                                        </dd>
+                                    </div>
+
+                                    <div
+                                        :class="[
+                                            'rounded border p-3',
+                                            finished && counts.failed
+                                                ? 'border-red-200 bg-red-50'
+                                                : 'border-gray-200',
+                                        ]"
+                                    >
+                                        <dt
+                                            :class="[
+                                                'text-xs font-medium uppercase',
+                                                finished && counts.failed ? 'text-red-700' : 'text-gray-500',
+                                            ]"
+                                        >
+                                            {{ finished ? 'Failed' : 'Skipped' }}
+                                        </dt>
+                                        <dd
+                                            :class="[
+                                                'mt-1 text-2xl font-semibold',
+                                                finished && counts.failed ? 'text-red-900' : 'text-gray-900',
+                                            ]"
+                                        >
+                                            {{
+                                                (finished
+                                                    ? (counts.failed ?? 0)
+                                                    : (counts.already_member ?? 0) + blockedTotal
+                                                ).toLocaleString()
+                                            }}
+                                        </dd>
+                                    </div>
+                                </dl>
+
+                                <p v-if="!finished && !running" class="mt-3 text-sm text-gray-600">
+                                    <span class="font-semibold">{{ preview.actionable.toLocaleString() }}</span>
+                                    of {{ preview.import.row_count.toLocaleString() }} rows would be sent.
+                                    <span v-if="preview.import.tag">
+                                        Each one tagged <span class="font-semibold">{{ preview.import.tag }}</span
+                                        >.
+                                    </span>
+                                    <span v-if="preview.import.double_optin">
+                                        This audience is double opt-in, so contacts are invited and only subscribe
+                                        once they confirm.
+                                    </span>
+                                </p>
+
+                                <!-- Compliance refusals. Only the contact can undo this, so the
+                                     admin gets the audience's own signup link to pass on. -->
+                                <div
+                                    v-if="finished && complianceBlocked"
+                                    class="mt-4 rounded border border-amber-300 bg-amber-50 p-4"
+                                >
+                                    <p class="text-sm font-semibold text-amber-900">
+                                        {{ complianceBlocked.toLocaleString() }} contacts could not be resubscribed
+                                    </p>
+                                    <p class="mt-1 text-sm text-amber-800">
+                                        Mailchimp holds these addresses in a compliance state. No API call can bring
+                                        them back — they have to opt in themselves. Filter the table below by
+                                        “{{ labels.blocked_unsubscribed }}” to see who.
+                                    </p>
+                                    <p v-if="preview.signup_url" class="mt-2 text-sm text-amber-800">
+                                        Send them this form:
+                                        <a
+                                            :href="preview.signup_url"
+                                            target="_blank"
+                                            rel="noopener"
+                                            class="break-all underline"
+                                            >{{ preview.signup_url }}</a
+                                        >
+                                    </p>
+                                </div>
+
+                                <!-- Breakdown. Doubles as the filter for the row list. -->
+                                <div class="mt-5 flex flex-wrap gap-2">
+                                    <button
+                                        type="button"
+                                        :class="[
+                                            'rounded-full border px-3 py-1 text-sm',
+                                            outcomeFilter === null
+                                                ? 'border-gray-800 bg-gray-800 text-white'
+                                                : 'border-gray-300 text-gray-700 hover:bg-gray-50',
+                                        ]"
+                                        @click="filterRows(null)"
+                                    >
+                                        All rows
+                                    </button>
+                                    <button
+                                        v-for="item in breakdown"
+                                        :key="item.key"
+                                        type="button"
+                                        :class="[
+                                            'rounded-full border px-3 py-1 text-sm',
+                                            outcomeFilter === item.key
+                                                ? 'border-gray-800 bg-gray-800 text-white'
+                                                : 'border-gray-300 text-gray-700 hover:bg-gray-50',
+                                        ]"
+                                        @click="filterRows(item.key)"
+                                    >
+                                        {{ item.label }}
+                                        <span class="font-semibold">{{ item.total.toLocaleString() }}</span>
+                                    </button>
+                                </div>
+
+                                <div class="mt-3 overflow-x-auto rounded border border-gray-200">
+                                    <table class="min-w-full divide-y divide-gray-200 text-sm">
+                                        <thead class="bg-gray-50">
+                                            <tr>
+                                                <th class="px-3 py-2 text-left font-medium text-gray-600">Row</th>
+                                                <th class="px-3 py-2 text-left font-medium text-gray-600">Email</th>
+                                                <th class="px-3 py-2 text-left font-medium text-gray-600">Outcome</th>
+                                                <th class="px-3 py-2 text-left font-medium text-gray-600">Detail</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody class="divide-y divide-gray-100 bg-white">
+                                            <tr v-if="loadingRows">
+                                                <td colspan="4" class="px-3 py-4 text-center text-gray-500">
+                                                    Loading…
+                                                </td>
+                                            </tr>
+                                            <tr v-else-if="!preview.rows.length">
+                                                <td colspan="4" class="px-3 py-4 text-center text-gray-500">
+                                                    No rows with this outcome.
+                                                </td>
+                                            </tr>
+                                            <tr v-for="row in loadingRows ? [] : preview.rows" :key="row.row_number">
+                                                <td class="px-3 py-2 text-gray-500">{{ row.row_number }}</td>
+                                                <td class="px-3 py-2 text-gray-900">{{ row.email || '—' }}</td>
+                                                <td class="px-3 py-2">
+                                                    <span
+                                                        :class="[
+                                                            'rounded px-2 py-0.5 text-xs',
+                                                            row.outcome === 'will_subscribe'
+                                                                ? 'bg-green-100 text-green-800'
+                                                                : row.outcome === 'will_resubscribe'
+                                                                    ? 'bg-blue-100 text-blue-800'
+                                                                    : row.outcome === 'already_member'
+                                                                        ? 'bg-gray-100 text-gray-700'
+                                                                        : 'bg-amber-100 text-amber-800',
+                                                        ]"
+                                                    >
+                                                        {{ labels[row.outcome] ?? row.outcome }}
+                                                    </span>
+                                                </td>
+                                                <td class="px-3 py-2 text-gray-600">{{ row.detail || '—' }}</td>
+                                            </tr>
+                                        </tbody>
+                                    </table>
+                                </div>
+
+                                <p
+                                    v-if="preview.rows.length >= preview.row_limit"
+                                    class="mt-2 text-xs text-gray-500"
+                                >
+                                    Showing the first {{ preview.row_limit }} rows of this outcome.
+                                </p>
+
+                                <div class="mt-5 flex flex-wrap items-center gap-3 border-t border-gray-200 pt-4">
+                                    <button
+                                        v-if="!finished && !running"
+                                        type="button"
+                                        :disabled="sending || !preview.actionable"
+                                        class="rounded bg-green-700 px-4 py-2 text-sm font-medium text-white hover:bg-green-600 disabled:cursor-not-allowed disabled:bg-gray-300"
+                                        @click="startRun"
+                                    >
+                                        {{ sending ? 'Starting…' : `Import ${preview.actionable.toLocaleString()} contacts` }}
+                                    </button>
+
+                                    <!-- A stopped run left rows untouched; sending again picks
+                                         up only those, never what already went through. -->
+                                    <button
+                                        v-if="finished && preview.status === 'failed' && preview.actionable"
+                                        type="button"
+                                        :disabled="sending"
+                                        class="rounded bg-gray-800 px-4 py-2 text-sm font-medium text-white hover:bg-gray-700 disabled:cursor-not-allowed disabled:bg-gray-300"
+                                        @click="startRun"
+                                    >
+                                        {{
+                                            sending
+                                                ? 'Starting…'
+                                                : `Resume — ${preview.actionable.toLocaleString()} left to send`
+                                        }}
+                                    </button>
+
+                                    <button
+                                        v-if="!running && !finished"
+                                        type="button"
+                                        class="text-sm text-gray-600 underline"
+                                        @click="backToMapping"
+                                    >
+                                        Change the mapping
+                                    </button>
+                                    <!-- Every row with its outcome and Mailchimp's own reason. -->
+                                    <a
+                                        v-if="previewReady"
+                                        :href="route('mailchimpImport.download', { import: importRecord.id })"
+                                        class="text-sm text-gray-600 underline"
+                                    >
+                                        Download full report (CSV)
+                                    </a>
+
+                                    <button
+                                        v-if="!running"
+                                        type="button"
+                                        class="text-sm text-gray-600 underline"
+                                        @click="startOver"
+                                    >
+                                        {{ finished ? 'Import another file' : 'Start over' }}
+                                    </button>
+                                </div>
+                            </div>
                         </div>
                     </div>
                 </div>

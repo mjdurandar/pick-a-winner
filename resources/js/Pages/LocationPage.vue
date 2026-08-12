@@ -1,7 +1,7 @@
 <script setup>
 import { ref, computed, onMounted, watch, nextTick } from 'vue';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout.vue';
-import { Head } from '@inertiajs/vue3';
+import { Head, usePage } from '@inertiajs/vue3';
 import { router } from '@inertiajs/vue3';
 import Swal from 'sweetalert2';
 import { useForm } from '@inertiajs/vue3';
@@ -718,6 +718,14 @@ const allLocationsPage = () => {
 
 const goToAttendeesPage = () => {
     router.get(route('attendees.index', { eventId: props.event.id }));
+};
+
+// The resubscribe report exposes contact emails across every location, so it is
+// admin-only — the route rejects hosts and the button is hidden from them.
+const isAdmin = computed(() => usePage().props.auth?.user?.role === 'admin');
+
+const goToResubscribeReport = () => {
+    router.get(route('newsletterResubscribes.index', { event: props.event.id }));
 };
 
 const viewLocationAttendees = (location) => {
@@ -2685,6 +2693,14 @@ const runImportAll = async () => {
                                         title="View Attendees Database"
                                     >
                                         <i class="fa-solid fa-database"></i> Database
+                                    </button>
+                                    <button
+                                        v-if="isAdmin"
+                                        @click="goToResubscribeReport"
+                                        style="background-color: #7C3AED; color: white; border-radius: 5px; padding: 6px 14px; font-size: 14px; cursor: pointer;"
+                                        title="Newsletter resubscribes: who came back and who Mailchimp blocked"
+                                    >
+                                        <i class="fa-solid fa-rotate"></i> Resubscribes
                                     </button>
                                 </div>
                             </div>
