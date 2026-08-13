@@ -48,6 +48,11 @@ class RunMailchimpDryRunJob implements ShouldQueue
             return;
         }
 
+        // Proof that a worker has this in hand. Reading a large audience is minutes
+        // of silence before the first row is classified, and without this marker the
+        // preview page cannot tell that from a queue nobody is serving.
+        $import->update(['dry_run_started_at' => now()]);
+
         $path = $import->stored_path ? Storage::disk('local')->path($import->stored_path) : null;
 
         if (! $path || ! is_readable($path)) {

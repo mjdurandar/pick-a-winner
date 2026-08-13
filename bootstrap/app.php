@@ -1,5 +1,6 @@
 <?php
 
+use App\Jobs\DripOutstandingOptInsJob;
 use App\Jobs\McSnapshotJob;
 use Illuminate\Console\Scheduling\Schedule;
 use Illuminate\Foundation\Application;
@@ -22,6 +23,11 @@ return Application::configure(basePath: dirname(__DIR__))
 
         // Auto-import locations that finished 4+ days ago (per-event opt-in), every day at 8am.
         $schedule->command('mailchimp:auto-import-finished')->dailyAt('08:00')->withoutOverlapping(10);
+
+        // Work through the opt-ins the hosted signup form rate-limited an import out
+        // of. Offered hourly; the job decides for itself whether enough time has
+        // passed, since only it knows what the form did last time.
+        $schedule->job(new DripOutstandingOptInsJob)->hourly()->withoutOverlapping(60);
     })
     ->withMiddleware(function (Middleware $middleware) {
         $middleware->web(append: [

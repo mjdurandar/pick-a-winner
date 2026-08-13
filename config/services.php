@@ -47,6 +47,32 @@ return [
             'redirect' => env('MAILCHIMP_OAUTH_REDIRECT'),
         ],
 
+        // The audience's own hosted sign-up form, taken from the embed code
+        // Mailchimp generates (Audience -> Signup forms -> Embedded form). Its
+        // parameters are what the form posts, not secrets.
+        //
+        // This is the only route back for a contact Mailchimp holds in a compliance
+        // state: the API refuses them at any privilege level, because opting back in
+        // has to come from the person. Submitting it for someone who is filling in
+        // the sign-up form right now relays their own act; it is not a way to
+        // re-add contacts in bulk, and must never be used for one.
+        'hosted_form' => [
+            'anz' => [
+                'domain' => 'https://adventureentertainment.us13.list-manage.com',
+                'u' => '8d8ea490ca17c83e195d0d40f',
+                'id' => '0c4330d445',
+                'f_id' => '00ea24eaf0',
+                'tag' => '7218045',
+            ],
+            'usa' => [
+                'domain' => 'https://flyfilmtour.us19.list-manage.com',
+                'u' => 'e2c1a1d1c56dc4e1a61f99090',
+                'id' => 'f703c9728c',
+                'f_id' => '00e88fe4f0',
+                'tag' => null,
+            ],
+        ],
+
         'anz' => [
             'key' => env('MAILCHIMP_API_KEY'),
             'server' => env('MAILCHIMP_SERVER_PREFIX'),

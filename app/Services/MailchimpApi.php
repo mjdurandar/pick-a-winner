@@ -123,6 +123,11 @@ class MailchimpApi
      * for by name. They matter: an archived address is not a new contact, and
      * importing it resurrects rather than creates.
      *
+     * Pages are fetched a connection-limit at a time rather than one after another.
+     * Against a 275,000-member audience that is the difference between roughly half
+     * an hour and four minutes, and the whole scan runs before a single contact is
+     * written, so it was most of what an import cost.
+     *
      * @return array<string, string>
      *
      * @throws MailchimpApiException
@@ -133,36 +138,85 @@ class MailchimpApi
 
         foreach ([null, 'archived'] as $status) {
             $offset = 0;
+            $reachedEnd = false;
 
-            do {
-                $response = $this->get("/lists/{$listId}/members", array_filter([
-                    'count' => self::MEMBER_PAGE_SIZE,
-                    'offset' => $offset,
-                    'status' => $status,
-                    'fields' => 'members.email_address,members.status,total_items',
-                ], fn ($value) => $value !== null));
+            while (! $reachedEnd) {
+                $offsets = [];
 
-                $members = $response->json('members') ?? [];
-
-                foreach ($members as $member) {
-                    $email = strtolower(trim((string) ($member['email_address'] ?? '')));
-
-                    if ($email === '') {
-                        continue;
-                    }
-
-                    // The archived pass runs second and wins: Mailchimp keeps the
-                    // pre-archive status on the member, so an archived contact would
-                    // otherwise read as whatever they were before.
-                    $index[$email] = $status ?? ($member['status'] ?? 'subscribed');
+                for ($i = 0; $i < self::LOOKUP_CONCURRENCY; $i++) {
+                    $offsets[] = $offset;
+                    $offset += self::MEMBER_PAGE_SIZE;
                 }
 
-                $offset += self::MEMBER_PAGE_SIZE;
-                $total = (int) $response->json('total_items');
-            } while (count($members) === self::MEMBER_PAGE_SIZE && $offset < $total);
+                $responses = $this->poolGet(collect($offsets)
+                    ->mapWithKeys(fn (int $pageOffset) => [(string) $pageOffset => [
+                        "/lists/{$listId}/members",
+                        array_filter([
+                            'count' => self::MEMBER_PAGE_SIZE,
+                            'offset' => $pageOffset,
+                            'status' => $status,
+                            // total_items is deliberately not asked for. Mailchimp
+                            // recomputes it per call — it measured two seconds a page
+                            // on its own — and the loop below no longer needs it.
+                            'fields' => 'members.email_address,members.status',
+                        ], fn ($value) => $value !== null),
+                    ]])
+                    ->all());
+
+                foreach ($offsets as $pageOffset) {
+                    $members = $responses[(string) $pageOffset]->json('members') ?? [];
+
+                    // A page short of the limit is the last one. Overshooting the end
+                    // by up to nine pages is the price of not knowing the total: they
+                    // come back empty, in parallel, and cost one round trip between
+                    // them.
+                    if (count($members) < self::MEMBER_PAGE_SIZE) {
+                        $reachedEnd = true;
+                    }
+
+                    foreach ($members as $member) {
+                        $email = strtolower(trim((string) ($member['email_address'] ?? '')));
+
+                        if ($email === '') {
+                            continue;
+                        }
+
+                        // The archived pass runs second and wins: Mailchimp keeps the
+                        // pre-archive status on the member, so an archived contact would
+                        // otherwise read as whatever they were before.
+                        $index[$email] = $status ?? ($member['status'] ?? 'subscribed');
+                    }
+                }
+            }
         }
 
         return $index;
+    }
+
+    /**
+     * How many pages memberStatusIndex() would have to read for this audience.
+     *
+     * The dry run uses this to choose between scanning the audience and asking about
+     * each address in the file, so it has to be cheap: two requests that ask for
+     * nothing but the count.
+     *
+     * @throws MailchimpApiException
+     */
+    public function memberIndexPages(string $listId): int
+    {
+        $members = 0;
+
+        foreach ([null, 'archived'] as $status) {
+            $response = $this->get("/lists/{$listId}/members", array_filter([
+                'count' => 1,
+                'status' => $status,
+                'fields' => 'total_items',
+            ], fn ($value) => $value !== null));
+
+            $members += (int) $response->json('total_items');
+        }
+
+        return (int) ceil($members / self::MEMBER_PAGE_SIZE);
     }
 
     /**
@@ -239,18 +293,23 @@ class MailchimpApi
     }
 
     /**
-     * Mailchimp phrases this refusal two ways depending on the endpoint — the title
-     * "Forgotten Email Not Subscribed", and a detail line reading "... is in a
-     * compliance state due to unsubscribe, bounce, or compliance review". The case
-     * is not stable between them, so the match is deliberately loose: treating a
-     * compliance refusal as an ordinary error kills the whole run over one contact.
+     * Mailchimp phrases this refusal several ways depending on the endpoint — the
+     * title "Forgotten Email Not Subscribed", a detail line reading "... is in a
+     * compliance state due to unsubscribe, bounce, or compliance review", and for a
+     * contact that was erased, "... was permanently deleted and cannot be
+     * re-imported". Only the detail reaches here, and for the erased case it is the
+     * last of those, which the first two patterns do not match — so that contact
+     * used to raise and take the whole run down with it. The case is not stable
+     * between them either, so the match is deliberately loose: every one of these is
+     * a refusal about one contact, never a reason to abandon the rest.
      */
     protected function isComplianceRefusal(string $detail): bool
     {
         $detail = strtolower($detail);
 
         return str_contains($detail, 'compliance state')
-            || str_contains($detail, 'forgotten email');
+            || str_contains($detail, 'forgotten email')
+            || str_contains($detail, 'permanently deleted');
     }
 
     /**
@@ -314,14 +373,7 @@ class MailchimpApi
                 // recognised here too — otherwise every address in the file would
                 // silently look like a new contact.
                 if ($response->status() === 401) {
-                    $this->credentials->markRejected();
-
-                    throw new MailchimpApiException(
-                        $this->credentials->rejectionMessage(),
-                        401,
-                        'credential rejected',
-                        $this->credentials->isOAuth(),
-                    );
+                    $this->rejectCredential();
                 }
 
                 // 404 is the ordinary answer for "not in this audience".
@@ -332,6 +384,77 @@ class MailchimpApi
         }
 
         return $index;
+    }
+
+    /**
+     * Several GETs at once, up to the connection limit Mailchimp allows.
+     *
+     * Strict where memberStatusesFor() is forgiving: a caller paging an audience has
+     * no way to tell a page that failed from a page that was empty, and a silently
+     * short index would classify real members as new contacts. Any failure raises.
+     *
+     * @param  array<string, array{0: string, 1: array<string, mixed>}>  $requests  key => [path, query]
+     * @return array<string, Response>
+     *
+     * @throws MailchimpApiException
+     */
+    protected function poolGet(array $requests): array
+    {
+        $responses = Http::pool(fn (Pool $pool) => collect($requests)
+            ->map(fn (array $request, string $key) => $this->credentials
+                ->authorize($pool->as($key)->acceptJson()->timeout(60))
+                ->get($this->url($request[0]), $request[1]))
+            ->all());
+
+        foreach (array_keys($requests) as $key) {
+            $response = $responses[$key] ?? null;
+
+            // A pooled request can come back as the exception itself rather than a
+            // response — a timeout or a dropped connection.
+            if (! $response instanceof Response) {
+                throw new MailchimpApiException(
+                    'Mailchimp did not answer while reading the audience. The import can be run again.',
+                    null,
+                    $response instanceof \Throwable ? $response->getMessage() : null,
+                );
+            }
+
+            // The pool bypasses send(), so a rejected credential has to be recognised
+            // here too.
+            if ($response->status() === 401) {
+                $this->rejectCredential();
+            }
+
+            if ($response->failed()) {
+                throw MailchimpApiException::fromResponse($response);
+            }
+        }
+
+        return $responses;
+    }
+
+    /**
+     * Mark the credential unusable and say so. A 401 is never worth retrying: the
+     * token or key itself was refused.
+     *
+     * @throws MailchimpApiException
+     */
+    protected function rejectCredential(): never
+    {
+        $this->credentials->markRejected();
+
+        MailchimpAuditLog::record(MailchimpAuditLog::NEEDS_RECONNECT, [
+            'account' => $this->credentials->account,
+            'credential_source' => $this->credentials->source,
+        ]);
+
+        throw new MailchimpApiException(
+            $this->credentials->rejectionMessage(),
+            401,
+            'credential rejected',
+            // Only an OAuth connection can be repaired from the settings page.
+            $this->credentials->isOAuth(),
+        );
     }
 
     protected function get(string $path, array $query = []): Response
@@ -374,22 +497,10 @@ class MailchimpApi
         $response = $callback($this->request());
 
         if ($response->status() === 401) {
-            $this->credentials->markRejected();
-
-            MailchimpAuditLog::record(MailchimpAuditLog::NEEDS_RECONNECT, [
-                'account' => $this->credentials->account,
-                'credential_source' => $this->credentials->source,
-            ]);
-
-            throw new MailchimpApiException(
-                $this->credentials->rejectionMessage(),
-                401,
-                'credential rejected',
-                // Only an OAuth connection can be repaired from the settings page;
-                // a bad API key needs an environment change, so the UI must not
-                // send the admin to a reconnect button that cannot help.
-                $this->credentials->isOAuth(),
-            );
+            // A bad API key needs an environment change rather than a reconnect, so
+            // the UI must not send the admin to a button that cannot help;
+            // rejectCredential() carries that distinction.
+            $this->rejectCredential();
         }
 
         if ($response->failed()) {

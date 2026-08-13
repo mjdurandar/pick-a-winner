@@ -275,6 +275,11 @@ class MailchimpLocationImportService
             return 0;
         }
 
+        // Asked before the batch runs: PUT /members/{hash} is add-or-update and answers
+        // the same either way, so this is the only moment the audience can still say
+        // which of these people it had never heard of.
+        $existingBefore = $mailchimpService->existingMemberEmails($listId, array_column($subscribersToImport, 'email_address'));
+
         $batchResult = $this->runBatchImport($mailchimpService, $listId, $subscribersToImport, $tags, $fieldMapping, $interestTagMap);
         $locSuccess = $batchResult['success'];
         $batchFailed = $batchResult['failed'];
@@ -283,7 +288,10 @@ class MailchimpLocationImportService
         $attempted = count($subscribersToImport);
         $locDataWithError = count($failedRowsData);
         $noDetailCount = max(0, $batchFailed - count($failedRowsData));
-        $locUpdated = $locSuccess + $noDetailCount;
+        $written = $locSuccess + $noDetailCount;
+        $split = MailchimpService::splitNewAndUpdated($subscribersToImport, $existingBefore, $failedRowsData, $written);
+        $locNew = $split['new'];
+        $locUpdated = $split['updated'];
         $locErrors = $batchResult['errors'];
 
         $hadPreviousImport = MailchimpImportLog::where('location_id', $locationId)
@@ -301,7 +309,7 @@ class MailchimpLocationImportService
         ], [
             'imported_by' => $userId ?: null,
             'total_data' => $attempted,
-            'new_contacts' => 0,
+            'new_contacts' => $locNew,
             'updated_data' => $locUpdated,
             'data_with_error' => $locDataWithError,
             'errors' => array_slice($locErrors, 0, 50),
@@ -409,6 +417,9 @@ class MailchimpLocationImportService
             return 0;
         }
 
+        // Taken before the batch, for the reason given on the ticket leg above.
+        $existingBefore = $mailchimpService->existingMemberEmails($listId, array_column($subscribersToImport, 'email_address'));
+
         $batchResult = $this->runBatchImport($mailchimpService, $listId, $subscribersToImport, $formTags, $fieldMapping, $interestTagMap);
         $locFormSuccess = $batchResult['success'];
         $locFormFailed = $batchResult['failed'];
@@ -416,7 +427,10 @@ class MailchimpLocationImportService
         $failedRowsData = array_slice($failedOperations, 0, $maxFailedRowsStored);
         $locFormDataWithError = count($failedRowsData);
         $noDetailCountForm = max(0, $locFormFailed - count($failedRowsData));
-        $locFormUpdated = $locFormSuccess + $noDetailCountForm;
+        $writtenForm = $locFormSuccess + $noDetailCountForm;
+        $formSplit = MailchimpService::splitNewAndUpdated($subscribersToImport, $existingBefore, $failedRowsData, $writtenForm);
+        $locFormNew = $formSplit['new'];
+        $locFormUpdated = $formSplit['updated'];
         $locFormErrors = $batchResult['errors'];
         $attemptedForm = count($subscribersToImport);
 
@@ -435,7 +449,7 @@ class MailchimpLocationImportService
         ], [
             'imported_by' => $userId ?: null,
             'total_data' => $attemptedForm,
-            'new_contacts' => 0,
+            'new_contacts' => $locFormNew,
             'updated_data' => $locFormUpdated,
             'data_with_error' => $locFormDataWithError,
             'errors' => array_slice($locFormErrors, 0, 50),

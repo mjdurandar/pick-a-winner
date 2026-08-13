@@ -24,11 +24,19 @@ class MailchimpDryRun
     private const INSERT_CHUNK = 500;
 
     /**
-     * Above this many distinct addresses, reading the whole audience costs less than
-     * asking about each one. Set where ten-at-a-time lookups stop beating a page per
-     * thousand members for the audiences this app imports into.
+     * How many single-address lookups one page of the audience is worth.
+     *
+     * Both routes run ten requests at a time, so the comparison is request against
+     * request: a thousand-member page measured about four seconds, a single-address
+     * lookup about one. A fixed limit cannot express that — it was 500, which sent a
+     * 600-row file on a half-hour scan of a 275,000-member audience when ten minutes
+     * of lookups would have answered the same question. The break-even moves with the
+     * audience, so it is worked out from the audience.
      */
-    private const TARGETED_LOOKUP_LIMIT = 500;
+    private const PAGE_COST_IN_LOOKUPS = 4;
+
+    /** Below this, the audience is small enough that scanning it always wins. */
+    private const MINIMUM_TARGETED_LIMIT = 100;
 
     /**
      * Mailchimp member states that mean the contact is present and already
@@ -120,6 +128,7 @@ class MailchimpDryRun
         string $path,
         string $emailColumn,
     ): array {
+        $limit = $this->targetedLookupLimit($import, $api);
         $emails = [];
 
         foreach ($this->parser->rows($path) as [, $values]) {
@@ -130,12 +139,27 @@ class MailchimpDryRun
                 $emails[$email] = true;
             }
 
-            if (count($emails) > self::TARGETED_LOOKUP_LIMIT) {
+            if (count($emails) > $limit) {
                 return $api->memberStatusIndex($import->audience_id);
             }
         }
 
         return $api->memberStatusesFor($import->audience_id, array_keys($emails));
+    }
+
+    /**
+     * The number of distinct addresses above which scanning the whole audience is
+     * the cheaper way to answer.
+     *
+     * Costs two small requests to find out, which a file of any size earns back.
+     *
+     * @throws MailchimpApiException
+     */
+    protected function targetedLookupLimit(MailchimpImport $import, MailchimpApi $api): int
+    {
+        $pages = $api->memberIndexPages($import->audience_id);
+
+        return max(self::MINIMUM_TARGETED_LIMIT, $pages * self::PAGE_COST_IN_LOOKUPS);
     }
 
     /**

@@ -7,6 +7,7 @@ use App\Models\Location;
 use App\Models\MailchimpImportLog;
 use App\Models\NewsletterResubscribeAttempt;
 use App\Models\SignUpForm;
+use App\Services\MailchimpHostedForm;
 use App\Services\MailchimpService;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Http\Request;
@@ -20,9 +21,14 @@ class SignUpFormController extends Controller
 {
     protected $autoMailchimpService;
 
-    public function __construct(\App\Services\AutoMailchimpService $autoMailchimpService)
-    {
+    protected MailchimpHostedForm $hostedForm;
+
+    public function __construct(
+        \App\Services\AutoMailchimpService $autoMailchimpService,
+        MailchimpHostedForm $hostedForm,
+    ) {
         $this->autoMailchimpService = $autoMailchimpService;
+        $this->hostedForm = $hostedForm;
     }
 
     // Newsletter audience names per MC account
@@ -30,8 +36,9 @@ class SignUpFormController extends Controller
 
     const USA_NEWSLETTER_AUDIENCE = 'Fly Fishing Film Tour';
 
-    // Hardcoded Mailchimp embed form URLs for compliance state resub (per account)
-    const USA_COMPLIANCE_SIGNUP_URL = 'https://flyfilmtour.us19.list-manage.com/subscribe/post?u=e2c1a1d1c56dc4e1a61f99090&id=f703c9728c&f_id=00e88fe4f0';
+    // The hosted form each account falls back to now lives in
+    // config/services.php under mailchimp.hosted_form, so the link shown to a
+    // compliance-locked contact and the form the server relays to cannot drift apart.
 
     /**
      * Determine the Mailchimp account based on event country.
@@ -95,6 +102,30 @@ class SignUpFormController extends Controller
                 'error' => $e->getMessage(),
             ]);
         }
+    }
+
+    /**
+     * How the hosted form's answer is recorded in the report.
+     *
+     * Only Mailchimp saying the contact is on the list counts as a resubscribe. A
+     * confirmation email is a step towards one, not one — the contact still has to
+     * click it — and reporting it as success would overstate what happened.
+     */
+    private function outcomeForHostedForm(string $status): string
+    {
+        return match ($status) {
+            MailchimpHostedForm::ACCEPTED,
+            MailchimpHostedForm::ALREADY_SUBSCRIBED => NewsletterResubscribeAttempt::RESUBSCRIBED,
+            MailchimpHostedForm::CONFIRMATION_SENT => NewsletterResubscribeAttempt::CONFIRMATION_SENT,
+            // The form was busy, which says nothing about this contact. Filing it as
+            // blocked would write off someone who just opted in at a venue — and on a
+            // busy night that is most of the queue, since the form starts refusing
+            // after a couple of dozen. Deferred instead, and the drip retries it.
+            MailchimpHostedForm::THROTTLED => NewsletterResubscribeAttempt::DEFERRED,
+            // Rejected or not configured: the contact is still stuck where they were,
+            // so the report must keep saying so.
+            default => NewsletterResubscribeAttempt::BLOCKED_COMPLIANCE,
+        };
     }
 
     /**
@@ -274,13 +305,12 @@ class SignUpFormController extends Controller
                 $form = SignUpForm::where('event_id', $event->id)->first();
                 $mailchimpSignupUrl = $form->mailchimp_signup_url ?? null;
 
-                // If not set, use hardcoded URL based on account, or fetch from Mailchimp API
+                // Otherwise the configured hosted form for this account — the same one
+                // the server relays to on submit — and only if that is missing does it
+                // fall back to whatever Mailchimp reports for the audience.
                 if (! $mailchimpSignupUrl) {
-                    if ($account === 'usa') {
-                        $mailchimpSignupUrl = self::USA_COMPLIANCE_SIGNUP_URL;
-                    } else {
-                        $mailchimpSignupUrl = $mailchimpService->getListSignupUrl($listId);
-                    }
+                    $mailchimpSignupUrl = $this->hostedForm->subscribeUrl($account)
+                        ?: $mailchimpService->getListSignupUrl($listId);
                 }
             }
 
@@ -639,18 +669,29 @@ class SignUpFormController extends Controller
                     if ($status['exists'] && $status['status'] !== 'subscribed') {
                         $resubResult = $mailchimpService->resubscribe($listId, $email);
                         if (is_array($resubResult) && ($resubResult['status'] ?? null) === 'compliance_skipped') {
+                            // The API will not take this contact back at any privilege
+                            // level. They have just filled in this form and pressed
+                            // submit, so their own sign-up is relayed to the audience's
+                            // hosted form — the one route Mailchimp accepts, because it
+                            // treats that as the contact opting in themselves.
+                            $hosted = $this->hostedForm->submit($account, $email);
+
                             $this->recordResubscribeAttempt(
                                 $event,
                                 $email,
-                                NewsletterResubscribeAttempt::BLOCKED_COMPLIANCE,
+                                $this->outcomeForHostedForm($hosted['status']),
                                 $listInfo,
-                                $resubResult['detail'] ?? null,
+                                // Mailchimp's refusal and its answer to the form are
+                                // both worth keeping — the second explains the first.
+                                trim(($resubResult['detail'] ?? '').' → '.($hosted['detail'] ?? $hosted['status']), ' →'),
                                 $locationId,
                             );
-                            \Illuminate\Support\Facades\Log::info('Newsletter resubscribe skipped (compliance state) on form submit', [
+
+                            \Illuminate\Support\Facades\Log::info('Compliance-state contact relayed to the hosted Mailchimp form', [
                                 'email' => $email,
                                 'account' => $account,
                                 'audience' => $audienceName,
+                                'hosted_form_status' => $hosted['status'],
                             ]);
                         } else {
                             $this->recordNewsletterResubscribe($locationId, $listInfo);

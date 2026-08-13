@@ -7,6 +7,7 @@ use App\Exceptions\MailchimpApiException;
 use App\Jobs\RunMailchimpDryRunJob;
 use App\Jobs\RunMailchimpImportJob;
 use App\Models\MailchimpConnection;
+use App\Models\MailchimpFormRelayRun;
 use App\Models\MailchimpImport;
 use App\Models\MailchimpImportRow;
 use App\Services\CsvImportParser;
@@ -78,7 +79,46 @@ class MailchimpImportController extends Controller
         return Inertia::render('MailchimpImport', [
             'accounts' => $accounts,
             'maxUploadMb' => self::MAX_UPLOAD_KB / 1024,
+            'recentImports' => $this->recentImports(),
         ]);
+    }
+
+    /**
+     * Files already put through the wizard, so one can be opened again.
+     *
+     * An import whose contacts the signup form rate-limited carries on in the
+     * background for hours afterwards. Without a way back to it the admin would have
+     * nowhere to watch that happen — the wizard always opens on step one, and a
+     * finished import was unreachable the moment they navigated away.
+     *
+     * @return array<int, array<string, mixed>>
+     */
+    protected function recentImports(): array
+    {
+        return MailchimpImport::query()
+            ->latest('id')
+            ->limit(15)
+            ->get()
+            ->map(function (MailchimpImport $import) {
+                $counts = $import->outcomeCounts();
+
+                return [
+                    'id' => $import->id,
+                    'filename' => $import->filename,
+                    'account' => $import->account,
+                    'audience_name' => $import->audience_name,
+                    'status' => $import->status,
+                    'rows' => $import->original_row_count,
+                    'created_at' => $import->created_at?->diffForHumans(),
+                    // What is still owed, and what the signup form has recovered so
+                    // far — the two numbers worth seeing without opening the file.
+                    'outstanding' => $import->actionableCount(),
+                    'recovered' => ($counts[MailchimpImportRow::RECOVERED_VIA_FORM] ?? 0)
+                        + ($counts[MailchimpImportRow::RESUBSCRIBED] ?? 0)
+                        + ($counts[MailchimpImportRow::SUBSCRIBED] ?? 0),
+                ];
+            })
+            ->all();
     }
 
     /**
@@ -241,9 +281,20 @@ class MailchimpImportController extends Controller
             'field_map' => ['required', 'array'],
             'field_map.*' => ['nullable', 'string', 'max:100'],
             'consent_confirmed' => ['required', 'accepted'],
-            'consent_source' => ['nullable', 'string', 'max:255'],
+            'consent_source' => ['required', 'string', 'max:255'],
+            // What Mailchimp Support asks for when a contact it holds in a compliance
+            // state has to be restored on documented consent. Recorded at upload,
+            // while whoever ran the collection still remembers it.
+            'consent_details' => ['nullable', 'array'],
+            'consent_details.method' => ['required', 'string', 'max:100'],
+            'consent_details.wording' => ['required', 'string', 'max:1000'],
+            'consent_details.collected_at' => ['nullable', 'string', 'max:255'],
+            'consent_details.collected_on' => ['nullable', 'date'],
         ], [
             'consent_confirmed.accepted' => 'Confirm that these contacts opted in before continuing.',
+            'consent_source.required' => 'Say where these contacts opted in — it is the record you will need if Mailchimp asks.',
+            'consent_details.method.required' => 'Choose how the opt-in was collected.',
+            'consent_details.wording.required' => 'Record what these contacts agreed to, in the words they saw.',
         ]);
 
         $map = array_filter($validated['field_map'], fn ($tag) => filled($tag));
@@ -272,7 +323,8 @@ class MailchimpImportController extends Controller
             'field_map' => $map,
             'consent_confirmed_by_user_id' => $request->user()->id,
             'consent_confirmed_at' => now(),
-            'consent_source' => $validated['consent_source'] ?? null,
+            'consent_source' => $validated['consent_source'],
+            'consent_details' => $validated['consent_details'] ?? null,
             'status' => MailchimpImport::STATUS_PENDING,
             'failure_reason' => null,
         ]);
@@ -324,6 +376,9 @@ class MailchimpImportController extends Controller
         $import->update([
             'status' => MailchimpImport::STATUS_DRY_RUN_RUNNING,
             'failure_reason' => null,
+            // Cleared here and stamped by the job, so a second preview waits for its
+            // own worker rather than trusting the first one's mark.
+            'dry_run_started_at' => null,
         ]);
 
         RunMailchimpDryRunJob::dispatch($import->id);
@@ -347,11 +402,15 @@ class MailchimpImportController extends Controller
         // A failed run can be started again. Rows are written back as Mailchimp
         // answers for them, so whatever already went through is no longer actionable
         // and the second attempt only picks up what is left.
+        // A finished run can be sent again when contacts are still outstanding — the
+        // signup form throttles, and whatever it turned away keeps its actionable
+        // classification rather than being written off. Rows already sent are no
+        // longer actionable, so the second pass only picks up what is left.
         if (! in_array($import->status, [
             MailchimpImport::STATUS_DRY_RUN_COMPLETE,
             MailchimpImport::STATUS_FAILED,
             MailchimpImport::STATUS_RUNNING,
-        ], true)) {
+        ], true) && ! ($import->status === MailchimpImport::STATUS_COMPLETE && $import->actionableCount() > 0)) {
             abort(422, 'Preview this import before sending it.');
         }
 
@@ -453,6 +512,61 @@ class MailchimpImportController extends Controller
     }
 
     /**
+     * The contacts Mailchimp refused on compliance grounds, with the consent this
+     * import was run under attached to every row.
+     *
+     * A compliance state is Mailchimp's record that the address once unsubscribed,
+     * bounced or was deleted; nothing the API or this app can send will clear it,
+     * because clearing it is the contact's own act. Where the opt-in was collected
+     * offline and can be evidenced, Mailchimp Support will restore them on that
+     * evidence — this is that evidence, per contact, in one file.
+     */
+    public function consentEvidence(MailchimpImport $import): StreamedResponse
+    {
+        $consent = $import->consent_details ?? [];
+
+        MailchimpAuditLog::record(MailchimpAuditLog::IMPORT_EXPORTED, [
+            'import_id' => $import->id,
+            'account' => $import->account,
+            'audience_id' => $import->audience_id,
+            'scope' => 'consent evidence',
+        ]);
+
+        $filename = 'compliance-restore-request-'.$import->id.'-'.now()->format('Y-m-d').'.csv';
+
+        return response()->streamDownload(function () use ($import, $consent) {
+            $handle = fopen('php://output', 'w');
+
+            fputcsv($handle, [
+                'Email', 'Audience', 'Mailchimp reason', 'Opt-in method', 'Opt-in wording',
+                'Collected at', 'Collected on', 'Recorded by', 'Recorded at', 'Source file',
+            ]);
+
+            $import->rows()
+                ->where('outcome', MailchimpImportRow::BLOCKED_UNSUBSCRIBED)
+                ->orderBy('row_number')
+                ->chunk(500, function ($rows) use ($handle, $import, $consent) {
+                    foreach ($rows as $row) {
+                        fputcsv($handle, [
+                            $row->email,
+                            $import->audience_name,
+                            $row->detail,
+                            $consent['method'] ?? '—',
+                            $consent['wording'] ?? '—',
+                            $consent['collected_at'] ?? $import->consent_source,
+                            $consent['collected_on'] ?? '—',
+                            $import->consentConfirmedBy?->name ?? '—',
+                            $import->consent_confirmed_at?->toDateTimeString(),
+                            $import->filename,
+                        ]);
+                    }
+                });
+
+            fclose($handle);
+        }, $filename, ['Content-Type' => 'text/csv']);
+    }
+
+    /**
      * @return array<string, mixed>
      */
     protected function previewPayload(MailchimpImport $import, ?string $outcome = null): array
@@ -470,6 +584,19 @@ class MailchimpImportController extends Controller
             'running' => $import->status === MailchimpImport::STATUS_RUNNING,
             'finished' => $import->isFinished(),
             'failure_reason' => $import->failure_reason,
+            // Whether a worker has actually picked the dry run up. The page waits
+            // minutes for a large audience once it has, and gives up in seconds when
+            // it has not.
+            'dry_run_started' => $import->dry_run_started_at !== null,
+            // What the run is waiting for, and proof it is still breathing. A relay
+            // waiting out the signup form's rate limit answers for nobody for over a
+            // minute at a time, so silence is not evidence of a dead worker.
+            'progress_note' => $import->progress_note,
+            'heartbeat' => $import->updated_at?->toIso8601String(),
+            // The schedule that finishes whatever the signup form's rate limit left
+            // over. Without this the page can only say a run stopped early, never
+            // that something is still working through the remainder.
+            'relay' => $this->relayStatus($import),
             'import' => [
                 'id' => $import->id,
                 'filename' => $import->filename,
@@ -500,6 +627,97 @@ class MailchimpImportController extends Controller
                 ->all(),
             'row_limit' => self::PREVIEW_ROW_LIMIT,
             'signup_url' => $this->signupUrlIfNeeded($import),
+        ];
+    }
+
+    /**
+     * Drop an import: stop it if it is going, and take its contacts out of the
+     * queue the signup form is working through.
+     *
+     * Contacts already sent are not undone — they are in Mailchimp, and nothing here
+     * reaches them. What this removes is the file's remaining claim on the schedule,
+     * which is the point when the same CSV has been uploaded four times and its
+     * duplicates are queueing the same people over and over.
+     */
+    public function destroy(Request $request, MailchimpImport $import): JsonResponse
+    {
+        $wasRunning = in_array($import->status, [
+            MailchimpImport::STATUS_RUNNING,
+            MailchimpImport::STATUS_DRY_RUN_RUNNING,
+        ], true);
+
+        // Both jobs check the status before every stage and stop when it is not the
+        // one they claimed, so this is what actually cancels them. A job already
+        // inside a Mailchimp call finishes that contact first.
+        if ($wasRunning) {
+            $import->update([
+                'status' => MailchimpImport::STATUS_FAILED,
+                'failure_reason' => 'Cancelled by '.($request->user()->name ?? 'an admin').'.',
+            ]);
+        }
+
+        MailchimpAuditLog::record(MailchimpAuditLog::IMPORT_DISCARDED, [
+            'import_id' => $import->id,
+            'account' => $import->account,
+            'audience_id' => $import->audience_id,
+            'filename' => $import->filename,
+            'was_running' => $wasRunning,
+            'outstanding' => $import->actionableCount(),
+        ]);
+
+        if ($import->stored_path) {
+            Storage::disk('local')->delete($import->stored_path);
+        }
+
+        $import->rows()->delete();
+        $import->delete();
+
+        return response()->json([
+            'cancelled' => $wasRunning,
+            'recentImports' => $this->recentImports(),
+        ]);
+    }
+
+    /**
+     * Where the drip has got to for this import's account.
+     *
+     * Null when nothing is outstanding, so the page only talks about the schedule
+     * when the schedule has something to do.
+     *
+     * @return array<string, mixed>|null
+     */
+    protected function relayStatus(MailchimpImport $import): ?array
+    {
+        $outstanding = $import->actionableCount();
+
+        if ($outstanding === 0) {
+            return null;
+        }
+
+        $last = MailchimpFormRelayRun::latestFor($import->account);
+        $plan = MailchimpFormRelayRun::plan($import->account);
+
+        return [
+            'outstanding' => $outstanding,
+            'recovered' => $import->rows()->where('outcome', MailchimpImportRow::RECOVERED_VIA_FORM)->count(),
+            // Every account queues against the same form, so a second import's
+            // contacts are ahead of or behind this one's.
+            'queued_account_wide' => MailchimpImportRow::query()
+                ->where('outcome', MailchimpImportRow::WILL_RESUBSCRIBE)
+                ->whereHas('import', fn ($q) => $q
+                    ->where('account', $import->account)
+                    ->where('status', MailchimpImport::STATUS_COMPLETE)
+                    ->whereNotNull('consent_details'))
+                ->distinct()
+                ->count('email'),
+            'next_batch' => $plan['batch'],
+            'next_attempt_at' => $last?->next_attempt_at?->toIso8601String(),
+            'next_attempt_human' => $last?->next_attempt_at?->isFuture()
+                ? $last->next_attempt_at->diffForHumans()
+                : 'due now',
+            'last_accepted' => $last?->accepted,
+            'last_throttled' => (bool) $last?->throttled,
+            'ever_run' => $last !== null,
         ];
     }
 

@@ -622,6 +622,11 @@ class EventImportAllToMailchimpJob implements ShouldQueue
             ]);
         }
 
+        // Asked before the batch runs: PUT /members/{hash} is add-or-update and answers
+        // the same either way, so this is the only moment the audience can still say
+        // which of these people it had never heard of.
+        $existingBefore = $mailchimpService->existingMemberEmails($listId, array_column($subscribersToImport, 'email_address'));
+
         $batchResult = $this->runBatchImport($mailchimpService, $listId, $subscribersToImport, $tags, $this->fieldMapping, $this->interestTagMap);
         $locSuccess = $batchResult['success'];
         $batchFailed = $batchResult['failed'];
@@ -629,12 +634,14 @@ class EventImportAllToMailchimpJob implements ShouldQueue
         $failedOperations = $batchResult['failed_operations'] ?? [];
         $failedRowsData = array_slice($failedOperations, 0, $maxFailedRowsStored);
         $attempted = count($subscribersToImport);
-        $locNew = 0;
         // Only count as "data with error" rows where we have full error details (showable in UI).
         // Mailchimp-reported errors without details are counted as updated (e.g. may already be in list).
         $locDataWithError = count($failedRowsData);
         $noDetailCount = max(0, $batchFailed - count($failedRowsData));
-        $locUpdated = $locSuccess + $noDetailCount;
+        $written = $locSuccess + $noDetailCount;
+        $split = MailchimpService::splitNewAndUpdated($subscribersToImport, $existingBefore, $failedRowsData, $written);
+        $locNew = $split['new'];
+        $locUpdated = $split['updated'];
         $locErrors = $batchResult['errors'];
 
         $hadPreviousImport = MailchimpImportLog::where('location_id', $locationId)
@@ -755,16 +762,21 @@ class EventImportAllToMailchimpJob implements ShouldQueue
             );
         }
 
+        // Taken before the batch, for the reason given on the ticket leg above.
+        $existingBefore = $mailchimpService->existingMemberEmails($listId, array_column($subscribersToImport, 'email_address'));
+
         $batchResult = $this->runBatchImport($mailchimpService, $listId, $subscribersToImport, $formTags, $this->fieldMapping, $this->interestTagMap);
         $locFormSuccess = $batchResult['success'];
         $locFormFailed = $batchResult['failed'];
         $failedOperations = $batchResult['failed_operations'] ?? [];
         $failedRowsData = array_slice($failedOperations, 0, $maxFailedRowsStored);
-        $locFormNew = 0;
         // Only count as "data with error" rows where we have full error details (showable in UI).
         $locFormDataWithError = count($failedRowsData);
         $noDetailCountForm = max(0, $locFormFailed - count($failedRowsData));
-        $locFormUpdated = $locFormSuccess + $noDetailCountForm;
+        $writtenForm = $locFormSuccess + $noDetailCountForm;
+        $formSplit = MailchimpService::splitNewAndUpdated($subscribersToImport, $existingBefore, $failedRowsData, $writtenForm);
+        $locFormNew = $formSplit['new'];
+        $locFormUpdated = $formSplit['updated'];
         $locFormErrors = $batchResult['errors'];
         $attemptedForm = count($subscribersToImport);
 

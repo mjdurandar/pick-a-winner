@@ -102,6 +102,24 @@ const tiles = computed(() => [
         icon: 'fa-rotate',
     },
     {
+        key: 'confirmation_sent',
+        label: 'Confirmation sent',
+        value: props.summary.confirmation_sent?.attempts ?? 0,
+        contacts: props.summary.confirmation_sent?.contacts ?? 0,
+        classes: 'border-blue-300 bg-blue-50',
+        text: 'text-blue-700',
+        icon: 'fa-envelope-circle-check',
+    },
+    {
+        key: 'deferred',
+        label: 'Waiting to retry',
+        value: props.summary.deferred?.attempts ?? 0,
+        contacts: props.summary.deferred?.contacts ?? 0,
+        classes: 'border-purple-300 bg-purple-50',
+        text: 'text-purple-700',
+        icon: 'fa-clock-rotate-left',
+    },
+    {
         key: 'blocked',
         label: 'Blocked by Mailchimp',
         value: props.summary.blocked_compliance?.attempts ?? 0,
@@ -133,6 +151,8 @@ const emptyRowCount = computed(() => props.breakdown.filter((row) => row.total =
 
 const outcomeClass = (outcome) => {
     if (outcome === 'resubscribed') return 'bg-green-100 text-green-800';
+    if (outcome === 'confirmation_sent') return 'bg-blue-100 text-blue-800';
+    if (outcome === 'deferred') return 'bg-purple-100 text-purple-800';
     if (outcome === 'blocked_compliance') return 'bg-amber-100 text-amber-800';
     return 'bg-red-100 text-red-800';
 };
@@ -243,6 +263,8 @@ const goToPage = (url) => {
                                 <select v-model="report" class="border rounded px-3 py-2 text-sm min-w-[180px]">
                                     <option value="">All outcomes</option>
                                     <option value="resubscribed">Resubscribed</option>
+                                    <option value="confirmation_sent">Confirmation sent</option>
+                                    <option value="deferred">Waiting to retry</option>
                                     <option value="blocked">Blocked by Mailchimp</option>
                                     <option value="failed">Failed</option>
                                 </select>
@@ -304,6 +326,8 @@ const goToPage = (url) => {
                                             {{ breakdownBy === 'event' ? 'Event' : 'Location' }}
                                         </th>
                                         <th class="border border-gray-300 p-2 text-right whitespace-nowrap">Resubscribed</th>
+                                        <th class="border border-gray-300 p-2 text-right whitespace-nowrap" title="Relayed to Mailchimp's hosted form — back on the list once they click the confirmation">Confirming</th>
+                                        <th class="border border-gray-300 p-2 text-right whitespace-nowrap" title="The signup form was busy — the drip retries these">Retrying</th>
                                         <th class="border border-gray-300 p-2 text-right whitespace-nowrap">Blocked</th>
                                         <th class="border border-gray-300 p-2 text-right whitespace-nowrap">Failed</th>
                                         <th class="border border-gray-300 p-2 text-right whitespace-nowrap">Total</th>
@@ -313,12 +337,14 @@ const goToPage = (url) => {
                                     <tr v-for="row in visibleBreakdown" :key="`${row.id}-${row.name}`" class="even:bg-gray-50">
                                         <td class="border border-gray-300 p-2">{{ row.name }}</td>
                                         <td class="border border-gray-300 p-2 text-right text-green-700">{{ row.resubscribed }}</td>
+                                        <td class="border border-gray-300 p-2 text-right text-blue-700">{{ row.confirmation_sent }}</td>
+                                        <td class="border border-gray-300 p-2 text-right text-purple-700">{{ row.deferred }}</td>
                                         <td class="border border-gray-300 p-2 text-right text-amber-700">{{ row.blocked_compliance }}</td>
                                         <td class="border border-gray-300 p-2 text-right text-red-700">{{ row.failed }}</td>
                                         <td class="border border-gray-300 p-2 text-right font-semibold">{{ row.total }}</td>
                                     </tr>
                                     <tr v-if="visibleBreakdown.length === 0">
-                                        <td colspan="5" class="border border-gray-300 p-4 text-center text-gray-500">
+                                        <td colspan="7" class="border border-gray-300 p-4 text-center text-gray-500">
                                             Nothing recorded yet.
                                         </td>
                                     </tr>

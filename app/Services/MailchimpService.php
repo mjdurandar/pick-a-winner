@@ -7,6 +7,9 @@ use Illuminate\Support\Facades\Config;
 
 class MailchimpService
 {
+    /** Mailchimp allows ten simultaneous connections per key; pooled lookups stay under it. */
+    private const MEMBER_LOOKUP_CONCURRENCY = 10;
+
     protected $apiKey;
     protected $serverPrefix;
     protected $baseUrl;
@@ -592,6 +595,132 @@ class MailchimpService
         }
 
         throw new \Exception('Failed to check subscriber status: ' . $response->body());
+    }
+
+    /**
+     * Which of these addresses the audience already knows about.
+     *
+     * Asked BEFORE a batch import, because afterwards the answer is gone: the batch
+     * endpoint writes with PUT /members/{hash}, which is add-or-update and answers
+     * 200 either way. Without this the caller cannot tell a brand new contact from
+     * one it just refreshed, which is why "New" read zero on every batch import.
+     *
+     * Mailchimp has no bulk member lookup, so this is one GET per address, pooled to
+     * the connection limit — the same shape MailchimpApi::memberStatusesFor() uses.
+     * A request that fails for any reason other than a clean 404 is left out rather
+     * than guessed at: an address wrongly treated as absent inflates the New count,
+     * and a wrong number is worse than the zero this replaces.
+     *
+     * @param  string[]  $emails
+     * @return array<string, true>  lowercased address => true, for isset() lookups
+     */
+    public function existingMemberEmails(string $listId, array $emails): array
+    {
+        if (empty($this->apiKey)) {
+            throw new \Exception("Mailchimp API key not configured for account: {$this->account}");
+        }
+
+        $unique = [];
+        foreach ($emails as $email) {
+            $normalised = strtolower(trim((string) $email));
+            if ($normalised !== '') {
+                $unique[$normalised] = true;
+            }
+        }
+
+        $existing = [];
+
+        foreach (array_chunk(array_keys($unique), self::MEMBER_LOOKUP_CONCURRENCY) as $chunk) {
+            try {
+                $responses = Http::pool(fn ($pool) => collect($chunk)
+                    ->map(fn (string $email) => $pool
+                        ->as($email)
+                        ->withBasicAuth('anystring', $this->apiKey)
+                        ->acceptJson()
+                        ->timeout(30)
+                        ->get(
+                            "{$this->baseUrl}/lists/{$listId}/members/" . md5($email),
+                            ['fields' => 'status']
+                        ))
+                    ->all());
+            } catch (\Throwable $e) {
+                // The whole pool went down. Treat the chunk as unknown and carry on —
+                // the import itself is unaffected, only the new/updated split is.
+                \Illuminate\Support\Facades\Log::warning('Mailchimp member lookup pool failed', [
+                    'list_id' => $listId,
+                    'error' => $e->getMessage(),
+                ]);
+
+                continue;
+            }
+
+            foreach ($chunk as $email) {
+                $response = $responses[$email] ?? null;
+
+                // A pooled request can come back as the exception itself rather than a
+                // response; either way this address is simply unknown to us.
+                if (! $response instanceof \Illuminate\Http\Client\Response) {
+                    continue;
+                }
+
+                if ($response->successful()) {
+                    $existing[$email] = true;
+                }
+            }
+        }
+
+        return $existing;
+    }
+
+    /**
+     * Split the contacts a batch actually wrote into new ones and refreshed ones.
+     *
+     * The two numbers always add up to $written, which is the figure that used to be
+     * reported as "updated" on its own. Anything reading new + updated — the "has this
+     * location been imported" check among them — sees exactly what it saw before.
+     *
+     * A contact counts as new when the audience did not know the address before the
+     * batch AND the batch did not report a detailed failure for it. Failures Mailchimp
+     * gave no detail for are already treated as writes by the caller (they are usually
+     * "already a member"), so they fall to updated by subtraction — which is where a
+     * contact of unknown provenance belongs.
+     *
+     * @param  array<int, array<string, mixed>>  $attempted     subscribers submitted to the batch
+     * @param  array<string, true>               $existing      from existingMemberEmails(), taken beforehand
+     * @param  array<int, array<string, mixed>>  $failedRows    rows the batch reported a detailed error for
+     * @param  int                               $written       successes plus detail-less failures
+     * @return array{new: int, updated: int}
+     */
+    public static function splitNewAndUpdated(array $attempted, array $existing, array $failedRows, int $written): array
+    {
+        $failed = [];
+        foreach ($failedRows as $row) {
+            $email = strtolower(trim((string) ($row['email_address'] ?? '')));
+            if ($email !== '') {
+                $failed[$email] = true;
+            }
+        }
+
+        $new = 0;
+        $counted = [];
+        foreach ($attempted as $subscriber) {
+            $email = strtolower(trim((string) ($subscriber['email_address'] ?? '')));
+
+            // Duplicates within one file are one contact to Mailchimp, so they must be
+            // one contact here too, or the split overshoots what was written.
+            if ($email === '' || isset($counted[$email]) || isset($existing[$email]) || isset($failed[$email])) {
+                continue;
+            }
+
+            $counted[$email] = true;
+            $new++;
+        }
+
+        // A lookup that came back short would otherwise report more new contacts than
+        // the batch wrote at all.
+        $new = max(0, min($new, $written));
+
+        return ['new' => $new, 'updated' => max(0, $written - $new)];
     }
 
     /**

@@ -243,6 +243,14 @@ Route::middleware(['auth', RoleMiddleware::class.':admin'])->prefix('mailchimp-i
     Route::get('/{import}/download', [MailchimpImportController::class, 'download'])
         ->middleware('log.exports')
         ->name('mailchimpImport.download');
+    // The compliance-blocked contacts with the consent behind them, for a restore
+    // request to Mailchimp Support.
+    Route::get('/{import}/consent-evidence', [MailchimpImportController::class, 'consentEvidence'])
+        ->middleware('log.exports')
+        ->name('mailchimpImport.consentEvidence');
+    // Cancels it if it is running, and takes its remaining contacts out of the
+    // signup form's queue either way.
+    Route::delete('/{import}', [MailchimpImportController::class, 'destroy'])->name('mailchimpImport.destroy');
 });
 
 // Newsletter resubscribes made by the sign-up form, per film. Separate from the CSV

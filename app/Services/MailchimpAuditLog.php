@@ -40,6 +40,8 @@ class MailchimpAuditLog
 
     public const IMPORT_EXPORTED = 'import.exported';
 
+    public const IMPORT_DISCARDED = 'import.discarded';
+
     /**
      * @param  array<string, mixed>  $context
      */

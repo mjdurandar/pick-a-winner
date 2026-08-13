@@ -21,7 +21,45 @@ use App\Models\MailchimpImportRow;
  */
 class MailchimpImportRunner
 {
-    public function __construct(protected CsvImportParser $parser) {}
+    /**
+     * Resubscribes processed between refreshes of the import's summary counters.
+     *
+     * Refreshing after every contact meant a GROUP BY over the row log plus an
+     * UPDATE for each one — ten thousand extra queries on a five-thousand-contact
+     * import. Nothing reads those columns while the run is in flight: the preview
+     * endpoint counts the rows themselves, which are written as each contact is
+     * answered for. They exist so a run that dies has recent numbers to report.
+     */
+    private const COUNTER_REFRESH_INTERVAL = 50;
+
+    /**
+     * Paced between hosted-form submissions. The endpoint is a public web form, not
+     * an API, and a file's worth of submissions arriving flat out is both rude and
+     * the shape abuse systems look for. A quarter of a second was far too quick:
+     * sixteen went through and the seventeenth onwards were all turned away.
+     */
+    private const FORM_SUBMISSION_PAUSE_SECONDS = 3;
+
+    /** Waited out before trying a throttled contact again, in order. */
+    private const THROTTLE_BACKOFF_SECONDS = [20, 60];
+
+    /**
+     * Consecutive throttles that end the relay for this run. Once the form is
+     * turning everything away, continuing only deepens it — the remaining contacts
+     * keep their actionable classification and a later run picks them up.
+     */
+    private const THROTTLES_BEFORE_STOPPING = 3;
+
+    /** Throttles in a row, reset by any submission the form actually answers. */
+    protected int $consecutiveThrottles = 0;
+
+    /** Set once the form is turning everything away; no further contact is offered. */
+    protected bool $relayStopped = false;
+
+    public function __construct(
+        protected CsvImportParser $parser,
+        protected OptInRelay $relay,
+    ) {}
 
     /**
      * @throws CsvImportException
@@ -40,6 +78,7 @@ class MailchimpImportRunner
         $map = $import->field_map ?? [];
         $emailColumn = (string) array_search('EMAIL', $map, true);
         $batch = [];
+        $resubscribed = 0;
 
         foreach ($this->parser->rows($path) as [$rowNumber, $values]) {
             $outcome = $outcomes[$rowNumber] ?? null;
@@ -52,6 +91,10 @@ class MailchimpImportRunner
 
             if ($outcome === MailchimpImportRow::WILL_RESUBSCRIBE) {
                 $this->resubscribe($import, $api, $rowNumber, $email);
+
+                if (++$resubscribed % self::COUNTER_REFRESH_INTERVAL === 0) {
+                    $this->refreshCounts($import);
+                }
 
                 continue;
             }
@@ -67,6 +110,10 @@ class MailchimpImportRunner
         if ($batch) {
             $this->sendBatch($import, $api, $batch);
         }
+
+        // The last partial group of resubscribes, and any run that was all
+        // resubscribes and so never sent a batch, still have to be counted.
+        $this->refreshCounts($import);
     }
 
     /**
@@ -134,14 +181,114 @@ class MailchimpImportRunner
             }
 
             $this->record($import, $rowNumber, MailchimpImportRow::RESUBSCRIBED, null, 200);
-        } else {
-            // Mailchimp holds this address in a compliance state. Nothing the app can
-            // send will restore it; only the contact can opt back in themselves. Its
-            // own explanation is kept so the report can say why.
-            $this->record($import, $rowNumber, MailchimpImportRow::BLOCKED_UNSUBSCRIBED, $refusal, 400);
+
+            return;
         }
 
-        $this->refreshCounts($import);
+        // Mailchimp holds this address in a compliance state — it once unsubscribed,
+        // bounced, or was reviewed — and the API will not lift that. Where the import
+        // carries a documented opt-in collected since, that opt-in is transcribed to
+        // the audience's own hosted form, which is the route Mailchimp does accept.
+        if ($this->relayStopped || ! $this->relay->permitted($import, $refusal)) {
+            // Once the relay has stopped, a compliance refusal is left exactly as the
+            // dry run classified it. Recording it as blocked would bury contacts the
+            // form never got a chance to answer for.
+            if (! $this->relayStopped) {
+                $this->record($import, $rowNumber, MailchimpImportRow::BLOCKED_UNSUBSCRIBED, $refusal, 400);
+            }
+
+            return;
+        }
+
+        $this->relayToHostedForm($import, $api, $rowNumber, $email, $refusal);
+    }
+
+    /**
+     * Submit the opt-in, waiting out a throttle, then ask Mailchimp what actually
+     * happened.
+     *
+     * The form's own reply is not taken as proof: it answers about the submission,
+     * not about the member. Only a fresh read of the member record can say whether
+     * the contact is back, and a report that claims otherwise is worse than no
+     * report at all.
+     */
+    protected function relayToHostedForm(
+        MailchimpImport $import,
+        MailchimpApi $api,
+        int $rowNumber,
+        string $email,
+        string $refusal,
+    ): void {
+        $outcome = $this->withBackoff(
+            $import,
+            fn () => $this->relay->relay($import, $api, $rowNumber, $email, $refusal),
+        );
+
+        if ($outcome === OptInRelay::THROTTLED) {
+            // The form is turning submissions away. This contact is left as the dry
+            // run classified it so a later run tries again, and the rest of this run
+            // stops asking.
+            if (++$this->consecutiveThrottles >= self::THROTTLES_BEFORE_STOPPING) {
+                $this->relayStopped = true;
+
+                $this->note($import, "Mailchimp's signup form stopped accepting submissions. "
+                    .'The contacts it did not take are left for a later run — send again in a few minutes.');
+            }
+
+            return;
+        }
+
+        $this->consecutiveThrottles = 0;
+        $this->note($import, null);
+    }
+
+    /**
+     * One relay attempt, retried through the backoff schedule while the form is
+     * only asking us to come back later.
+     *
+     * @param  callable(): string  $attempt
+     */
+    protected function withBackoff(MailchimpImport $import, callable $attempt): string
+    {
+        $waits = self::THROTTLE_BACKOFF_SECONDS;
+
+        while (true) {
+            $outcome = $attempt();
+
+            if ($outcome !== OptInRelay::THROTTLED || ! $waits) {
+                // Paced whatever the answer was: the next contact is another
+                // submission to the same public form either way.
+                sleep(self::FORM_SUBMISSION_PAUSE_SECONDS);
+
+                return $outcome;
+            }
+
+            $wait = (int) array_shift($waits);
+
+            // Said out loud, because the alternative is a minute of silence that
+            // looks exactly like a dead worker.
+            $this->note($import, "Mailchimp's signup form is rate limiting. Waiting {$wait}s before trying again.");
+
+            sleep($wait);
+        }
+    }
+
+    /**
+     * Leave a line on the import saying what this run is waiting for.
+     *
+     * Every write touches the record, which is what tells the preview page the run
+     * is still alive even when no contact has been answered for in minutes.
+     */
+    protected function note(MailchimpImport $import, ?string $note): void
+    {
+        if ($import->progress_note === $note) {
+            // Still true, but the page needs to see movement rather than sameness.
+            $import->touch();
+
+            return;
+        }
+
+        $import->update(['progress_note' => $note]);
     }
 
     /**
@@ -208,7 +355,8 @@ class MailchimpImportRunner
 
         $import->update([
             'subscribed_count' => $counts[MailchimpImportRow::SUBSCRIBED] ?? 0,
-            'resubscribed_count' => $counts[MailchimpImportRow::RESUBSCRIBED] ?? 0,
+            'resubscribed_count' => ($counts[MailchimpImportRow::RESUBSCRIBED] ?? 0)
+                + ($counts[MailchimpImportRow::RECOVERED_VIA_FORM] ?? 0),
             'failed_count' => $counts[MailchimpImportRow::FAILED] ?? 0,
             'skipped_count' => ($counts[MailchimpImportRow::ALREADY_MEMBER] ?? 0)
                 + ($counts[MailchimpImportRow::BLOCKED_UNSUBSCRIBED] ?? 0)

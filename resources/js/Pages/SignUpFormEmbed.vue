@@ -265,15 +265,10 @@ const submitForm = async () => {
 
     isSubmitting.value = true; // Set loading state
 
-    // If compliance state, silently resubscribe via JSONP first, then submit form
-    if (isComplianceState.value && complianceSignupUrl.value) {
-        try {
-            await silentMailchimpResub();
-        } catch (e) {
-            // Don't block form submission if resub fails
-            console.warn('Silent resub failed:', e);
-        }
-    }
+    // A compliance-state contact used to be relayed to Mailchimp's hosted form from
+    // here, by JSONP. The server does it on submit now, which is the same act by the
+    // same person but recorded — the browser call was fire-and-forget, so nobody
+    // could tell afterwards whether it had worked.
 
     const submissionValues = { ...formValues.value };
 
@@ -572,64 +567,9 @@ const checkEmailSubscription = async () => {
     }
 };
 
-// Silently resubscribe to Mailchimp via JSONP (called on form submit)
-const buildMailchimpJsonpUrl = (url) => {
-    if (url.includes('/subscribe/post?')) {
-        return url.replace('/subscribe/post?', '/subscribe/post-json?');
-    }
-    if (url.includes('/subscribe?')) {
-        return url.replace('/subscribe?', '/subscribe/post-json?');
-    }
-    return url;
-};
-
-const silentMailchimpResub = () => {
-    return new Promise((resolve, reject) => {
-        const email = formValues.value[emailQuestionText.value] || '';
-        if (!email) return resolve();
-
-        let jsonpUrl = buildMailchimpJsonpUrl(complianceSignupUrl.value);
-        const separator = jsonpUrl.includes('?') ? '&' : '?';
-        jsonpUrl += separator + 'EMAIL=' + encodeURIComponent(email);
-
-        // Use appropriate tag based on Mailchimp account (ANZ vs USA)
-        if (mailchimpAccount.value === 'usa') {
-            // USA Mailchimp account - no tag needed for basic resub
-        } else {
-            // ANZ Mailchimp account
-            jsonpUrl += '&tags=7216898';
-        }
-
-        const callbackName = 'mc_resub_callback_' + Date.now();
-        jsonpUrl += '&c=' + callbackName;
-
-        const timeout = setTimeout(() => {
-            delete window[callbackName];
-            const s = document.getElementById(callbackName);
-            if (s) s.remove();
-            resolve(); // Don't block on timeout
-        }, 5000);
-
-        window[callbackName] = (data) => {
-            clearTimeout(timeout);
-            delete window[callbackName];
-            const s = document.getElementById(callbackName);
-            if (s) s.remove();
-            resolve(data);
-        };
-
-        const script = document.createElement('script');
-        script.id = callbackName;
-        script.src = jsonpUrl;
-        script.onerror = () => {
-            clearTimeout(timeout);
-            delete window[callbackName];
-            script.remove();
-            resolve(); // Don't block on error
-        };
-        document.body.appendChild(script);
-    });
-};
+// The hosted-form relay lives on the server now — see MailchimpHostedForm and
+// SignUpFormController::storeEmbeddedData. The compliance link below is still shown
+// so a contact can also opt back in themselves before submitting.
 
 const newsletterAudienceName = ref('the newsletter');
 

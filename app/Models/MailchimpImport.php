@@ -47,6 +47,8 @@ class MailchimpImport extends Model
         'consent_confirmed_by_user_id',
         'consent_confirmed_at',
         'consent_source',
+        'consent_details',
+        'progress_note',
         'status',
         'last_batch_index',
         'subscribed_count',
@@ -54,6 +56,7 @@ class MailchimpImport extends Model
         'skipped_count',
         'failed_count',
         'started_at',
+        'dry_run_started_at',
         'completed_at',
         'failure_reason',
         'created_by_user_id',
@@ -61,9 +64,11 @@ class MailchimpImport extends Model
 
     protected $casts = [
         'field_map' => 'array',
+        'consent_details' => 'array',
         'double_optin' => 'boolean',
         'consent_confirmed_at' => 'datetime',
         'started_at' => 'datetime',
+        'dry_run_started_at' => 'datetime',
         'completed_at' => 'datetime',
     ];
 

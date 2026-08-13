@@ -167,7 +167,25 @@ class MailchimpImportLogsController extends Controller
             return $item;
         };
 
-        $autoImportRuns = MailchimpAutoImportRun::orderByDesc('ran_at')->limit(20)->get();
+        // A day with nothing eligible still writes a run, so that a quiet day and a dead
+        // cron do not look identical. That makes the empty rows worth keeping and not
+        // worth showing: they are reported as a "last checked" heartbeat instead, and the
+        // table is built from runs that actually did something. The empty ones are still
+        // sent so the page can reveal them on request.
+        $autoImportRuns = MailchimpAutoImportRun::orderByDesc('ran_at')
+            ->where(fn ($q) => $q->where('events_processed', '>', 0)->orWhere('status', '!=', 'completed'))
+            ->limit(20)
+            ->get();
+
+        $emptyAutoImportRuns = MailchimpAutoImportRun::orderByDesc('ran_at')
+            ->where('events_processed', 0)
+            ->where('status', 'completed')
+            ->limit(20)
+            ->get();
+
+        // The heartbeat is the newest run of any kind — an empty one proves the schedule
+        // fired just as well as a busy one.
+        $lastAutoImportRun = MailchimpAutoImportRun::orderByDesc('ran_at')->first();
 
         if ($perPage === 'all') {
             $logs = $query->get()->map($normalizeLog)->values()->all();
@@ -180,6 +198,8 @@ class MailchimpImportLogsController extends Controller
                 'totalsFiltered' => $totalsFiltered,
                 'events' => $events,
                 'autoImportRuns' => $autoImportRuns,
+                'emptyAutoImportRuns' => $emptyAutoImportRuns,
+                'lastAutoImportRun' => $lastAutoImportRun,
                 'filterEventId' => $eventId ? (int) $eventId : null,
                 'filterSource' => $source && in_array($source, ['signup_form', 'ticket_data', 'manual_csv', 'signup_form_resub']) ? $source : null,
                 'searchKeyword' => $search !== '' ? $search : null,
@@ -206,6 +226,8 @@ class MailchimpImportLogsController extends Controller
             'totalsFiltered' => $totalsFiltered,
             'events' => $events,
             'autoImportRuns' => $autoImportRuns,
+            'emptyAutoImportRuns' => $emptyAutoImportRuns,
+            'lastAutoImportRun' => $lastAutoImportRun,
             'filterEventId' => $eventId ? (int) $eventId : null,
             'filterSource' => $source && in_array($source, ['signup_form', 'ticket_data', 'manual_csv', 'signup_form_resub']) ? $source : null,
             'searchKeyword' => $search !== '' ? $search : null,

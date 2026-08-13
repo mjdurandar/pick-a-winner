@@ -51,10 +51,27 @@ const props = defineProps({
     searchKeyword: { type: String, default: null },
     sortBy: { type: String, default: null },
     sortDir: { type: String, default: null }, // 'asc' | 'desc' | null
-    autoImportRuns: { type: Array, default: () => [] } // scheduled "auto-import finished locations" run summaries
+    autoImportRuns: { type: Array, default: () => [] }, // scheduled runs that actually had work to do
+    emptyAutoImportRuns: { type: Array, default: () => [] }, // days the job ran and found nothing eligible
+    lastAutoImportRun: { type: Object, default: null } // newest run of any kind, empty ones included
 });
 
 const showAutoRuns = ref(false);
+
+// Empty runs are recorded so a quiet day can be told apart from a dead cron, but one
+// row per uneventful day buries the runs worth reading. They are folded away behind
+// the heartbeat line above and shown only when asked for.
+const showEmptyAutoRuns = ref(false);
+
+const visibleAutoRuns = computed(() => {
+    if (!showEmptyAutoRuns.value) {
+        return props.autoImportRuns;
+    }
+
+    return [...props.autoImportRuns, ...props.emptyAutoImportRuns]
+        .sort((a, b) => new Date(b.ran_at) - new Date(a.ran_at));
+});
+
 const expandedRunId = ref(null);
 const toggleRunDetails = (id) => {
     expandedRunId.value = expandedRunId.value === id ? null : id;
@@ -758,7 +775,7 @@ const submitRunNow = async () => {
         showRunNowModal.value = false;
         showAutoRuns.value = true;
         await Swal.fire('Queued', res.data.message, 'success');
-        router.reload({ only: ['autoImportRuns'] });
+        router.reload({ only: ['autoImportRuns', 'emptyAutoImportRuns', 'lastAutoImportRun'] });
     } catch (e) {
         const status = e.response?.status;
         const message = e.response?.data?.message;
@@ -799,7 +816,7 @@ const resetStuckRun = async (runId = null) => {
     try {
         const res = await axios.post(route('mailchimpImportLogs.resetStuckAutoRuns'), runId ? { id: runId } : {});
         await Swal.fire(res.data.reset ? 'Reset' : 'Nothing to reset', res.data.message, res.data.reset ? 'success' : 'info');
-        router.reload({ only: ['autoImportRuns'] });
+        router.reload({ only: ['autoImportRuns', 'emptyAutoImportRuns', 'lastAutoImportRun'] });
     } catch (e) {
         Swal.fire('Error', e.response?.data?.message || 'Could not reset the run.', 'error');
     } finally {
@@ -1173,7 +1190,7 @@ const exportToCsv = () => {
                                     <span class="text-sm font-normal text-gray-500">({{ autoImportRuns.length }})</span>
                                 </span>
                                 <span class="text-sm text-gray-500">
-                                    <template v-if="autoImportRuns.length">Last run: {{ formatImportDate(autoImportRuns[0].ran_at) }}</template>
+                                    <template v-if="lastAutoImportRun">Last checked: {{ formatImportDate(lastAutoImportRun.ran_at) }}</template>
                                     <template v-else>No automated runs yet</template>
                                     <i class="fa-solid ml-2" :class="showAutoRuns ? 'fa-chevron-up' : 'fa-chevron-down'"></i>
                                 </span>
@@ -1184,6 +1201,22 @@ const exportToCsv = () => {
                                     Turn it on per event via <span class="font-medium">Mailchimp Auto-Sync Settings</span> on a location page.
                                     To catch up on events that were never opted in, use <span class="font-medium">Run finished screenings now</span>.
                                 </p>
+                                <!-- Proof the schedule is alive on days it had nothing to do, without a row per day. -->
+                                <p v-if="lastAutoImportRun" class="text-sm mb-3 flex flex-wrap items-center gap-x-2 gap-y-1">
+                                    <span class="text-gray-700">
+                                        <i class="fa-solid fa-heart-pulse text-green-600 mr-1"></i>
+                                        Last checked <span class="font-medium">{{ formatImportDate(lastAutoImportRun.ran_at) }}</span>
+                                    </span>
+                                    <span v-if="emptyAutoImportRuns.length" class="text-gray-500">
+                                        · {{ emptyAutoImportRuns.length }} recent {{ emptyAutoImportRuns.length === 1 ? 'day' : 'days' }} with nothing eligible
+                                    </span>
+                                    <button
+                                        v-if="emptyAutoImportRuns.length"
+                                        type="button"
+                                        class="text-blue-600 hover:underline"
+                                        @click="showEmptyAutoRuns = !showEmptyAutoRuns"
+                                    >{{ showEmptyAutoRuns ? 'Hide empty runs' : 'Show empty runs' }}</button>
+                                </p>
                                 <div class="mb-2 flex items-center justify-between gap-3">
                                     <button
                                         type="button"
@@ -1193,7 +1226,7 @@ const exportToCsv = () => {
                                         <i class="fa-solid fa-play mr-1"></i>Run finished screenings now
                                     </button>
                                     <button
-                                        v-if="autoImportRuns.length"
+                                        v-if="lastAutoImportRun"
                                         type="button"
                                         class="text-xs text-red-600 hover:underline"
                                         @click="deleteAllAutoRuns"
@@ -1201,7 +1234,10 @@ const exportToCsv = () => {
                                         <i class="fa-solid fa-trash-can mr-1"></i>Clear all runs
                                     </button>
                                 </div>
-                                <div v-if="autoImportRuns.length === 0" class="text-sm text-gray-500">Nothing yet.</div>
+                                <div v-if="visibleAutoRuns.length === 0" class="text-sm text-gray-500">
+                                    <template v-if="emptyAutoImportRuns.length">No run has had anything to import recently.</template>
+                                    <template v-else>Nothing yet.</template>
+                                </div>
                                 <div v-else class="overflow-x-auto">
                                     <table class="min-w-full text-sm">
                                         <thead>
@@ -1218,7 +1254,7 @@ const exportToCsv = () => {
                                             </tr>
                                         </thead>
                                         <tbody>
-                                            <template v-for="run in autoImportRuns" :key="run.id">
+                                            <template v-for="run in visibleAutoRuns" :key="run.id">
                                                 <tr class="border-b">
                                                     <td class="py-2 pr-4 whitespace-nowrap">
                                                         {{ formatImportDate(run.ran_at) }}
@@ -1277,7 +1313,7 @@ const exportToCsv = () => {
                                         </tbody>
                                     </table>
                                 </div>
-                                <div v-if="autoImportRuns.length && autoImportRuns[0].status === 'running'" class="flex items-center justify-between gap-3 mt-2">
+                                <div v-if="lastAutoImportRun && lastAutoImportRun.status === 'running'" class="flex items-center justify-between gap-3 mt-2">
                                     <p class="text-xs text-gray-500">
                                         A run is in progress — counts update as locations finish importing. Refresh to see the latest.
                                     </p>
@@ -1286,7 +1322,7 @@ const exportToCsv = () => {
                                         :disabled="resettingStuckRun"
                                         class="text-xs font-medium text-red-600 hover:text-red-700 hover:underline disabled:opacity-50 whitespace-nowrap"
                                         title="Mark this run as failed if it is stuck and not finishing"
-                                        @click="resetStuckRun(autoImportRuns[0].id)"
+                                        @click="resetStuckRun(lastAutoImportRun.id)"
                                     >
                                         {{ resettingStuckRun ? 'Resetting…' : 'Reset stuck run' }}
                                     </button>

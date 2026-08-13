@@ -24,6 +24,8 @@ class NewsletterResubscribeReportController extends Controller
      */
     private const REPORTS = [
         'resubscribed' => NewsletterResubscribeAttempt::RESUBSCRIBED,
+        'confirmation_sent' => NewsletterResubscribeAttempt::CONFIRMATION_SENT,
+        'deferred' => NewsletterResubscribeAttempt::DEFERRED,
         'blocked' => NewsletterResubscribeAttempt::BLOCKED_COMPLIANCE,
         'failed' => NewsletterResubscribeAttempt::FAILED,
     ];

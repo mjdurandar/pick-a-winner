@@ -99,10 +99,11 @@ class MailchimpDryRunTest extends TestCase
 
         $this->dryRun($import);
 
-        // Two lookups, no paging: a forty-row file must not drag a whole audience
-        // across the wire, which is what made this slow enough to be killed by the
-        // queue's per-job timeout.
-        Http::assertSentCount(2);
+        // Two lookups and the two counts that sized the audience, no paging: a
+        // forty-row file must not drag a whole audience across the wire, which is
+        // what made this slow enough to be killed by the queue's per-job timeout.
+        Http::assertSentCount(4);
+        Http::assertSent(fn (Request $r) => str_contains($r->url(), 'count=1&'));
         Http::assertSent(fn (Request $r) => str_contains($r->url(), '/members/'.md5('already@example.com')));
         Http::assertNotSent(fn (Request $r) => str_contains($r->url(), 'count=1000'));
 
@@ -121,8 +122,8 @@ class MailchimpDryRunTest extends TestCase
 
         $this->dryRun($import);
 
-        // Past the threshold the per-address route would be 600 requests; paging is
-        // two (the listing plus the archived pass).
+        // Past the threshold the per-address route would be 600 requests; paging
+        // reads the audience in parallel groups instead, one group per pass here.
         Http::assertSent(fn (Request $r) => str_contains($r->url(), 'count=1000'));
         Http::assertNotSent(fn (Request $r) => str_contains($r->url(), '/members/'.md5('contact1@example.com')));
 
