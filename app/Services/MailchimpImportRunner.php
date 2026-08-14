@@ -67,9 +67,14 @@ class MailchimpImportRunner
      */
     public function run(MailchimpImport $import, MailchimpApi $api, string $path): void
     {
-        $outcomes = $import->rows()
-            ->whereIn('outcome', MailchimpImportRow::ACTIONABLE_OUTCOMES)
-            ->pluck('outcome', 'row_number');
+        $rows = $import->rows()
+            ->whereIn('outcome', $import->actionableOutcomes())
+            ->get(['row_number', 'outcome', 'existing_status']);
+
+        $outcomes = $rows->pluck('outcome', 'row_number');
+        // Only consulted for update rows, where the contact's own status has to be
+        // sent back unchanged.
+        $existingStatuses = $rows->pluck('existing_status', 'row_number');
 
         if ($outcomes->isEmpty()) {
             return;
@@ -90,7 +95,9 @@ class MailchimpImportRunner
             $email = trim((string) ($values[$emailColumn] ?? ''));
 
             if ($outcome === MailchimpImportRow::WILL_RESUBSCRIBE) {
-                $this->resubscribe($import, $api, $rowNumber, $email);
+                // The row's own tags travel with it: an existing contact never goes
+                // through the batch, so this is the only chance to tag them.
+                $this->resubscribe($import, $api, $rowNumber, $email, $this->tagsForRow($import, $map, $values));
 
                 if (++$resubscribed % self::COUNTER_REFRESH_INTERVAL === 0) {
                     $this->refreshCounts($import);
@@ -99,7 +106,19 @@ class MailchimpImportRunner
                 continue;
             }
 
-            $batch[$rowNumber] = $this->member($import, $map, $emailColumn, $values, $email);
+            $isUpdate = $outcome === MailchimpImportRow::ALREADY_MEMBER;
+
+            $batch[$rowNumber] = $this->member(
+                $import,
+                $map,
+                $emailColumn,
+                $values,
+                $email,
+                // An update sends the status the contact already has. Sending the
+                // import's own status here would confirm a pending double opt-in on
+                // the contact's behalf, which is not ours to do.
+                $isUpdate ? ($existingStatuses[$rowNumber] ?? 'subscribed') : null,
+            );
 
             if (count($batch) >= MailchimpImport::BATCH_SIZE) {
                 $this->sendBatch($import, $api, $batch);
@@ -123,9 +142,14 @@ class MailchimpImportRunner
      */
     protected function sendBatch(MailchimpImport $import, MailchimpApi $api, array $batch): void
     {
-        $result = $api->batchSubscribe($import->audience_id, array_values($batch));
+        $result = $api->batchSubscribe(
+            $import->audience_id,
+            array_values($batch),
+            $import->update_existing,
+        );
 
         $created = array_flip($result['new']);
+        $updated = array_flip($result['updated']);
         $errors = collect($result['errors'])->keyBy('email');
 
         foreach ($batch as $rowNumber => $member) {
@@ -133,6 +157,20 @@ class MailchimpImportRunner
 
             if (isset($created[$email])) {
                 $this->record($import, $rowNumber, MailchimpImportRow::SUBSCRIBED, null, 200);
+
+                continue;
+            }
+
+            if (isset($updated[$email])) {
+                // Mailchimp only honours the tags array when it creates a member, so
+                // an updated contact's tags go through the tags endpoint. Only for
+                // rows that actually carry tags — otherwise this would be a wasted
+                // call per contact.
+                if (! empty($member['tags'])) {
+                    $api->tagMember($import->audience_id, $member['email_address'], $member['tags']);
+                }
+
+                $this->record($import, $rowNumber, MailchimpImportRow::UPDATED, null, 200);
 
                 continue;
             }
@@ -171,13 +209,16 @@ class MailchimpImportRunner
     /**
      * @throws MailchimpApiException
      */
-    protected function resubscribe(MailchimpImport $import, MailchimpApi $api, int $rowNumber, string $email): void
+    /**
+     * @param  array<int, string>  $tags
+     */
+    protected function resubscribe(MailchimpImport $import, MailchimpApi $api, int $rowNumber, string $email, array $tags = []): void
     {
         $refusal = $api->resubscribe($import->audience_id, $email);
 
         if ($refusal === null) {
-            if (filled($import->tag)) {
-                $api->tagMember($import->audience_id, $email, $import->tag);
+            if ($tags) {
+                $api->tagMember($import->audience_id, $email, $tags);
             }
 
             $this->record($import, $rowNumber, MailchimpImportRow::RESUBSCRIBED, null, 200);
@@ -302,11 +343,17 @@ class MailchimpImportRunner
         string $emailColumn,
         array $values,
         string $email,
+        ?string $keepStatus = null,
     ): array {
         $merge = [];
 
         foreach ($map as $header => $tag) {
             if ($tag === 'EMAIL' || $header === $emailColumn) {
+                continue;
+            }
+
+            // A tags column is not a merge field and must not be sent as one.
+            if ($tag === MailchimpImport::TAGS_TARGET) {
                 continue;
             }
 
@@ -319,14 +366,42 @@ class MailchimpImportRunner
             }
         }
 
+        $tags = $this->tagsForRow($import, $map, $values);
+
         return array_filter([
             'email_address' => $email,
             // pending on a double opt-in audience — Mailchimp rejects 'subscribed'
-            // there, and the contact only counts once they confirm.
-            'status' => $import->memberStatus(),
+            // there, and the contact only counts once they confirm. For a contact
+            // already in the audience it is their own status, unchanged.
+            'status' => $keepStatus ?? $import->memberStatus(),
             'merge_fields' => $merge ?: null,
-            'tags' => filled($import->tag) ? [$import->tag] : null,
+            // Honoured because batchSubscribe() posts with update_existing=false, so
+            // every member in a batch is a create — Mailchimp ignores tags on update.
+            // Existing contacts are resubscribes and get tagged through the tags
+            // endpoint instead, in resubscribe() below.
+            'tags' => $tags ?: null,
         ], fn ($value) => $value !== null);
+    }
+
+    /**
+     * The tags one row should carry: the whole import's tag, plus anything in the
+     * column mapped to tags.
+     *
+     * @param  array<string, string>  $map  CSV header => merge tag
+     * @param  array<string, string>  $values
+     * @return array<int, string>
+     */
+    protected function tagsForRow(MailchimpImport $import, array $map, array $values): array
+    {
+        $tags = filled($import->tag) ? [$import->tag] : [];
+
+        foreach ($map as $header => $target) {
+            if ($target === MailchimpImport::TAGS_TARGET) {
+                $tags = array_merge($tags, MailchimpImport::splitTags($values[$header] ?? null));
+            }
+        }
+
+        return array_values(array_unique($tags));
     }
 
     protected function record(
@@ -357,7 +432,10 @@ class MailchimpImportRunner
             'subscribed_count' => $counts[MailchimpImportRow::SUBSCRIBED] ?? 0,
             'resubscribed_count' => ($counts[MailchimpImportRow::RESUBSCRIBED] ?? 0)
                 + ($counts[MailchimpImportRow::RECOVERED_VIA_FORM] ?? 0),
+            'updated_count' => $counts[MailchimpImportRow::UPDATED] ?? 0,
             'failed_count' => $counts[MailchimpImportRow::FAILED] ?? 0,
+            // already_member rows that were updated have moved to the UPDATED outcome
+            // by now, so this keeps counting only the ones genuinely left alone.
             'skipped_count' => ($counts[MailchimpImportRow::ALREADY_MEMBER] ?? 0)
                 + ($counts[MailchimpImportRow::BLOCKED_UNSUBSCRIBED] ?? 0)
                 + ($counts[MailchimpImportRow::BLOCKED_INVALID] ?? 0)

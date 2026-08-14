@@ -33,6 +33,31 @@ class MailchimpImport extends Model
      */
     public const BATCH_SIZE = 500;
 
+    /**
+     * Field-map target for a column holding tags rather than a merge field.
+     *
+     * Tags are not merge fields — they are their own thing on a Mailchimp contact —
+     * so they never appear in /lists/{id}/merge-fields and a column of them had
+     * nowhere to map to. This sentinel sits alongside the real merge tags in
+     * field_map; it cannot collide with one, because Mailchimp merge tags are
+     * uppercase alphanumerics and cannot contain an underscore-wrapped name.
+     */
+    public const TAGS_TARGET = '__TAGS__';
+
+    /**
+     * One cell can carry several tags. Commas separate them, the way Mailchimp's own
+     * export writes them.
+     */
+    public static function splitTags(?string $value): array
+    {
+        return collect(explode(',', (string) $value))
+            ->map(fn ($tag) => trim($tag))
+            ->filter()
+            ->unique()
+            ->values()
+            ->all();
+    }
+
     protected $fillable = [
         'account',
         'filename',
@@ -42,6 +67,7 @@ class MailchimpImport extends Model
         'audience_id',
         'audience_name',
         'tag',
+        'update_existing',
         'field_map',
         'double_optin',
         'consent_confirmed_by_user_id',
@@ -53,6 +79,7 @@ class MailchimpImport extends Model
         'last_batch_index',
         'subscribed_count',
         'resubscribed_count',
+        'updated_count',
         'skipped_count',
         'failed_count',
         'started_at',
@@ -66,6 +93,7 @@ class MailchimpImport extends Model
         'field_map' => 'array',
         'consent_details' => 'array',
         'double_optin' => 'boolean',
+        'update_existing' => 'boolean',
         'consent_confirmed_at' => 'datetime',
         'started_at' => 'datetime',
         'dry_run_started_at' => 'datetime',
@@ -142,11 +170,27 @@ class MailchimpImport extends Model
     }
 
     /**
+     * The dry-run outcomes this particular run will act on.
+     *
+     * Contacts already in the audience are normally left alone. With update_existing
+     * on they become actionable too, so a CSV can carry corrections — a changed
+     * phone number, a new tag — to people who are already subscribed.
+     *
+     * @return array<int, string>
+     */
+    public function actionableOutcomes(): array
+    {
+        return $this->update_existing
+            ? array_merge(MailchimpImportRow::ACTIONABLE_OUTCOMES, [MailchimpImportRow::ALREADY_MEMBER])
+            : MailchimpImportRow::ACTIONABLE_OUTCOMES;
+    }
+
+    /**
      * How many contacts this import would actually act on.
      */
     public function actionableCount(): int
     {
-        return $this->rows()->whereIn('outcome', MailchimpImportRow::ACTIONABLE_OUTCOMES)->count();
+        return $this->rows()->whereIn('outcome', $this->actionableOutcomes())->count();
     }
 
     public function isConsentConfirmed(): bool

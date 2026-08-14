@@ -51,6 +51,9 @@ const uploadError = ref('');
 const headers = ref([]);
 const fieldMap = ref({});
 const tag = ref('');
+// Off by default: an import that used to leave existing contacts alone must keep
+// doing so unless someone asks for the change.
+const updateExisting = ref(false);
 const consentConfirmed = ref(false);
 const consentSource = ref('');
 // Provenance for the opt-in, kept with the import: it gates the signup-form route
@@ -135,6 +138,7 @@ const OUTCOME_ORDER = [
     'subscribed',
     'resubscribed',
     'recovered_via_form',
+    'updated',
     'already_member',
     'blocked_unsubscribed',
     'blocked_invalid',
@@ -163,14 +167,26 @@ const canConfirm = computed(
         !saving.value
 );
 
+// Matches MailchimpImport::TAGS_TARGET. A column of tags has no merge field to map
+// to — tags are their own thing on a contact — so this stands in for one.
+const TAGS_TARGET = '__TAGS__';
+
 // A merge tag takes at most one column, so tags already spoken for drop out of the
-// other dropdowns rather than silently overwriting each other.
+// other dropdowns rather than silently overwriting each other. TAGS_TARGET is the
+// exception: several columns of tags all add to the same contact.
 function availableFields(header) {
     const taken = Object.entries(fieldMap.value)
-        .filter(([key, value]) => key !== header && value)
+        .filter(([key, value]) => key !== header && value && value !== TAGS_TARGET)
         .map(([, value]) => value);
     return mergeFields.value.filter((f) => !taken.includes(f.tag));
 }
+
+// Every column the admin pointed at tags, for the summary line under the table.
+const tagColumns = computed(() =>
+    Object.entries(fieldMap.value)
+        .filter(([, value]) => value === TAGS_TARGET)
+        .map(([header]) => header)
+);
 
 function formatBytes(bytes) {
     if (!bytes) return '—';
@@ -282,6 +298,7 @@ async function saveConfiguration() {
     try {
         await axios.post(route('mailchimpImport.configure', { import: importRecord.value.id }), {
             tag: tag.value,
+            update_existing: updateExisting.value,
             field_map: fieldMap.value,
             consent_confirmed: consentConfirmed.value,
             consent_source: consentSource.value,
@@ -552,6 +569,7 @@ function startOver() {
     file.value = null;
     headers.value = [];
     fieldMap.value = {};
+    updateExisting.value = false;
     tag.value = '';
     consentConfirmed.value = false;
     consentSource.value = '';
@@ -766,6 +784,20 @@ function startOver() {
                                 <input v-model="tag" type="text" class="mt-1 w-full rounded border-gray-300 text-sm" />
                             </div>
 
+                            <div class="mb-4 rounded border border-gray-200 p-4">
+                                <label class="flex items-start gap-2">
+                                    <input v-model="updateExisting" type="checkbox" class="mt-1 rounded border-gray-300" />
+                                    <span class="text-sm text-gray-800">
+                                        Update contacts already in this audience
+                                    </span>
+                                </label>
+                                <p class="mt-1 text-xs text-gray-500">
+                                    Off, contacts already in the audience are counted and skipped. On, their mapped
+                                    fields and tags are rewritten from this file. Their subscribed status is never
+                                    changed — someone waiting to confirm a double opt-in stays waiting.
+                                </p>
+                            </div>
+
                             <div class="mb-6">
                                 <h3 class="mb-2 text-sm font-medium text-gray-700">Column mapping</h3>
                                 <table class="w-full text-sm">
@@ -781,6 +813,9 @@ function startOver() {
                                             <td class="py-2">
                                                 <select v-model="fieldMap[header]" class="w-full rounded border-gray-300 text-sm">
                                                     <option :value="undefined">— Do not import —</option>
+                                                    <!-- Not a merge field, so it is never in the list from
+                                                         Mailchimp and has to be offered separately. -->
+                                                    <option :value="TAGS_TARGET">Tags (not a merge field)</option>
                                                     <option v-for="f in availableFields(header)" :key="f.tag" :value="f.tag">
                                                         {{ f.name }} ({{ f.tag }})
                                                     </option>
@@ -791,6 +826,11 @@ function startOver() {
                                 </table>
                                 <p v-if="!emailMapped" class="mt-2 text-sm text-amber-700">
                                     Map one column to the email address to continue.
+                                </p>
+                                <p v-if="tagColumns.length" class="mt-2 text-sm text-gray-600">
+                                    Tags from <b>{{ tagColumns.join(', ') }}</b> will be applied per contact.
+                                    Separate several tags in one cell with commas. These are added on top of the
+                                    tag below, which applies to every contact in the import.
                                 </p>
                             </div>
 

@@ -232,15 +232,23 @@ class MailchimpApi
      *
      * @throws MailchimpApiException
      */
-    public function batchSubscribe(string $listId, array $members): array
+    public function batchSubscribe(string $listId, array $members, bool $updateExisting = false): array
     {
         $response = $this->post("/lists/{$listId}", [
             'members' => $members,
-            'update_existing' => false,
+            // With this off Mailchimp reports an existing contact as an error and
+            // leaves them untouched. On, it rewrites their merge fields from the file
+            // — and their status, which is why the caller sends an existing contact's
+            // own status back rather than the import's.
+            'update_existing' => $updateExisting,
         ]);
 
         return [
             'new' => collect($response->json('new_members') ?? [])
+                ->pluck('email_address')
+                ->map(fn ($email) => strtolower((string) $email))
+                ->all(),
+            'updated' => collect($response->json('updated_members') ?? [])
                 ->pluck('email_address')
                 ->map(fn ($email) => strtolower((string) $email))
                 ->all(),
@@ -318,10 +326,24 @@ class MailchimpApi
      *
      * @throws MailchimpApiException
      */
-    public function tagMember(string $listId, string $email, string $tag): void
+    /**
+     * Tag a member through the tags endpoint.
+     *
+     * Needed for contacts that already exist: Mailchimp only honours the `tags` array
+     * when a member is created, and silently ignores it on an update.
+     *
+     * @param  string|array<int, string>  $tags  one tag, or several
+     */
+    public function tagMember(string $listId, string $email, string|array $tags): void
     {
+        $names = array_values(array_filter(array_map('trim', (array) $tags)));
+
+        if (! $names) {
+            return;
+        }
+
         $this->post("/lists/{$listId}/members/{$this->subscriberHash($email)}/tags", [
-            'tags' => [['name' => $tag, 'status' => 'active']],
+            'tags' => array_map(fn ($name) => ['name' => $name, 'status' => 'active'], $names),
         ]);
     }
 

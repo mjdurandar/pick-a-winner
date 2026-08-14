@@ -42,6 +42,14 @@ class MailchimpImportRow extends Model
     public const RESUBSCRIBED = 'resubscribed';
 
     /**
+     * Already in the audience, and this run rewrote their merge fields and tags
+     * from the file. Only produced when the import has update_existing set; kept
+     * apart from SUBSCRIBED so the report never claims a contact is new when the
+     * audience already had them.
+     */
+    public const UPDATED = 'updated';
+
+    /**
      * Run-time only: Mailchimp returned 400 Compliance State, so this contact can
      * never be re-subscribed through the API. Only they can opt back in, via
      * Mailchimp's own hosted form.
@@ -98,6 +106,7 @@ class MailchimpImportRow extends Model
         self::BLOCKED_MISSING => 'Missing email',
         self::SUBSCRIBED => 'Subscribed',
         self::RESUBSCRIBED => 'Resubscribed',
+        self::UPDATED => 'Updated',
         self::RECOVERED_VIA_FORM => 'Resubscribed (signup form)',
         self::BLOCKED_UNSUBSCRIBED => 'Blocked by Mailchimp (compliance)',
         self::FAILED => 'Failed',
@@ -109,6 +118,7 @@ class MailchimpImportRow extends Model
         'email',
         'outcome',
         'detail',
+        'existing_status',
         'mailchimp_status_code',
         'processed_at',
     ];

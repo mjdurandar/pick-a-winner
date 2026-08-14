@@ -88,6 +88,9 @@ class MailchimpDryRun
                 'email' => $raw === '' ? null : $raw,
                 'outcome' => $outcome,
                 'detail' => $detail,
+                // Kept so an update can echo the contact's own status back rather
+                // than imposing one — a pending double opt-in must stay pending.
+                'existing_status' => $existing[$email] ?? null,
                 'mailchimp_status_code' => null,
                 'processed_at' => $now,
                 'created_at' => $now,

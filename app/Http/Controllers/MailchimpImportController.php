@@ -278,6 +278,7 @@ class MailchimpImportController extends Controller
 
         $validated = $request->validate([
             'tag' => ['nullable', 'string', 'max:100'],
+            'update_existing' => ['nullable', 'boolean'],
             'field_map' => ['required', 'array'],
             'field_map.*' => ['nullable', 'string', 'max:100'],
             'consent_confirmed' => ['required', 'accepted'],
@@ -320,6 +321,7 @@ class MailchimpImportController extends Controller
 
         $import->update([
             'tag' => $validated['tag'] ?? null,
+            'update_existing' => (bool) ($validated['update_existing'] ?? false),
             'field_map' => $map,
             'consent_confirmed_by_user_id' => $request->user()->id,
             'consent_confirmed_at' => now(),
@@ -336,6 +338,7 @@ class MailchimpImportController extends Controller
                 'audience_name' => $import->audience_name,
                 'double_optin' => $import->double_optin,
                 'tag' => $import->tag,
+                'update_existing' => $import->update_existing,
                 'field_map' => $import->field_map,
             ],
         ]);
