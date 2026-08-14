@@ -14,6 +14,7 @@ const props = defineProps({
     locations: { type: Array, default: () => [] },
     siblingEventCount: { type: Number, default: 1 },
     attempts: { type: Object, default: () => ({ data: [], links: [] }) },
+    queueBacklog: { type: Object, default: () => ({ pending: 0, failed: 0 }) },
 });
 
 // Local mirror of the server-side filters. Every change re-requests the page so
@@ -177,6 +178,26 @@ const goToPage = (url) => {
             <div class="mx-auto max-w-7xl sm:px-6 lg:px-8">
                 <div class="overflow-hidden bg-white shadow-sm sm:rounded-lg">
                     <div class="p-6 text-gray-900">
+                        <!-- Resubscribes are queued when someone signs up, so until the
+                             worker runs them they are owed but not yet reported below. -->
+                        <div v-if="queueBacklog.pending || queueBacklog.failed"
+                            class="mb-4 rounded border border-amber-300 bg-amber-50 px-4 py-3 text-sm">
+                            <p class="font-semibold text-amber-900">
+                                <i class="fa-solid fa-clock mr-1"></i>
+                                Not everything owed is on this page yet
+                            </p>
+                            <p class="text-amber-800 mt-1">
+                                <span v-if="queueBacklog.pending">
+                                    <b>{{ queueBacklog.pending }}</b> resubscribe(s) are queued and waiting for the
+                                    worker. They appear here once they run.
+                                </span>
+                                <span v-if="queueBacklog.failed">
+                                    <b>{{ queueBacklog.failed }}</b> gave up after retrying — those are listed below as
+                                    failed, and can still be retried on the server with <code>queue:retry all</code>.
+                                </span>
+                            </p>
+                        </div>
+
                         <!-- Header row: scope, back, export -->
                         <div class="flex flex-wrap items-center justify-between gap-3 mb-4">
                             <div>

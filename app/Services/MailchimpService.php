@@ -795,6 +795,56 @@ class MailchimpService
         throw new \Exception('Failed to resubscribe: ' . $response->body());
     }
 
+    /**
+     * Bring an archived contact back onto the list.
+     *
+     * Archived members are still returned by the members endpoint — GET answers 200
+     * with status "archived" — but a PATCH will not move them back off the archive.
+     * Mailchimp only un-archives through the upsert endpoint, which is why this is
+     * separate from resubscribe() rather than another branch inside it.
+     *
+     * status_if_new covers the race where the contact is deleted outright between the
+     * status check and this call: they have just signed up on our form, so putting
+     * them on the list is the intended outcome either way.
+     */
+    public function unarchive($listId, $email)
+    {
+        if (empty($this->apiKey)) {
+            throw new \Exception("Mailchimp API key not configured for account: {$this->account}");
+        }
+
+        $emailHash = md5(strtolower(trim($email)));
+
+        $response = Http::withBasicAuth('anystring', $this->apiKey)
+            ->put("{$this->baseUrl}/lists/{$listId}/members/{$emailHash}?skip_merge_validation=true", [
+                'email_address' => $email,
+                'status' => 'subscribed',
+                'status_if_new' => 'subscribed',
+            ]);
+
+        if ($response->successful()) {
+            return $response->json();
+        }
+
+        // Same compliance refusal as resubscribe(): the address is forgotten, and no
+        // API call at any privilege level will take it back.
+        $body = strtolower($response->body());
+
+        if ($response->status() === 400
+            && (str_contains($body, 'compliance state') || str_contains($body, 'forgotten email'))) {
+            \Illuminate\Support\Facades\Log::info('Archived member is in a compliance state, cannot be unarchived via the API', [
+                'email' => $email,
+            ]);
+
+            return [
+                'status' => 'compliance_skipped',
+                'detail' => $response->json('detail') ?: $response->json('title'),
+            ];
+        }
+
+        throw new \Exception('Failed to unarchive: ' . $response->body());
+    }
+
     public function addSubscriberToList($listId, $subscriber, $tags = [])
     {
         // Preprocess age value
@@ -849,11 +899,18 @@ class MailchimpService
         // Add MMERGE12 for zip code
         $mergeFields['MMERGE12'] = $subscriber['zip_code'] ?? '';
 
-        // Use PUT (upsert) instead of POST to handle both new and existing members
+        // Use PUT (upsert) instead of POST to handle both new and existing members.
+        //
+        // skip_merge_validation, same as resubscribe() and unarchive() already use:
+        // without it a single field rule rejects the whole contact. An audience with a
+        // US "zip code (5 digits)" rule on MMERGE8 threw out every Australian sign-up
+        // — a four-digit postcode failed validation and the person never reached the
+        // location's audience at all. Recording them with an unconventional postcode
+        // beats losing them over one.
         $emailHash = md5(strtolower(trim($subscriber['email_address'])));
 
         $response = Http::withBasicAuth('anystring', $this->apiKey)
-            ->put("{$this->baseUrl}/lists/{$listId}/members/{$emailHash}", [
+            ->put("{$this->baseUrl}/lists/{$listId}/members/{$emailHash}?skip_merge_validation=true", [
                 'email_address' => $subscriber['email_address'],
                 'status_if_new' => 'subscribed',
                 'merge_fields' => $mergeFields,

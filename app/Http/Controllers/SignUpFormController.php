@@ -2,13 +2,14 @@
 
 namespace App\Http\Controllers;
 
+use App\Jobs\ResubscribeSignupContactJob;
 use App\Models\Events;
 use App\Models\Location;
-use App\Models\MailchimpImportLog;
 use App\Models\NewsletterResubscribeAttempt;
 use App\Models\SignUpForm;
 use App\Services\MailchimpHostedForm;
 use App\Services\MailchimpService;
+use App\Services\NewsletterResubscriber;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
@@ -23,174 +24,23 @@ class SignUpFormController extends Controller
 
     protected MailchimpHostedForm $hostedForm;
 
+    protected NewsletterResubscriber $resubscriber;
+
     public function __construct(
         \App\Services\AutoMailchimpService $autoMailchimpService,
         MailchimpHostedForm $hostedForm,
+        NewsletterResubscriber $resubscriber,
     ) {
         $this->autoMailchimpService = $autoMailchimpService;
         $this->hostedForm = $hostedForm;
+        $this->resubscriber = $resubscriber;
     }
 
-    // Newsletter audience names per MC account
-    const ANZ_NEWSLETTER_AUDIENCE = 'Adventure Entertainment Newsletter ANZ';
-
-    const USA_NEWSLETTER_AUDIENCE = 'Fly Fishing Film Tour';
-
-    // The hosted form each account falls back to now lives in
+    // Audience names, account resolution, attempt logging and the resubscribe itself
+    // all live in NewsletterResubscriber now, shared with the queued job that runs
+    // after a sign-up is saved. The hosted form each account falls back to lives in
     // config/services.php under mailchimp.hosted_form, so the link shown to a
     // compliance-locked contact and the form the server relays to cannot drift apart.
-
-    /**
-     * Determine the Mailchimp account based on event country.
-     * ANZ countries → 'anz', USA countries → 'usa'
-     */
-    private function getMailchimpAccountForEvent(Events $event): string
-    {
-        $usaCountries = ['USA', 'USA & CANADA', 'Canada'];
-
-        return in_array($event->event_country, $usaCountries) ? 'usa' : 'anz';
-    }
-
-    /**
-     * Get the newsletter audience name for a given MC account.
-     */
-    private function getNewsletterAudienceName(string $account): string
-    {
-        return $account === 'usa' ? self::USA_NEWSLETTER_AUDIENCE : self::ANZ_NEWSLETTER_AUDIENCE;
-    }
-
-    /**
-     * Cache key holding pending newsletter resubscribes for an email until the
-     * user submits the form and we know which location they picked.
-     */
-    private function pendingResubCacheKey(int $eventId, string $email): string
-    {
-        return 'newsletter_resub_pending:'.$eventId.':'.md5(strtolower(trim($email)));
-    }
-
-    /**
-     * Record what happened to one contact we tried to bring back, successes and
-     * refusals alike.
-     *
-     * The per-location counters below only ever counted successes, so a refused
-     * contact left no trace at all. This is what makes a "could not resubscribe"
-     * report possible, per event and so per film.
-     */
-    private function recordResubscribeAttempt(
-        Events $event,
-        string $email,
-        string $outcome,
-        array $info,
-        ?string $detail = null,
-        ?int $locationId = null,
-    ): void {
-        try {
-            NewsletterResubscribeAttempt::create([
-                'event_id' => $event->id,
-                'location_id' => $locationId,
-                'email' => $email,
-                'mailchimp_account' => $info['account'] ?? null,
-                'list_id' => $info['list_id'] ?? null,
-                'list_name' => $info['list_name'] ?? null,
-                'outcome' => $outcome,
-                'detail' => $detail,
-            ]);
-        } catch (\Exception $e) {
-            // Reporting must never cost someone their entry to the draw.
-            \Illuminate\Support\Facades\Log::error('Could not record newsletter resubscribe attempt', [
-                'event_id' => $event->id,
-                'error' => $e->getMessage(),
-            ]);
-        }
-    }
-
-    /**
-     * How the hosted form's answer is recorded in the report.
-     *
-     * Only Mailchimp saying the contact is on the list counts as a resubscribe. A
-     * confirmation email is a step towards one, not one — the contact still has to
-     * click it — and reporting it as success would overstate what happened.
-     */
-    private function outcomeForHostedForm(string $status): string
-    {
-        return match ($status) {
-            MailchimpHostedForm::ACCEPTED,
-            MailchimpHostedForm::ALREADY_SUBSCRIBED => NewsletterResubscribeAttempt::RESUBSCRIBED,
-            MailchimpHostedForm::CONFIRMATION_SENT => NewsletterResubscribeAttempt::CONFIRMATION_SENT,
-            // The form was busy, which says nothing about this contact. Filing it as
-            // blocked would write off someone who just opted in at a venue — and on a
-            // busy night that is most of the queue, since the form starts refusing
-            // after a couple of dozen. Deferred instead, and the drip retries it.
-            MailchimpHostedForm::THROTTLED => NewsletterResubscribeAttempt::DEFERRED,
-            // Rejected or not configured: the contact is still stuck where they were,
-            // so the report must keep saying so.
-            default => NewsletterResubscribeAttempt::BLOCKED_COMPLIANCE,
-        };
-    }
-
-    /**
-     * Increment a per-location, per-day Mailchimp import log row tracking
-     * how many newsletter resubscribes happened on the signup form.
-     */
-    private function recordNewsletterResubscribe(?int $locationId, array $info): void
-    {
-        if (! $locationId) {
-            return;
-        }
-        $log = MailchimpImportLog::where('location_id', $locationId)
-            ->where('source', 'signup_form_resub')
-            ->where('list_id', $info['list_id'] ?? null)
-            ->whereDate('created_at', now()->toDateString())
-            ->first();
-        if ($log) {
-            $log->increment('total_resubscribed');
-            $log->increment('total_data');
-
-            return;
-        }
-        MailchimpImportLog::create([
-            'location_id' => $locationId,
-            'source' => 'signup_form_resub',
-            'mailchimp_account' => $info['account'] ?? null,
-            'list_id' => $info['list_id'] ?? null,
-            'list_name' => $info['list_name'] ?? null,
-            'status' => 'import',
-            'total_data' => 1,
-            'new_contacts' => 0,
-            'updated_data' => 0,
-            'data_with_error' => 0,
-            'total_resubscribed' => 1,
-        ]);
-    }
-
-    /**
-     * Find the newsletter audience list ID by name from Mailchimp.
-     *
-     * The audience → list ID mapping is effectively static, but this runs on the
-     * public checkSubscription endpoint (fired repeatedly as users type), so calling
-     * getLists() every time floods Mailchimp's 10-concurrent-connection limit and
-     * triggers 429s. Cache the resolved ID so bursts of checks reuse one API call.
-     */
-    private function findNewsletterListId(MailchimpService $mailchimpService, string $audienceName): ?string
-    {
-        $cacheKey = 'mailchimp_newsletter_list_id:'.md5($audienceName);
-
-        $cached = Cache::get($cacheKey);
-        if ($cached !== null) {
-            return $cached;
-        }
-
-        $lists = $mailchimpService->getLists();
-        foreach ($lists as $list) {
-            if ($list['name'] === $audienceName) {
-                Cache::put($cacheKey, $list['id'], now()->addHours(6));
-
-                return $list['id'];
-            }
-        }
-
-        return null;
-    }
 
     /**
      * Check if an email is subscribed to the newsletter audience.
@@ -209,12 +59,12 @@ class SignUpFormController extends Controller
 
         $event = Events::where('event_uuid', $event_uuid)->firstOrFail();
 
-        $account = $this->getMailchimpAccountForEvent($event);
-        $audienceName = $this->getNewsletterAudienceName($account);
+        $account = $this->resubscriber->accountForEvent($event);
+        $audienceName = $this->resubscriber->audienceName($account);
         $mailchimpService = new MailchimpService($account);
 
         try {
-            $listId = $this->findNewsletterListId($mailchimpService, $audienceName);
+            $listId = $this->resubscriber->findListId($mailchimpService, $audienceName);
 
             if (! $listId) {
                 \Illuminate\Support\Facades\Log::warning('Newsletter audience not found', [
@@ -252,10 +102,17 @@ class SignUpFormController extends Controller
             $listInfo = ['account' => $account, 'list_id' => $listId, 'list_name' => $audienceName];
 
             try {
-                $resubResult = $mailchimpService->resubscribe($listId, $request->email);
+                // Archived contacts need the upsert endpoint rather than a patch, so
+                // the route is chosen from the status we just read.
+                $resubResult = $this->resubscriber->bringBack(
+                    $mailchimpService,
+                    $listId,
+                    $request->email,
+                    $result['status'],
+                );
                 if (is_array($resubResult) && ($resubResult['status'] ?? null) === 'compliance_skipped') {
                     $isCompliance = true;
-                    $this->recordResubscribeAttempt(
+                    $this->resubscriber->recordAttempt(
                         $event,
                         $request->email,
                         NewsletterResubscribeAttempt::BLOCKED_COMPLIANCE,
@@ -264,7 +121,7 @@ class SignUpFormController extends Controller
                     );
                 } else {
                     $resubSucceeded = true;
-                    $this->recordResubscribeAttempt(
+                    $this->resubscriber->recordAttempt(
                         $event,
                         $request->email,
                         NewsletterResubscribeAttempt::RESUBSCRIBED,
@@ -275,7 +132,7 @@ class SignUpFormController extends Controller
                 // Resubscribe failed for other reasons — not compliance. Recorded
                 // rather than discarded, so a run of these is visible instead of
                 // looking like nobody ever needed bringing back.
-                $this->recordResubscribeAttempt(
+                $this->resubscriber->recordAttempt(
                     $event,
                     $request->email,
                     NewsletterResubscribeAttempt::FAILED,
@@ -288,7 +145,7 @@ class SignUpFormController extends Controller
             // location the user picks before they submit the form.
             if ($resubSucceeded) {
                 Cache::put(
-                    $this->pendingResubCacheKey($event->id, $request->email),
+                    $this->resubscriber->pendingCacheKey($event->id, $request->email),
                     [
                         'account' => $account,
                         'list_id' => $listId,
@@ -298,20 +155,14 @@ class SignUpFormController extends Controller
                 );
             }
 
-            // Get the Mailchimp signup URL for compliance state members
+            // Get the Mailchimp signup URL for compliance state members: the configured
+            // hosted form for this account — the same one the server relays to on submit
+            // — and only if that is missing does it fall back to whatever Mailchimp
+            // reports for the audience.
             $mailchimpSignupUrl = null;
             if ($isCompliance) {
-                // First check if manually set on the form
-                $form = SignUpForm::where('event_id', $event->id)->first();
-                $mailchimpSignupUrl = $form->mailchimp_signup_url ?? null;
-
-                // Otherwise the configured hosted form for this account — the same one
-                // the server relays to on submit — and only if that is missing does it
-                // fall back to whatever Mailchimp reports for the audience.
-                if (! $mailchimpSignupUrl) {
-                    $mailchimpSignupUrl = $this->hostedForm->subscribeUrl($account)
-                        ?: $mailchimpService->getListSignupUrl($listId);
-                }
+                $mailchimpSignupUrl = $this->hostedForm->subscribeUrl($account)
+                    ?: $mailchimpService->getListSignupUrl($listId);
             }
 
             // Exists but unsubscribed/cleaned/archived
@@ -425,7 +276,6 @@ class SignUpFormController extends Controller
             'heading' => $request->headerText,
             'table_name' => $tableName,
             'questions' => json_encode($questions),
-            'mailchimp_signup_url' => $request->mailchimpSignupUrl,
         ]);
 
         // ✅ Extract Location Names from the form (if any)
@@ -451,6 +301,9 @@ class SignUpFormController extends Controller
         return redirect()->route('signup.index', ['eventId' => $eventId]);
     }
 
+    // Columns the form table owns itself — a question may never rename or drop these.
+    const RESERVED_FORM_COLUMNS = ['id', 'event_id', 'location_id', 'created_at', 'updated_at'];
+
     // Show the edit page
     public function edit($formId)
     {
@@ -458,7 +311,202 @@ class SignUpFormController extends Controller
         $events = Events::findOrFail($form->event_id);
         $locations = Location::where('event_id', $form->event_id)->get();
 
-        return inertia('SignUpFormEdit', ['form' => $form, 'events' => $events, 'locations' => $locations]);
+        return inertia('SignUpFormEdit', [
+            'form' => $form,
+            'events' => $events,
+            'locations' => $locations,
+            // How many answers each column already holds, so someone removing a
+            // question can see whether dropping it throws away real data.
+            'columnStats' => $this->answerCountsPerColumn($form),
+            // Columns an earlier edit left behind: still in the table, used by no
+            // question. Nothing on the questionnaire can reach them, so the edit page
+            // lists them separately or they stay forever.
+            'orphanColumns' => $this->orphanColumns($form),
+        ]);
+    }
+
+    /**
+     * Table columns that no question uses.
+     */
+    private function orphanColumns(SignUpForm $form): array
+    {
+        $tableName = $form->table_name;
+
+        if (! $tableName || ! Schema::hasTable($tableName)) {
+            return [];
+        }
+
+        $used = collect(json_decode($form->questions, true) ?: [])
+            ->pluck('column_name')
+            ->filter()
+            ->all();
+
+        return array_values(array_diff(
+            Schema::getColumnListing($tableName),
+            $used,
+            self::RESERVED_FORM_COLUMNS,
+        ));
+    }
+
+    /**
+     * Number of non-empty answers stored per column of the form's table.
+     *
+     * Covers every column the form owns, questions and leftovers alike, so the edit
+     * page can say what dropping any of them would cost.
+     */
+    private function answerCountsPerColumn(SignUpForm $form): array
+    {
+        $tableName = $form->table_name;
+
+        if (! $tableName || ! Schema::hasTable($tableName)) {
+            return [];
+        }
+
+        $columns = collect(Schema::getColumnListing($tableName))
+            ->reject(fn ($column) => in_array($column, self::RESERVED_FORM_COLUMNS, true))
+            ->unique()
+            ->values();
+
+        if ($columns->isEmpty()) {
+            return [];
+        }
+
+        $grammar = DB::connection()->getQueryGrammar();
+
+        // Aliased by position rather than by column name: a question column can be
+        // named anything an admin types, and that should never reach the alias.
+        $selects = $columns
+            ->map(function ($column, $index) use ($grammar) {
+                $wrapped = $grammar->wrap($column);
+
+                return "count(case when {$wrapped} is not null and {$wrapped} <> '' then 1 end) as c{$index}";
+            })
+            ->implode(', ');
+
+        try {
+            $row = (array) DB::table($tableName)->selectRaw($selects)->first();
+        } catch (\Exception $e) {
+            \Illuminate\Support\Facades\Log::warning('Could not count sign-up form answers', [
+                'table' => $tableName,
+                'error' => $e->getMessage(),
+            ]);
+
+            return [];
+        }
+
+        $counts = [];
+        foreach ($columns as $index => $column) {
+            $counts[$column] = (int) ($row['c'.$index] ?? 0);
+        }
+
+        return $counts;
+    }
+
+    /**
+     * Renames the edit page asked for, reduced to the ones that are safe to run.
+     *
+     * A rename keeps the answers already collected under the question's new column
+     * name; without one, the old column is orphaned and a fresh empty one appears.
+     */
+    private function resolveRenames(array $requested, string $tableName, array $oldColumns, array $newColumns): array
+    {
+        $existing = Schema::getColumnListing($tableName);
+        $renames = [];
+
+        foreach ($requested as $rename) {
+            $from = trim((string) ($rename['from'] ?? ''));
+            $to = trim((string) ($rename['to'] ?? ''));
+
+            $isSafe = $from !== ''
+                && $to !== ''
+                && $from !== $to
+                && preg_match('/^[A-Za-z_][A-Za-z0-9_]*$/', $to)
+                // The old name must be leaving the questionnaire and the new one arriving,
+                // so a rename can never touch a column another question still uses.
+                && in_array($from, $oldColumns, true)
+                && ! in_array($from, $newColumns, true)
+                && in_array($to, $newColumns, true)
+                && ! in_array($from, self::RESERVED_FORM_COLUMNS, true)
+                && ! in_array($to, self::RESERVED_FORM_COLUMNS, true)
+                && in_array($from, $existing, true)
+                && ! in_array($to, $existing, true);
+
+            if ($isSafe) {
+                $renames[$from] = $to;
+                $existing[] = $to;
+            }
+        }
+
+        return $renames;
+    }
+
+    /**
+     * The column type a question's answers are stored as.
+     *
+     * Both the "add a column" and "change a column" paths read this, so a question
+     * type can never mean one thing when it is created and another when it is edited.
+     */
+    private function questionColumnType(array $question): ?string
+    {
+        return match ($question['type'] ?? null) {
+            // Numbers keep their entered format (leading zeros, spacing), so string.
+            'text', 'email', 'number' => 'string',
+            'textarea' => 'longText',
+            'date' => 'date',
+            'dropdown' => empty($question['allowMultiple']) ? 'string' : 'longText',
+            default => null,
+        };
+    }
+
+    private function defineColumn(Blueprint $table, string $name, string $type): \Illuminate\Database\Schema\ColumnDefinition
+    {
+        $column = match ($type) {
+            'longText' => $table->longText($name),
+            'date' => $table->date($name),
+            default => $table->string($name),
+        };
+
+        return $column->nullable();
+    }
+
+    /**
+     * Type changes the edit page approved, reduced to the ones worth running.
+     *
+     * The page only sends column names; the type itself is read from the saved
+     * question, so a request can never ask for a type the questionnaire doesn't use.
+     */
+    private function resolveTypeChanges(array $approved, string $tableName, array $newQuestions, array $oldQuestions, array $renames): array
+    {
+        $approved = array_map(fn ($column) => trim((string) $column), $approved);
+
+        $oldTypes = [];
+        foreach ($oldQuestions as $question) {
+            $name = $question['column_name'] ?? null;
+            if ($name) {
+                $oldTypes[$renames[$name] ?? $name] = $this->questionColumnType($question);
+            }
+        }
+
+        $changes = [];
+        foreach ($newQuestions as $question) {
+            $name = trim((string) ($question['column_name'] ?? ''));
+            $type = $this->questionColumnType($question);
+
+            $isChange = $name !== ''
+                && $type !== null
+                && in_array($name, $approved, true)
+                && ! in_array($name, self::RESERVED_FORM_COLUMNS, true)
+                // Must be a question that already existed and is genuinely changing.
+                && array_key_exists($name, $oldTypes)
+                && $oldTypes[$name] !== $type
+                && Schema::hasColumn($tableName, $name);
+
+            if ($isChange) {
+                $changes[$name] = $type;
+            }
+        }
+
+        return $changes;
     }
 
     // Update form
@@ -469,63 +517,184 @@ class SignUpFormController extends Controller
         $tableName = $form->table_name;
 
         // ✅ Decode existing questions from database
-        $oldQuestions = json_decode($form->questions, true);
-        $newQuestions = $request->questions;
+        $oldQuestions = json_decode($form->questions, true) ?: [];
+        $newQuestions = (array) $request->input('questions', []);
 
-        $form->update([
-            'heading' => $request->heading,
-            'event_description' => $request->event_description,
-            'privacy_link' => $request->privacy_link,
-            'terms_link' => $request->terms_link,
-            'mailchimp_signup_url' => $request->mailchimp_signup_url,
-            'questions' => json_encode($request->questions),
+        // Form edits are rare and their effects are hard to undo, so every one leaves
+        // a record of what was asked for.
+        \Illuminate\Support\Facades\Log::info('Sign-up form update received', [
+            'event_id' => $eventId,
+            'table' => $tableName,
+            'questions' => count($newQuestions),
+            'drop_columns' => $request->input('drop_columns', []),
+            'column_renames' => $request->input('column_renames', []),
+            'column_type_changes' => $request->input('column_type_changes', []),
         ]);
+
+        // The questions are saved at the end of this method rather than here: a type
+        // change that the database refuses is reverted in the questionnaire too, so
+        // the form never claims a column holds something it does not.
 
         // ✅ Extract old and new column names
         $oldColumns = collect($oldQuestions)->pluck('column_name')->toArray();
         $newColumns = collect($newQuestions)->pluck('column_name')->toArray();
 
+        // Renamed questions first: moving the column keeps the answers already
+        // collected, so the rest of this method sees the new name as pre-existing
+        // rather than as an addition next to an orphaned old column.
+        $renames = $this->resolveRenames(
+            (array) $request->input('column_renames', []),
+            $tableName,
+            $oldColumns,
+            $newColumns,
+        );
+
+        foreach ($renames as $from => $to) {
+            Schema::table($tableName, function (Blueprint $table) use ($from, $to) {
+                $table->renameColumn($from, $to);
+            });
+
+            \Illuminate\Support\Facades\Log::info('Sign-up form column renamed', [
+                'event_id' => $eventId,
+                'table' => $tableName,
+                'from' => $from,
+                'to' => $to,
+            ]);
+        }
+
+        if (! empty($renames)) {
+            $oldColumns = array_map(fn ($column) => $renames[$column] ?? $column, $oldColumns);
+        }
+
         // ✅ Find new questions that were added
-        $columnsToAdd = array_diff($newColumns, $oldColumns);
+        // A question whose column was removed from the form but kept in the table can
+        // be added back later; it reconnects to the column it already has rather than
+        // trying to create a duplicate.
+        $existingColumns = Schema::getColumnListing($tableName);
+        $columnsToAdd = array_diff($newColumns, $oldColumns, $existingColumns);
 
         // ✅ Add new columns to the database table
         if (! empty($columnsToAdd)) {
             Schema::table($tableName, function (Blueprint $table) use ($columnsToAdd, $newQuestions) {
                 foreach ($newQuestions as $question) {
-                    if (in_array($question['column_name'], $columnsToAdd)) {
-                        // ✅ Define column type based on question type
-                        switch ($question['type']) {
-                            case 'text':
-                            case 'email':
-                                $table->string($question['column_name'])->nullable();
-                                break;
-                            case 'textarea':
-                                $table->longText($question['column_name'])->nullable();
-                                break;
-                            case 'number':
-                                $table->string($question['column_name'])->nullable(); // Store as string for format
-                                // if (isset($question['format'])) {
-                                //     $table->string($question['column_name'] . '_format')->nullable(); // Store number format
-                                // }
-                                break;
-                            case 'date':
-                                $table->date($question['column_name'])->nullable();
-                                break;
-                            case 'dropdown':
-                                if (isset($question['allowMultiple']) && $question['allowMultiple']) {
-                                    $table->longText($question['column_name'])->nullable();
-                                } else {
-                                    $table->string($question['column_name'])->nullable();
-                                }
-                                break;
-                        }
+                    $type = $this->questionColumnType($question);
+                    if ($type && in_array($question['column_name'], $columnsToAdd)) {
+                        $this->defineColumn($table, $question['column_name'], $type);
                     }
                 }
             });
         }
 
-        return redirect()->route('signup.index', ['eventId' => $eventId])
-            ->with('success', 'Form updated successfully. Locations updated.');
+        // Field type changes the edit page approved. Converting a column can be
+        // rejected by the database — free text that is not a date, an answer too long
+        // for the narrower type — so each one runs on its own and a failure leaves the
+        // column, and the question, exactly as they were.
+        $typeChanges = $this->resolveTypeChanges(
+            (array) $request->input('column_type_changes', []),
+            $tableName,
+            $newQuestions,
+            $oldQuestions,
+            $renames,
+        );
+
+        $failedTypeChanges = [];
+        foreach ($typeChanges as $column => $type) {
+            try {
+                Schema::table($tableName, function (Blueprint $table) use ($column, $type) {
+                    $this->defineColumn($table, $column, $type)->change();
+                });
+
+                \Illuminate\Support\Facades\Log::info('Sign-up form column type changed', [
+                    'event_id' => $eventId,
+                    'table' => $tableName,
+                    'column' => $column,
+                    'type' => $type,
+                ]);
+            } catch (\Exception $e) {
+                $failedTypeChanges[] = $column;
+
+                // Put the question back on the type its column actually has.
+                foreach ($newQuestions as $index => $question) {
+                    if (($question['column_name'] ?? null) === $column) {
+                        $original = collect($oldQuestions)->first(
+                            fn ($old) => ($renames[$old['column_name'] ?? ''] ?? ($old['column_name'] ?? null)) === $column
+                        );
+                        $newQuestions[$index]['type'] = $original['type'] ?? $question['type'];
+                        $newQuestions[$index]['allowMultiple'] = $original['allowMultiple'] ?? false;
+                    }
+                }
+
+                \Illuminate\Support\Facades\Log::error('Sign-up form column type change failed', [
+                    'event_id' => $eventId,
+                    'table' => $tableName,
+                    'column' => $column,
+                    'type' => $type,
+                    'error' => $e->getMessage(),
+                ]);
+            }
+        }
+
+        // Questions taken off the form keep their column — and so their answers —
+        // unless the edit page explicitly asked for the column to be dropped.
+        $removedColumns = array_diff($oldColumns, $newColumns);
+        $requestedDrops = array_map(fn ($column) => trim((string) $column), (array) $request->input('drop_columns', []));
+
+        // Droppable: what this save removes, plus what earlier saves left behind. A
+        // column any question still uses is never in either list.
+        $droppableColumns = array_unique(array_merge(
+            $removedColumns,
+            array_diff(Schema::getColumnListing($tableName), $oldColumns, $newColumns, self::RESERVED_FORM_COLUMNS),
+        ));
+
+        $columnsToDrop = array_values(array_filter(
+            $droppableColumns,
+            fn ($column) => in_array($column, $requestedDrops, true)
+                && ! in_array($column, self::RESERVED_FORM_COLUMNS, true)
+                && Schema::hasColumn($tableName, $column)
+        ));
+
+        if (! empty($columnsToDrop)) {
+            Schema::table($tableName, function (Blueprint $table) use ($columnsToDrop) {
+                $table->dropColumn($columnsToDrop);
+            });
+
+            \Illuminate\Support\Facades\Log::warning('Sign-up form columns dropped', [
+                'event_id' => $eventId,
+                'table' => $tableName,
+                'columns' => $columnsToDrop,
+            ]);
+        }
+
+        $keptColumns = array_values(array_diff($removedColumns, $columnsToDrop));
+
+        // Saved last, so any type change the database refused is written back as the
+        // type the column still has.
+        $form->update([
+            'heading' => $request->heading,
+            'event_description' => $request->event_description,
+            'privacy_link' => $request->privacy_link,
+            'terms_link' => $request->terms_link,
+            'questions' => json_encode($newQuestions),
+        ]);
+
+        $message = 'Form updated successfully. Locations updated.';
+        if (! empty($columnsToDrop)) {
+            $message .= ' Deleted column(s): '.implode(', ', $columnsToDrop).'.';
+        }
+        if (! empty($keptColumns)) {
+            $message .= ' Kept stored data for: '.implode(', ', $keptColumns).'.';
+        }
+
+        $redirect = redirect()->route('signup.index', ['eventId' => $eventId])
+            ->with('success', $message);
+
+        if (! empty($failedTypeChanges)) {
+            $redirect->with('error', 'The field type could not be changed for: '
+                .implode(', ', $failedTypeChanges)
+                .'. The existing answers do not fit the new type, so those questions were left as they were.');
+        }
+
+        return $redirect;
     }
 
     // EMBED FUNCTIONS
@@ -646,86 +815,19 @@ class SignUpFormController extends Controller
             $this->autoMailchimpService->syncSubscriber($subscriber, $insertData['location_id']);
         }
 
-        // Auto-resubscribe to newsletter if email exists but is unsubscribed
+        // Bring the contact back onto the newsletter audience if they have lapsed —
+        // on the queue, not here. Their entry is already in the table above, so a slow
+        // or rate-limiting Mailchimp can no longer hold up the person at the venue,
+        // and a failure retries instead of being lost with the response.
         if ($email) {
             $locationId = $insertData['location_id'] ?? null;
 
-            // If checkSubscription already resubbed this email, attribute it to the picked location
-            $pendingKey = $this->pendingResubCacheKey($event->id, $email);
-            if (Cache::has($pendingKey)) {
-                $pendingInfo = Cache::pull($pendingKey);
-                $this->recordNewsletterResubscribe($locationId, $pendingInfo);
-            }
+            ResubscribeSignupContactJob::dispatch($event->id, $email, $locationId);
 
-            try {
-                $account = $this->getMailchimpAccountForEvent($event);
-                $audienceName = $this->getNewsletterAudienceName($account);
-                $mailchimpService = new MailchimpService($account);
-                $listId = $this->findNewsletterListId($mailchimpService, $audienceName);
-
-                if ($listId) {
-                    $listInfo = ['account' => $account, 'list_id' => $listId, 'list_name' => $audienceName];
-                    $status = $mailchimpService->getSubscriberStatus($listId, $email);
-                    if ($status['exists'] && $status['status'] !== 'subscribed') {
-                        $resubResult = $mailchimpService->resubscribe($listId, $email);
-                        if (is_array($resubResult) && ($resubResult['status'] ?? null) === 'compliance_skipped') {
-                            // The API will not take this contact back at any privilege
-                            // level. They have just filled in this form and pressed
-                            // submit, so their own sign-up is relayed to the audience's
-                            // hosted form — the one route Mailchimp accepts, because it
-                            // treats that as the contact opting in themselves.
-                            $hosted = $this->hostedForm->submit($account, $email);
-
-                            $this->recordResubscribeAttempt(
-                                $event,
-                                $email,
-                                $this->outcomeForHostedForm($hosted['status']),
-                                $listInfo,
-                                // Mailchimp's refusal and its answer to the form are
-                                // both worth keeping — the second explains the first.
-                                trim(($resubResult['detail'] ?? '').' → '.($hosted['detail'] ?? $hosted['status']), ' →'),
-                                $locationId,
-                            );
-
-                            \Illuminate\Support\Facades\Log::info('Compliance-state contact relayed to the hosted Mailchimp form', [
-                                'email' => $email,
-                                'account' => $account,
-                                'audience' => $audienceName,
-                                'hosted_form_status' => $hosted['status'],
-                            ]);
-                        } else {
-                            $this->recordNewsletterResubscribe($locationId, $listInfo);
-                            $this->recordResubscribeAttempt(
-                                $event,
-                                $email,
-                                NewsletterResubscribeAttempt::RESUBSCRIBED,
-                                $listInfo,
-                                null,
-                                $locationId,
-                            );
-                            \Illuminate\Support\Facades\Log::info('Auto-resubscribed to newsletter on form submit', [
-                                'email' => $email,
-                                'account' => $account,
-                                'audience' => $audienceName,
-                            ]);
-                        }
-                    }
-                }
-            } catch (\Exception $e) {
-                // Don't block form submission if resubscribe fails
-                $this->recordResubscribeAttempt(
-                    $event,
-                    $email,
-                    NewsletterResubscribeAttempt::FAILED,
-                    ['account' => $account ?? null, 'list_id' => $listId ?? null, 'list_name' => $audienceName ?? null],
-                    $e->getMessage(),
-                    $locationId,
-                );
-                \Illuminate\Support\Facades\Log::error('Auto-resubscribe on form submit failed', [
-                    'email' => $email,
-                    'error' => $e->getMessage(),
-                ]);
-            }
+            \Illuminate\Support\Facades\Log::info('Queued newsletter resubscribe for sign-up', [
+                'event_id' => $event->id,
+                'location_id' => $locationId,
+            ]);
         }
 
         return redirect()->route('signup.embed', ['event_uuid' => $event_uuid])->with('success');

@@ -64,9 +64,11 @@ const configErrors = ref({});
 // Preview. The dry run reads the audience and classifies the file on the queue,
 // so the page starts it and then polls until the row log is written.
 const POLL_MS = 2000;
-// Half a minute. Nothing has claimed the dry run, which almost always means no
-// queue worker is running — waiting longer cannot fix that.
-const MAX_UNCLAIMED_POLLS = 15;
+// A minute and a half. On hosting where the worker is started by a once-a-minute
+// cron there can legitimately be most of a minute before anything claims the job,
+// so half a minute reported a working queue as a missing one. Past this it really
+// is not running.
+const MAX_UNCLAIMED_POLLS = 45;
 // Two minutes without a single contact being answered for, while a send is in
 // flight. A live run touches the row log constantly, so that really is a stall.
 const MAX_IDLE_POLLS = 60;
@@ -460,7 +462,7 @@ async function pollPreview() {
             previewError.value = running.value
                 ? 'The import stopped reporting progress. Check the queue worker, then reload this page — whatever was already sent is recorded.'
                 : waitingForWorker
-                  ? 'No queue worker picked this up. Start one with php artisan queue:work, then try again.'
+                  ? 'No queue worker picked this up. On the server, check that the schedule:run cron is still firing (it starts the worker every minute); locally, run php artisan queue:work. Then try again.'
                   : 'The preview did not finish. Check the queue worker, then try again.';
             return;
         }

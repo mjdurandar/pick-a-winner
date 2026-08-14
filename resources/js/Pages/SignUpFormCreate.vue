@@ -1,5 +1,5 @@
 <script setup>
-import { ref, watch, watchEffect, onMounted, computed } from 'vue';
+import { ref, watch, watchEffect, onMounted, onUnmounted, computed } from 'vue';
 import { router } from '@inertiajs/vue3';
 import Swal from 'sweetalert2';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout.vue';
@@ -71,10 +71,20 @@ const showModal = ref(false); // Controls the visibility of the modal
 // Add preview toggle
 const showPreview = ref(false);
 
-const selectLocation = (locationName) => {
-    selectedLocation.value = locationName; // Update the selected location
-    showModal.value = false; // Close the modal
+// Escape closes it, and the page behind it stops scrolling while it is open.
+const closeOnEscape = (event) => {
+    if (event.key === 'Escape') showModal.value = false;
 };
+
+watch(showModal, (isOpen) => {
+    document.body.style.overflow = isOpen ? 'hidden' : '';
+});
+
+onMounted(() => window.addEventListener('keydown', closeOnEscape));
+onUnmounted(() => {
+    window.removeEventListener('keydown', closeOnEscape);
+    document.body.style.overflow = '';
+});
 
 // Track selected values for preview
 const selectedValues = ref({});
@@ -161,14 +171,12 @@ const headerText = ref('GET A CHANCE TO WIN AMAZING PRIZES!');
 const descriptionText = ref('*By entering the competition you accept the competition terms and conditions and consent to receiving marketing materials related to the offerings of Adventure Entertainment and our partners.');
 const termsLink = ref('#');
 const policyLink = ref('https://adventureentertainment.com/privacy-policy/');
-const mailchimpSignupUrl = ref('');
 
 // ✅ Dragging logic
 const draggedQuestionIndex = ref(null);
 const dragStart = (index) => {
     draggedQuestionIndex.value = index;
 };
-const selectedLocation = ref(''); // Define the reactive variable for the selected location
 const drop = (index) => {
     if (draggedQuestionIndex.value !== null) {
         const movedQuestion = questions.value.splice(draggedQuestionIndex.value, 1)[0];
@@ -209,9 +217,15 @@ const addQuestion = () => {
 
 // ✅ Remove a question
 const removeQuestion = (index) => {
+    // The location dropdown is what sets location_id on a submission, which drives
+    // the Win Sheets and the Mailchimp sync. Removable, but not by accident.
+    const isLocation = questions.value[index]?.column_name === 'events_location';
+
     Swal.fire({
-        title: 'Remove Question?',
-        text: 'Are you sure you want to remove this question?',
+        title: isLocation ? 'Remove the location question?' : 'Remove Question?',
+        text: isLocation
+            ? 'Entries will not be tied to a location, so they will not appear on any Win Sheet and will not auto-sync to that location\'s Mailchimp audience.'
+            : 'Are you sure you want to remove this question?',
         icon: 'warning',
         showCancelButton: true,
         confirmButtonText: 'Yes, remove it!',
@@ -270,7 +284,6 @@ const saveForm = () => {
                 descriptionText: descriptionText.value,
                 termsLink: termsLink.value,
                 policyLink: policyLink.value,
-                mailchimpSignupUrl: mailchimpSignupUrl.value,
                 questions: questions.value,
             }, {
                 onSuccess: () => {
@@ -314,10 +327,6 @@ onMounted(() => {
 
                     <label class="font-medium">Privacy Policy Link:</label>
                     <input v-model="policyLink" type="text" class="w-full border p-2 rounded mb-2" />
-
-                    <label class="font-medium">Mailchimp Signup Form URL:</label>
-                    <input v-model="mailchimpSignupUrl" type="text" class="w-full border p-2 rounded mb-2" placeholder="https://adventureentertainment.us1.list-manage.com/subscribe?u=..." />
-                    <p class="text-xs text-gray-500 mb-2">Users who are not subscribed will be redirected here to resubscribe before completing the form.</p>
                 </div>
             </div>
         </div>
@@ -461,11 +470,9 @@ onMounted(() => {
                             </div>
                         </div>
 
-                        <div v-if="question.column_name !== 'events_location' && question.column_name !== 'email_address'
-                        && question.column_name !== 'mobile_number' && question.column_name !== 'first_name' && question.column_name !== 'last_name'
-                        && question.column_name !== 'age' && question.column_name !== 'gender' && question.column_name !== 'street_address'
-                        && question.column_name !== 'street_address_2' && question.column_name !== 'city' && question.column_name !== 'state'
-                        && question.column_name !== 'zip_code' && question.column_name !== 'country'">
+                        <!-- Email is the one question that stays: it is how a submission is
+                             matched to a contact and to the newsletter audience. -->
+                        <div v-if="question.column_name !== 'email_address'">
                             <button @click="removeQuestion(index)" class="bg-red-500 text-white px-3 py-1 rounded mt-2">Remove Question</button>
                         </div>
                     </div>
@@ -479,25 +486,54 @@ onMounted(() => {
 
             </div>
            <!-- Modal -->
-            <div v-if="showModal" class="fixed inset-0 bg-gray-800 bg-opacity-50 flex items-center justify-center z-50">
-                <div class="bg-white p-6 rounded-lg shadow-lg w-full max-w-lg mx-4 sm:mx-auto">
-                    <h2 class="text-lg font-bold mb-4">Locations for {{ eventValues.event_name }}</h2>
-                    <ul>
-                        <li 
-                            v-for="location in formattedLocations" 
-                            :key="location.id" 
-                            class="mb-2 p-2 border rounded cursor-pointer hover:bg-gray-100"
-                            @click="selectLocation(location.name)"
+            <div
+                v-if="showModal"
+                class="fixed inset-0 z-50 flex items-center justify-center bg-gray-900/60 p-4"
+                @click.self="showModal = false"
+            >
+                <!-- Capped at 85vh with the list as the only scrolling part, so a long
+                     location list never pushes the header or Close button off screen. -->
+                <div class="flex w-full max-w-lg max-h-[85vh] flex-col overflow-hidden rounded-lg bg-white shadow-xl">
+                    <div class="flex shrink-0 items-start justify-between gap-4 border-b px-5 py-4">
+                        <div>
+                            <h2 class="text-lg font-bold leading-tight">Locations</h2>
+                            <p class="text-sm text-gray-500">
+                                {{ eventValues.event_name }} · {{ formattedLocations.length }}
+                                location{{ formattedLocations.length === 1 ? '' : 's' }}
+                            </p>
+                        </div>
+                        <button
+                            @click="showModal = false"
+                            class="-mr-1 rounded px-2 py-1 text-xl leading-none text-gray-400 hover:bg-gray-100 hover:text-gray-700"
+                            aria-label="Close"
                         >
-                            {{ location.name }} - {{ location.formattedDate }} - {{ location.formattedTime }}
-                        </li>
-                    </ul>
-                    <button 
-                        @click="showModal = false" 
-                        class="mt-4 bg-red-500 text-white px-4 py-2 rounded w-full sm:w-auto"
-                    >
-                        Close
-                    </button>
+                            &times;
+                        </button>
+                    </div>
+
+                    <div class="flex-1 overflow-y-auto px-5 py-4">
+                        <p v-if="!formattedLocations.length" class="py-6 text-center text-sm text-gray-500">
+                            No locations for this event yet.
+                        </p>
+                        <ul v-else class="divide-y">
+                            <li v-for="location in formattedLocations" :key="location.id" class="py-2">
+                                <p class="font-medium text-gray-800">{{ location.name }}</p>
+                                <p class="text-sm text-gray-500">
+                                    {{ location.formattedDate }}
+                                    <span v-if="location.formattedTime"> · {{ location.formattedTime }}</span>
+                                </p>
+                            </li>
+                        </ul>
+                    </div>
+
+                    <div class="shrink-0 border-t px-5 py-3 text-right">
+                        <button
+                            @click="showModal = false"
+                            class="w-full rounded bg-red-500 px-4 py-2 text-white hover:bg-red-600 sm:w-auto"
+                        >
+                            Close
+                        </button>
+                    </div>
                 </div>
             </div>
         </div>

@@ -2,8 +2,8 @@
 
 namespace App\Models;
 
-use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\Model;
 
 class SignUpForm extends Model
 {
@@ -18,6 +18,5 @@ class SignUpForm extends Model
         'event_description',
         'privacy_link',
         'terms_link',
-        'mailchimp_signup_url'
     ];
 }

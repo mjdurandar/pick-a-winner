@@ -7,6 +7,7 @@ use App\Models\Location;
 use App\Models\NewsletterResubscribeAttempt;
 use Illuminate\Contracts\Database\Eloquent\Builder;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Inertia\Inertia;
 use Inertia\Response;
 use Symfony\Component\HttpFoundation\StreamedResponse;
@@ -87,7 +88,40 @@ class NewsletterResubscribeReportController extends Controller
                 ->get(['id', 'name']),
             'siblingEventCount' => count($this->scopedEventIds($event, 'film')),
             'attempts' => $attempts,
+            'queueBacklog' => $this->queueBacklog(),
         ]);
+    }
+
+    /**
+     * Resubscribes that have not been carried out yet.
+     *
+     * The sign-up form queues the resubscribe so a slow Mailchimp cannot hold up
+     * someone entering at a venue. Until the worker runs the job there is no attempt
+     * row to report, so without this the page would look like nothing was owed when
+     * in fact a stopped queue was holding a pile of them.
+     *
+     * Not scoped to this event: the count is about the worker, and a stalled queue is
+     * worth seeing whichever event's report you happen to be on.
+     */
+    private function queueBacklog(): array
+    {
+        $countByClass = function (string $table): int {
+            try {
+                return DB::table($table)
+                    ->where('payload', 'like', '%ResubscribeSignupContactJob%')
+                    ->count();
+            } catch (\Exception $e) {
+                // A missing jobs table must not take the report down with it.
+                return 0;
+            }
+        };
+
+        return [
+            'pending' => $countByClass('jobs'),
+            // These already appear in the table below as failed attempts; the count is
+            // here because they can still be retried with queue:retry.
+            'failed' => $countByClass('failed_jobs'),
+        ];
     }
 
     /**
