@@ -666,6 +666,14 @@ onUnmounted(() => {
     background-color: #d9480f;
 }
 
+/* The "keep your own record" line sits inside the banner but has to read as a
+   separate instruction, not more of the same status text. */
+.paw-sync-keep-record {
+    background-color: rgba(0, 0, 0, 0.25);
+    border-radius: 0.25rem;
+    font-size: 0.95rem;
+}
+
 /* Override Bootstrap's input focus styles */
 .form-control:focus {
     background-color: #1f2937 !important;
@@ -733,6 +741,13 @@ input:-webkit-autofill:active {
                         <span v-else>
                             ⏳ Syncing {{ pendingSyncCount }} winner(s) to the server — please keep this page open until it finishes.
                         </span>
+
+                        <!-- While the winners exist only in this browser, a closed tab or a
+                             flat battery loses them. A photo of the table survives both. -->
+                        <div v-if="connection !== 'online'" class="paw-sync-keep-record mt-2 py-2 px-3">
+                            📸 Please screenshot or write down the winners below before you close this page.
+                            Until the connection returns they are stored on this device only.
+                        </div>
                     </div>
                     <div class="overflow-hidden border border-gray-700 shadow-sm" style="background-color: #151515;">
                         <div class="p-6 text-white">

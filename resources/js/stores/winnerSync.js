@@ -42,6 +42,18 @@ const WEAK_FAILURE_THRESHOLD = 2;   // Network failures in a row before we call 
 const WEAK_STALL_MS = 60000;        // A winner stuck unsent this long is a weak signal
 const BACKOFF_STEPS = [15000, 30000, 60000]; // Retry delay after 1st, 2nd, 3rd+ failure
 
+// How long one attempt is given before it is abandoned and re-queued.
+//
+// Giving up early is cheap here and waiting is not: the server keys prizes on
+// client_uuid (Prize::firstOrNew), so a retry after a cut-off attempt updates the
+// same row rather than creating a second winner, and the queue is in localStorage
+// either way. A small JSON POST that has not landed in 15s on venue mobile is not
+// going to. At the old 20s the host waited 35s (20 + 15 backoff) for a second
+// attempt and ~55s before the weak-signal banner appeared; at 15s that is 30s and
+// ~30s, which is the difference between noticing during the draw and after it.
+// Matching BACKOFF_STEPS[0] also gives a steady one-attempt-per-30s on a dead link.
+const REQUEST_TIMEOUT_MS = 15000;
+
 // ✅ Connection quality: 'online' | 'weak' | 'offline'
 // navigator.onLine only reports "a network interface is attached" — it stays
 // true on one bar of 4G, on a captive portal, and on wifi with no throughput.
@@ -172,8 +184,8 @@ export async function processQueue({ force = false } = {}) {
     if (syncState.isSyncing) return;
     if (typeof navigator !== 'undefined' && !navigator.onLine) return;
     if (!syncState.items.some(i => i.status === 'pending')) return;
-    // Backoff: on a weak signal each attempt can burn 20s of a thin pipe, so
-    // space the retries out instead of hammering every cycle.
+    // Backoff: on a weak signal each attempt can burn a full REQUEST_TIMEOUT_MS of a
+    // thin pipe, so space the retries out instead of hammering every cycle.
     if (!force && syncState.nextRetryAt && Date.now() < syncState.nextRetryAt) return;
 
     syncState.isSyncing = true;
@@ -183,7 +195,7 @@ export async function processQueue({ force = false } = {}) {
             try {
                 const res = await axios.post(item.url, item.payload, {
                     headers: { Accept: 'application/json' },
-                    timeout: 20000,
+                    timeout: REQUEST_TIMEOUT_MS,
                 });
                 item.status = 'synced';
                 item.server_id = res.data?.prize?.id ?? item.server_id;
