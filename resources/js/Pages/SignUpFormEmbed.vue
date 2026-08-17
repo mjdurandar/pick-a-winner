@@ -14,10 +14,11 @@ const props = defineProps({
 // computes is_signup_closed and also rejects the POST, so this is display only.
 const isSignupClosed = computed(() => !!props.event?.is_signup_closed);
 
-const hasAddressFields = computed(() => {
-    return JSON.parse(props.form.questions).some(question => 
-        ['street_address', 'street_address_2', 'city', 'state', 'zip_code', 'country'].includes(question.column_name)
-    );
+// Phone handling keys off the country question specifically, not the address block:
+// a form can drop Country while keeping street/city/state/zip, and the number must
+// still be enterable.
+const hasCountryField = computed(() => {
+    return JSON.parse(props.form.questions || '[]').some(question => question.column_name === 'country');
 });
 
 // Find the country question text dynamically (in case user renamed it)
@@ -330,19 +331,20 @@ const isMobileNumberValid = computed(() => {
         mobileNumberField: mobileNumberQuestionText.value,
         phoneNumber: phoneNumber,
         phoneNumberLength: phoneNumber.length,
-        hasAddressFields: hasAddressFields.value
+        hasCountryField: hasCountryField.value
     });
-    
+
     if (!phoneNumber) {
         console.log('❌ Phone number is empty');
         return false;
     }
 
-    // If address fields are not being collected, allow a generic digit-length validation
-    if (!hasAddressFields.value) {
+    // No country question on the form — there is no mask to check against, so fall
+    // back to a generic digit-length check instead of blocking submission.
+    if (!hasCountryField.value) {
         const digits = phoneNumber.replace(/\D/g, '').length;
         const isValid = digits >= 8; // generic minimum when country is unknown
-        console.log('📱 No address fields - Generic validation:', {
+        console.log('📱 No country field - Generic validation:', {
             digits: digits,
             isValid: isValid
         });
@@ -358,8 +360,11 @@ const isMobileNumberValid = computed(() => {
     
     const format = phoneFormats[country];
     if (!format) {
-        console.log('❌ No format found for country:', country);
-        return false;
+        // Country chosen but no mask defined for it (or nothing chosen yet) — same
+        // generic check rather than an unsatisfiable "invalid mobile number".
+        const digits = phoneNumber.replace(/\D/g, '').length;
+        console.log('❌ No format found for country:', country, '— generic validation, digits:', digits);
+        return digits >= 8;
     }
 
     // Count how many digits are required in the format
@@ -472,11 +477,15 @@ watch(() => formValues.value[emailQuestionText.value], () => {
 
 // Watch for changes in the country field and update the phone number format
 watch(() => formValues.value[countryQuestionText.value], (newCountry) => {
+    // Without a country question this watcher would only ever see the fallback
+    // 'Country' key, so leave the entered number alone.
+    if (!hasCountryField.value) return;
+
     console.log('🌍 Country changed:', {
         countryField: countryQuestionText.value,
         newCountry: newCountry
     });
-    
+
     formValues.value[mobileNumberQuestionText.value] = '';
 
     if (!newCountry) {
@@ -743,7 +752,7 @@ onMounted(() => {
                             v-model="formValues[question.text]" 
                             class="form-control"
                             required
-                            :disabled="hasAddressFields && !formValues[countryQuestionText]"
+                            :disabled="hasCountryField && !formValues[countryQuestionText]"
                             @input="formatPhoneNumber(question.text, phoneFormats[formValues[countryQuestionText]])"
                         >
                     </div>
