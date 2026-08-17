@@ -203,6 +203,12 @@ const csrfToken = computed(() => {
     return document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || '';
 });
 
+// Bounds for numbers we can't mask (no country question, or a country with no
+// format below). E.164 caps an international number — country code included — at
+// 15 digits; 8 is the shortest we'd expect once an area/mobile prefix is there.
+const GENERIC_MIN_DIGITS = 8;
+const GENERIC_MAX_DIGITS = 15;
+
 // Phone number formats for different countries
 const phoneFormats = {
     'Australia': '## #### ####',
@@ -247,7 +253,14 @@ const submitForm = async () => {
 
     // 🚨 Check mobile number before submission
     if (!isMobileNumberValid.value) {
-        Swal.fire('Error!', 'Please enter a valid mobile number.', 'error');
+        const hasMask = hasCountryField.value && !!phoneFormats[formValues.value[countryQuestionText.value]];
+        Swal.fire(
+            'Error!',
+            hasMask
+                ? 'Please enter a valid mobile number.'
+                : `Please enter a valid mobile number (${GENERIC_MIN_DIGITS}–${GENERIC_MAX_DIGITS} digits).`,
+            'error'
+        );
         return;
     }
 
@@ -343,7 +356,7 @@ const isMobileNumberValid = computed(() => {
     // back to a generic digit-length check instead of blocking submission.
     if (!hasCountryField.value) {
         const digits = phoneNumber.replace(/\D/g, '').length;
-        const isValid = digits >= 8; // generic minimum when country is unknown
+        const isValid = digits >= GENERIC_MIN_DIGITS && digits <= GENERIC_MAX_DIGITS;
         console.log('📱 No country field - Generic validation:', {
             digits: digits,
             isValid: isValid
@@ -364,7 +377,7 @@ const isMobileNumberValid = computed(() => {
         // generic check rather than an unsatisfiable "invalid mobile number".
         const digits = phoneNumber.replace(/\D/g, '').length;
         console.log('❌ No format found for country:', country, '— generic validation, digits:', digits);
-        return digits >= 8;
+        return digits >= GENERIC_MIN_DIGITS && digits <= GENERIC_MAX_DIGITS;
     }
 
     // Count how many digits are required in the format
@@ -385,9 +398,22 @@ const isMobileNumberValid = computed(() => {
 const formatPhoneNumber = (fieldName, format) => {
     if (!formValues.value[fieldName]) return;
 
-    // If no format provided, keep only allowed chars but don't force a mask
+    // If no format provided, keep only allowed chars but don't force a mask —
+    // separators stay as typed, and anything past the 15th digit is dropped so a
+    // stray paste can't land an unusable number in Mailchimp.
     if (!format) {
-        formValues.value[fieldName] = formValues.value[fieldName].replace(/[^\d()+\-.\s]/g, '');
+        const cleaned = formValues.value[fieldName].replace(/[^\d()+\-.\s]/g, '');
+        let digits = 0;
+        let cutoff = cleaned.length;
+
+        for (let i = 0; i < cleaned.length; i++) {
+            if (/\d/.test(cleaned[i]) && ++digits > GENERIC_MAX_DIGITS) {
+                cutoff = i;
+                break;
+            }
+        }
+
+        formValues.value[fieldName] = cleaned.slice(0, cutoff);
         return;
     }
 
@@ -752,6 +778,8 @@ onMounted(() => {
                             v-model="formValues[question.text]" 
                             class="form-control"
                             required
+                            inputmode="tel"
+                            maxlength="25"
                             :disabled="hasCountryField && !formValues[countryQuestionText]"
                             @input="formatPhoneNumber(question.text, phoneFormats[formValues[countryQuestionText]])"
                         >
