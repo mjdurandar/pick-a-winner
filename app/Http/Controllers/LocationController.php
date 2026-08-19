@@ -2,30 +2,25 @@
 
 namespace App\Http\Controllers;
 
-use Illuminate\Http\Request;
-use Inertia\Inertia;    
 use App\Models\Events;
+use App\Models\Films;
 use App\Models\Location;
-use App\Services\MailchimpService;
+use App\Models\SignUpForm;
+use App\Models\TicketAttendee;
 use App\Services\AutoMailchimpService;
-use Illuminate\Support\Str;
+use App\Services\MailchimpService;
+use Carbon\Carbon;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Schema;
-use Illuminate\Support\Facades\Storage;
-use App\Services\MailchimpLogService;
-use App\Services\SpreadsheetLogService;
-use App\Models\TicketAttendee;
-use App\Models\Films;
-use App\Models\SignUpForm;
-use App\Models\MailchimpImportLog;
-use App\Jobs\EventImportAllToMailchimpJob;
-use Carbon\Carbon;
+use Illuminate\Support\Str;
+use Inertia\Inertia;
 
 class LocationController extends Controller
 {
     protected $mailchimpService;
+
     protected $autoMailchimpService;
 
     public function __construct(MailchimpService $mailchimpService, AutoMailchimpService $autoMailchimpService)
@@ -37,49 +32,18 @@ class LocationController extends Controller
     public function index()
     {
         $events = Events::latest()->get();
+
         return Inertia::render('Locations', [
-            'events' => $events
+            'events' => $events,
         ]);
     }
 
     public function locationpage($eventId)
     {
         $event = Events::findOrFail($eventId);
-        $locations = Location::where('event_id', $eventId)
-            ->where('is_hidden', false)
-            ->get();
+        $locations = Location::where('event_id', $eventId)->get();
 
         $locationIds = $locations->pluck('id');
-
-        // Check which locations have win (signup form) vs ticket data imported to Mailchimp
-        $allLogs = DB::table('mailchimp_import_logs')
-            ->whereIn('location_id', $locationIds)
-            ->select('location_id', 'tags', 'source')
-            ->get();
-
-        $winImportedLocationIds = $allLogs
-            ->filter(fn ($log) => ($log->source ?? '') === 'signup_form')
-            ->pluck('location_id')
-            ->unique();
-
-        $eventbriteImportedLocationIds = $allLogs
-            ->filter(function ($log) {
-                if (($log->source ?? '') === 'ticket_data') {
-                    return true;
-                }
-                $tags = is_string($log->tags ?? null) ? json_decode($log->tags, true) : ($log->tags ?? []);
-                if (!is_array($tags)) {
-                    return false;
-                }
-                foreach ($tags as $tag) {
-                    if (is_string($tag) && strpos($tag, 'TIX') !== false) {
-                        return true;
-                    }
-                }
-                return false;
-            })
-            ->pluck('location_id')
-            ->unique();
 
         // Participant count per location (from sign-up / win form table)
         $participantsByLocation = [];
@@ -98,11 +62,10 @@ class LocationController extends Controller
         }
         $totalParticipants = array_sum($participantsByLocation);
 
-        // Add import status and participants_count to each location
-        $locationsWithImportStatus = $locations->map(function ($location) use ($winImportedLocationIds, $eventbriteImportedLocationIds, $participantsByLocation) {
-            $location->imported_win_to_mailchimp = $winImportedLocationIds->contains($location->id);
-            $location->imported_ticket_to_mailchimp = $eventbriteImportedLocationIds->contains($location->id);
+        // Add participants_count to each location
+        $locationsWithParticipants = $locations->map(function ($location) use ($participantsByLocation) {
             $location->participants_count = $participantsByLocation[$location->id] ?? 0;
+
             return $location;
         });
 
@@ -129,7 +92,7 @@ class LocationController extends Controller
 
         return Inertia::render('LocationPage', [
             'event' => $event,
-            'locations' => $locationsWithImportStatus,
+            'locations' => $locationsWithParticipants,
             'total_participants' => $totalParticipants,
             'fave_sport_options' => $faveSportOptions,
         ]);
@@ -138,18 +101,18 @@ class LocationController extends Controller
     public function updatePassword(Request $request, Location $location)
     {
         $request->validate([
-            'password' => 'required|string|min:8'
+            'password' => 'required|string|min:8',
         ]);
 
         $location->update([
-            'password' => $request->password
+            'password' => $request->password,
         ]);
 
         return back()->with('success', 'Password updated successfully');
     }
 
     public function store(Request $request)
-    {   
+    {
         $request->validate([
             'name' => 'required|string|max:255',
             'event_id' => 'required|exists:events,id',
@@ -157,17 +120,17 @@ class LocationController extends Controller
             'time' => 'required',
             'country' => 'required|string|in:Australia,New Zealand,Canada,USA',
             'category' => 'required|string|in:Theatrical,AE Tour Stop,Host a Show',
-            'state' => 'nullable|string|max:3'
+            'state' => 'nullable|string|max:3',
         ]);
 
         // Check if there are multiple locations with the same password (3-5 locations)
         $existingLocations = Location::where('event_id', $request->event_id)->get();
-        
+
         // Group locations by password and count them
         $passwordCounts = $existingLocations->groupBy('password')->map(function ($group) {
             return $group->count();
         });
-        
+
         // Find the most common password that appears 3 or more times
         $commonPassword = null;
         $maxCount = 0;
@@ -177,7 +140,7 @@ class LocationController extends Controller
                 $maxCount = $count;
             }
         }
-        
+
         // Use the common password if found, otherwise generate a random one
         $password = $commonPassword ?: Str::random(10);
 
@@ -189,7 +152,7 @@ class LocationController extends Controller
             'country' => $request->country,
             'category' => $request->category,
             'state' => $request->state ? strtoupper(trim($request->state)) : null,
-            'password' => $password
+            'password' => $password,
         ]);
 
         return back()->with('success', 'Location created successfully');
@@ -203,7 +166,7 @@ class LocationController extends Controller
             'time' => 'required',
             'country' => 'required|string|in:Australia,New Zealand,Canada,USA',
             'category' => 'required|string|in:Theatrical,AE Tour Stop,Host a Show',
-            'state' => 'nullable|string|max:3'
+            'state' => 'nullable|string|max:3',
         ]);
 
         $location->update([
@@ -212,7 +175,7 @@ class LocationController extends Controller
             'time' => $request->time,
             'country' => $request->country,
             'category' => $request->category,
-            'state' => $request->state ? strtoupper(trim($request->state)) : null
+            'state' => $request->state ? strtoupper(trim($request->state)) : null,
         ]);
 
         return back()->with('success', 'Location updated successfully');
@@ -221,20 +184,70 @@ class LocationController extends Controller
     public function destroy(Location $location)
     {
         $location->delete();
+
         return back()->with('success', 'Location deleted successfully');
+    }
+
+    /**
+     * How much attendee data each of these locations would take with it. Only
+     * locations that actually hold entries come back, each with the counts the
+     * confirmation dialog shows, so an admin deleting a screening sees the size of
+     * what they are about to lose before it happens.
+     *
+     * @param  array<int>  $locationIds
+     * @return array<int, array{id: int, name: string, date: ?string, signups: int, tickets: int}>
+     */
+    protected function locationsWithAttendeeData($eventId, array $locationIds): array
+    {
+        if (empty($locationIds)) {
+            return [];
+        }
+
+        $signUpForm = SignUpForm::where('event_id', $eventId)->first();
+        $formTable = $signUpForm && $signUpForm->table_name && Schema::hasTable($signUpForm->table_name)
+            ? $signUpForm->table_name
+            : null;
+
+        $signupCounts = $formTable
+            ? DB::table($formTable)
+                ->select('location_id', DB::raw('COUNT(*) as total'))
+                ->whereIn('location_id', $locationIds)
+                ->groupBy('location_id')
+                ->pluck('total', 'location_id')
+            : collect();
+
+        $ticketCounts = TicketAttendee::select('location_id', DB::raw('COUNT(*) as total'))
+            ->whereIn('location_id', $locationIds)
+            ->groupBy('location_id')
+            ->pluck('total', 'location_id');
+
+        return Location::whereIn('id', $locationIds)
+            ->where('event_id', $eventId)
+            ->orderBy('date')
+            ->get()
+            ->map(fn ($location) => [
+                'id' => $location->id,
+                'name' => $location->name,
+                'date' => $location->date,
+                'signups' => (int) ($signupCounts[$location->id] ?? 0),
+                'tickets' => (int) ($ticketCounts[$location->id] ?? 0),
+            ])
+            ->filter(fn ($row) => $row['signups'] > 0 || $row['tickets'] > 0)
+            ->values()
+            ->all();
     }
 
     public function updateAllPasswords(Request $request, $eventId)
     {
         $request->validate([
-            'password' => 'required|string|min:8'
+            'password' => 'required|string|min:8',
         ]);
 
         $locations = Location::where('event_id', $eventId)->get();
-        
+
         foreach ($locations as $location) {
             $location->update([
-                'password' => $request->password
+                'password' => $request->password,
             ]);
         }
 
@@ -244,12 +257,13 @@ class LocationController extends Controller
     public function getMailchimpLists(Request $request)
     {
         $account = $request->input('account', 'anz');
-        if (!in_array($account, ['anz', 'usa'])) {
+        if (! in_array($account, ['anz', 'usa'])) {
             $account = 'anz';
         }
         try {
             $mailchimpService = new MailchimpService($account);
             $lists = $mailchimpService->getLists();
+
             return response()->json(['lists' => $lists]);
         } catch (\Exception $e) {
             return response()->json(['error' => $e->getMessage()], 500);
@@ -266,12 +280,12 @@ class LocationController extends Controller
             $account = $request->input('account', 'anz');
             $mailchimpService = new MailchimpService($account);
             $mergeFields = $mailchimpService->getListMergeFields($request->list_id);
-            
+
             // Check for your actual available fields based on screenshots
             $availableFields = [
-                'FNAME', 'LNAME', 'CITY', 'SHOWCITY', 'STATE', 'ZIPCODE', 'COUNTRY', 
+                'FNAME', 'LNAME', 'CITY', 'SHOWCITY', 'STATE', 'ZIPCODE', 'COUNTRY',
                 'MMERGE11', 'GENDER', 'MMERGE18', 'MMERGE10', 'MMERGE12', 'MMERGE13', 'MMERGE14',
-                'PHONE' // We no longer import the SMS phone number field
+                'PHONE', // We no longer import the SMS phone number field
             ];
             $existingTags = array_column($mergeFields, 'tag');
 
@@ -312,7 +326,7 @@ class LocationController extends Controller
                 'missing_ideal_fields' => $missingIdealFields,
                 'field_mapping' => [
                     'FNAME' => 'First Name (Available ✅)',
-                    'LNAME' => 'Last Name (Available ✅)', 
+                    'LNAME' => 'Last Name (Available ✅)',
                     'EMAIL' => 'Email Address (Built-in ✅)',
                     'MMERGE10' => 'Street Address (Available ✅)',
                     'MMERGE11' => 'Address (Available ✅)',
@@ -330,7 +344,7 @@ class LocationController extends Controller
                 ],
                 'data_to_import' => [
                     'first_name' => 'Nathan',
-                    'last_name' => 'Maxwell', 
+                    'last_name' => 'Maxwell',
                     'email_address' => 'natedogts@gmail.com',
                     'street_address' => '131 Wairakei Ave',
                     'city' => 'Papamoa',
@@ -339,8 +353,8 @@ class LocationController extends Controller
                     'country' => 'New Zealand',
                     'mobile_number' => '02 240 5267',
                     'age' => '22-44',
-                    'gender' => 'Male'
-                ]
+                    'gender' => 'Male',
+                ],
             ]);
         } catch (\Exception $e) {
             return response()->json(['error' => $e->getMessage()], 500);
@@ -348,9 +362,9 @@ class LocationController extends Controller
     }
 
     public function getSubscribers(Request $request)
-    {   
+    {
         $request->validate([
-            'location_id' => 'required|exists:locations,id'
+            'location_id' => 'required|exists:locations,id',
         ]);
         Log::info('getSubscribers called', ['data' => $request->all()]);
         try {
@@ -360,8 +374,9 @@ class LocationController extends Controller
                 ->where('event_id', $location->event_id)
                 ->first();
 
-            if (!$signupForm) {
+            if (! $signupForm) {
                 Log::info('no signup form found', ['location' => $location]);
+
                 return response()->json(['error' => 'No signup form found for this event'], 404);
             }
 
@@ -372,7 +387,7 @@ class LocationController extends Controller
             Log::info('Found subscribers for location', [
                 'location_id' => $location->id,
                 'count' => $subscribers->count(),
-                'table' => $signupForm->table_name
+                'table' => $signupForm->table_name,
             ]);
 
             // Process all subscribers in a single batch
@@ -382,326 +397,13 @@ class LocationController extends Controller
 
             return response()->json([
                 'total' => $subscribers->count(),
-                'subscribers' => $subscribers
+                'subscribers' => $subscribers,
             ]);
 
         } catch (\Exception $e) {
-            Log::error('Error fetching subscribers: ' . $e->getMessage());
+            Log::error('Error fetching subscribers: '.$e->getMessage());
+
             return response()->json(['error' => 'Failed to fetch subscribers'], 500);
-        }
-    }
-
-    public function getSyncLogs(Request $request, MailchimpLogService $logService)
-    {
-        $locationId = $request->input('location_id');
-        $location = Location::findOrFail($locationId);
-        
-        // Get the complete log content
-        $content = $logService->getLogContent($locationId, $location->name);
-        
-        if (!$content) {
-            return response()->json(['logs' => []]);
-        }
-
-        return response()->json([
-            'logs' => [
-                [
-                    'date' => now()->format('Y-m-d H:i:s'),
-                    'content' => $content
-                ]
-            ]
-        ]);
-    }
-
-    public function importDataToMailchimp(Request $request)
-    {   
-        Log::info('importDataToMailchimp called', ['data' => $request->all()]);
-        set_time_limit(60); // Set to 1 minute since we're processing smaller chunks
-
-        $request->validate([
-            'subscribers' => 'required|array',
-            'list_id' => 'required|string',
-            'tags' => 'required|array'
-        ]);
-
-        try {
-            $results = [
-                'success' => 0,
-                'failed' => 0,
-                'errors' => []
-            ];
-
-            $tags = $request->tags;
-            Log::info('Using tags for import:', ['tags' => $tags]);
-
-            foreach ($request->subscribers as $subscriber) {
-                try {
-                    if (empty($subscriber['email_address'])) {
-                        $results['failed']++;
-                        $results['errors'][] = "Skipped subscriber: Missing email address";
-                        continue;
-                    }
-
-                    Log::info('Mailchimp add start', [
-                        'email' => $subscriber['email_address'],
-                        'tags' => $tags
-                    ]);
-                    
-                    $this->mailchimpService->addSubscriberToList(
-                        $request->list_id,
-                        [
-                            'email_address' => $subscriber['email_address'],
-                            'first_name' => $subscriber['first_name'] ?? '',
-                            'last_name' => $subscriber['last_name'] ?? '',
-                            'mobile_number' => $subscriber['mobile_number'] ?? '',
-                            'street_address' => $subscriber['street_address'] ?? '',
-                            'street_address_2' => $subscriber['street_address_2'] ?? '',
-                            'city' => $subscriber['city'] ?? '',
-                            'state' => $subscriber['state'] ?? '',
-                            'zip_code' => $subscriber['zip_code'] ?? '',
-                            'country' => $subscriber['country'] ?? '',
-                            'gender' => $subscriber['gender'] ?? '',
-                            'age' => $subscriber['age'] ?? '',
-                        ],
-                        $tags
-                    );
-                    Log::info('Mailchimp add end', [
-                        'email' => $subscriber['email_address'],
-                        'tags' => $tags
-                    ]);
-                    $results['success']++;
-
-                } catch (\Exception $e) {
-                    $results['failed']++;
-                    $results['errors'][] = "Failed to import {$subscriber['email_address']}: " . substr($e->getMessage(), 0, 200);
-                    Log::error('Failed to import subscriber', [
-                        'email' => $subscriber['email_address'],
-                        'error' => $e->getMessage(),
-                        'tags' => $tags
-                    ]);
-                }
-            }
-
-            return response()->json([
-                'message' => "Chunk processed. Success: {$results['success']}, Failed: {$results['failed']}",
-                'details' => $results
-            ]);
-
-        } catch (\Exception $e) {
-            Log::error('Mailchimp import error: ' . $e->getMessage());
-            return response()->json([
-                'error' => 'An error occurred during import.',
-                'details' => $e->getMessage()
-            ], 500);
-        }
-    }
-
-    public function saveImportLog(Request $request, MailchimpLogService $logService)
-    {
-        $logData = $request->validate([
-            'location_id' => 'required|integer',
-            'location_name' => 'required|string',
-            'list_id' => 'required|string',
-            'tags' => 'required|string',
-            'totalSubscribers' => 'required|integer',
-            'successCount' => 'required|integer',
-            'failureCount' => 'required|integer',
-            'errors' => 'array',
-            'importedSubscribers' => 'array'
-        ]);
-
-        $filename = $logService->logImport(
-            $logData['location_id'],
-            $logData['location_name'],
-            $logData
-        );
-
-        return response()->json(['status' => 'success', 'filename' => $filename]);
-    }
-
-    public function downloadImportLog(Request $request, MailchimpLogService $logService)
-    {
-        $locationId = $request->input('location_id');
-        $locationName = $request->input('location_name');
-
-        $content = $logService->getLogContent($locationId, $locationName);
-        
-        if (!$content) {
-            return response()->json(['error' => 'Log file not found'], 404);
-        }
-
-        $headers = [
-            'Content-type' => 'text/plain',
-            'Content-Disposition' => 'attachment; filename="mailchimp-import-' . strtolower(preg_replace('/[^a-z0-9]/i', '-', $locationName)) . '.log"',
-        ];
-
-        return response($content, 200, $headers);
-    }
-
-    public function downloadMailchimpLogs(Request $request, MailchimpLogService $logService)
-    {
-        $eventId = $request->input('event_id');
-        if (!$eventId) {
-            return response()->json(['error' => 'Event ID is required'], 400);
-        }
-
-        // Get logs content
-        $content = $logService->getLogContent($eventId);
-        
-        // Get stats
-        $stats = $logService->getLogStats($eventId);
-        
-        // Add stats to the top of the log file
-        $statsContent = "=== Import Statistics ===\n";
-        $statsContent .= "Total Imports: {$stats->total_imports}\n";
-        $statsContent .= "Successful Imports: {$stats->successful_imports}\n";
-        $statsContent .= "Failed Imports: {$stats->failed_imports}\n";
-        $statsContent .= str_repeat('=', 50) . "\n\n";
-        
-        $fullContent = $statsContent . $content;
-        
-        $headers = [
-            'Content-type' => 'text/plain',
-            'Content-Disposition' => 'attachment; filename="mailchimp-import-history.log"',
-        ];
-
-        return response($fullContent, 200, $headers);
-    }
-
-    /**
-     * Get Mailchimp import report for a specific location (from mailchimp_import_logs)
-     */
-    public function getMailchimpLocationReport($locationId)
-    {
-        try {
-            $location = Location::findOrFail($locationId);
-
-            $logs = MailchimpImportLog::where('location_id', $locationId)
-                ->orderBy('created_at', 'desc')
-                ->get();
-
-            if ($logs->isEmpty()) {
-                return response()->json([
-                    'location' => $location,
-                    'summary' => [
-                        'total_imports' => 0,
-                        'successful_imports' => 0,
-                        'failed_imports' => 0,
-                        'unique_emails_imported' => 0,
-                        'last_import_at' => null,
-                        'tags' => []
-                    ],
-                    'errors' => []
-                ]);
-            }
-
-            $totalImports = $logs->sum('total_data');
-            $successfulImports = $logs->sum(fn ($l) => ($l->total_data ?? 0) - ($l->data_with_error ?? 0));
-            $failedImports = $logs->sum('data_with_error');
-            $uniqueEmailsImported = $logs->sum('new_contacts') + $logs->sum('updated_data');
-
-            $lastImportAt = $logs->max('created_at');
-            $lastImportAtFormatted = $lastImportAt
-                ? $lastImportAt->timezone(config('app.timezone'))->format('Y-m-d H:i:s')
-                : null;
-
-            $latestWithTags = $logs->first(fn ($log) => !empty($log->tags));
-            $tags = $latestWithTags && is_array($latestWithTags->tags) ? $latestWithTags->tags : [];
-
-            $errors = $logs->flatMap(function ($log) {
-                $errs = is_array($log->errors) ? $log->errors : [];
-                return array_slice($errs, 0, 10);
-            })->values()->take(50)->map(fn ($e, $i) => ['error' => $e, 'date' => null])->values();
-
-            return response()->json([
-                'location' => $location,
-                'summary' => [
-                    'total_imports' => $totalImports,
-                    'successful_imports' => (int) $successfulImports,
-                    'failed_imports' => (int) $failedImports,
-                    'unique_emails_imported' => (int) $uniqueEmailsImported,
-                    'last_import_at' => $lastImportAtFormatted,
-                    'tags' => $tags
-                ],
-                'errors' => $errors
-            ]);
-        } catch (\Exception $e) {
-            Log::error('Error getting Mailchimp location report', [
-                'location_id' => $locationId,
-                'error' => $e->getMessage()
-            ]);
-
-            return response()->json([
-                'error' => 'Failed to get Mailchimp report: ' . $e->getMessage()
-            ], 500);
-        }
-    }
-
-    /**
-     * Get Mailchimp import summary for a specific event (all locations, from mailchimp_import_logs)
-     */
-    public function getMailchimpEventReport($eventId)
-    {
-        try {
-            $event = Events::findOrFail($eventId);
-            $locationIds = Location::where('event_id', $eventId)->pluck('id');
-
-            $logs = MailchimpImportLog::whereIn('location_id', $locationIds)
-                ->orderBy('created_at', 'desc')
-                ->get();
-
-            if ($logs->isEmpty()) {
-                return response()->json([
-                    'event' => $event,
-                    'summary' => [
-                        'total_imports' => 0,
-                        'successful_imports' => 0,
-                        'failed_imports' => 0,
-                        'unique_emails_imported' => 0,
-                        'last_import_at' => null,
-                        'total_collected_data' => 0,
-                        'new_from_import' => 0,
-                        'updated_data' => 0,
-                        'rejected_data' => 0,
-                    ]
-                ]);
-            }
-
-            $totalImports = $logs->sum('total_data');
-            $successfulImports = $logs->sum(fn ($l) => ($l->total_data ?? 0) - ($l->data_with_error ?? 0));
-            $failedImports = $logs->sum('data_with_error');
-            $newFromImport = $logs->sum('new_contacts');
-            $updatedData = $logs->sum('updated_data');
-            $uniqueEmailsImported = $newFromImport + $updatedData;
-
-            $lastImportAt = $logs->max('created_at');
-            $lastImportAtFormatted = $lastImportAt
-                ? $lastImportAt->timezone(config('app.timezone'))->format('Y-m-d H:i:s')
-                : null;
-
-            return response()->json([
-                'event' => $event,
-                'summary' => [
-                    'total_imports' => (int) $totalImports,
-                    'successful_imports' => (int) $successfulImports,
-                    'failed_imports' => (int) $failedImports,
-                    'unique_emails_imported' => (int) $uniqueEmailsImported,
-                    'last_import_at' => $lastImportAtFormatted,
-                    'total_collected_data' => (int) $totalImports,
-                    'new_from_import' => (int) $newFromImport,
-                    'updated_data' => (int) $updatedData,
-                    'rejected_data' => (int) $failedImports,
-                ]
-            ]);
-        } catch (\Exception $e) {
-            Log::error('Error getting Mailchimp event report', [
-                'event_id' => $eventId,
-                'error' => $e->getMessage()
-            ]);
-
-            return response()->json([
-                'error' => 'Failed to get Mailchimp event report: ' . $e->getMessage()
-            ], 500);
         }
     }
 
@@ -714,679 +416,11 @@ class LocationController extends Controller
             }
 
             Location::where('event_id', $eventId)->delete();
+
             return back()->with('success', 'All locations deleted successfully');
         } catch (\Exception $e) {
-            return back()->with('error', 'Failed to delete locations: ' . $e->getMessage());
+            return back()->with('error', 'Failed to delete locations: '.$e->getMessage());
         }
-    }
-
-    // NEW METHOD: Manual import with enhanced field mapping and tracking
-    public function manualImportToMailchimp(Request $request, MailchimpLogService $logService, SpreadsheetLogService $spreadsheetService)
-    {   
-        Log::info('manualImportToMailchimp called', ['data' => $request->all()]);
-        set_time_limit(60);
-
-        $request->validate([
-            'subscribers' => 'required|array',
-            'list_id' => 'required|string',
-            'mailchimp_account' => 'required|string|in:anz,usa',
-            'tags' => 'required|array',
-            'location_id' => 'sometimes|exists:locations,id',
-            'field_mapping' => 'nullable|array',
-            'field_mapping.*' => 'nullable|string|max:100',
-        ]);
-
-        $mailchimpAccount = $request->mailchimp_account;
-        $mailchimpService = new MailchimpService($mailchimpAccount);
-
-        try {
-            $results = [
-                'success' => 0,
-                'failed' => 0,
-                'new' => 0,
-                'updated' => 0,
-                'errors' => [],
-                'errorDetails' => [],
-                'rejectedFields' => [],
-                'rejectedFieldsCount' => 0
-            ];
-
-            $tags = $request->tags;
-            $successfulSubscribers = [];
-            $newSubscribers = [];
-            $updatedSubscribers = [];
-            Log::info('Manual import using tags:', ['tags' => $tags, 'account' => $mailchimpAccount]);
-
-            $fieldMapping = $request->input('field_mapping');
-            $fieldMapping = is_array($fieldMapping) ? array_filter($fieldMapping, fn ($v) => $v !== null && $v !== '') : null;
-
-            foreach ($request->subscribers as $subscriber) {
-                try {
-                    // When field_mapping is used (e.g. CSV columns), set email_address from mapped EMAIL column
-                    if ($fieldMapping && isset($fieldMapping['EMAIL']) && $fieldMapping['EMAIL'] !== '') {
-                        $emailKey = $fieldMapping['EMAIL'];
-                        $subscriber['email_address'] = trim($subscriber[$emailKey] ?? $subscriber['email_address'] ?? '');
-                    }
-                    if (empty($subscriber['email_address'])) {
-                        $results['failed']++;
-                        $results['errors'][] = "Skipped subscriber: Missing email address";
-                        continue;
-                    }
-
-                    // Build address_full for field mapping (same as Import All job). If CSV has a single "Address" column mapped to ADDRESSWIN, use it.
-                    if ($fieldMapping && isset($fieldMapping['ADDRESSWIN']) && $fieldMapping['ADDRESSWIN'] !== '') {
-                        $addrKey = $fieldMapping['ADDRESSWIN'];
-                        $singleAddr = trim($subscriber[$addrKey] ?? '');
-                        $subscriber['address_full'] = $singleAddr !== '' ? $singleAddr : null;
-                    }
-                    if (empty($subscriber['address_full'])) {
-                        $addrParts = array_filter([
-                            trim($subscriber['street_address'] ?? ''),
-                            trim($subscriber['street_address_2'] ?? ''),
-                            trim($subscriber['city'] ?? ''),
-                            trim($subscriber['state'] ?? ''),
-                            trim($subscriber['zip_code'] ?? $subscriber['postal_code'] ?? ''),
-                            trim($subscriber['country'] ?? ''),
-                        ]);
-                        $subscriber['address_full'] = implode(', ', $addrParts);
-                    }
-
-                    Log::info('Manual import - Mailchimp add start', [
-                        'email' => $subscriber['email_address'],
-                        'tags' => $tags,
-                        'available_fields' => array_keys($subscriber)
-                    ]);
-                    
-                    // Use the selected account (USA or ANZ)
-                    $result = $mailchimpService->manualImportSubscriber(
-                        $request->list_id,
-                        $subscriber,
-                        $tags,
-                        $fieldMapping
-                    );
-                    
-                    Log::info('Manual import - Mailchimp add end', [
-                        'email' => $subscriber['email_address'],
-                        'tags' => $tags,
-                        'import_type' => $result['import_type'] ?? 'unknown'
-                    ]);
-                    
-                    $results['success']++;
-                    $successfulSubscribers[] = $subscriber;
-                    
-                    // Track new vs updated
-                    if (isset($result['import_type'])) {
-                        if ($result['import_type'] === 'new') {
-                            $results['new']++;
-                            $newSubscribers[] = $subscriber;
-                        } else if ($result['import_type'] === 'updated') {
-                            $results['updated']++;
-                            $updatedSubscribers[] = $subscriber;
-                        }
-                    }
-                    
-                    // Track rejected fields
-                    if (isset($result['rejected_fields']) && !empty($result['rejected_fields'])) {
-                        $subscriberRejectedFields = [
-                            'email' => $subscriber['email_address'],
-                            'name' => trim(($subscriber['first_name'] ?? '') . ' ' . ($subscriber['last_name'] ?? '')),
-                            'rejected_fields' => $result['rejected_fields']
-                        ];
-                        $results['rejectedFields'][] = $subscriberRejectedFields;
-                        $results['rejectedFieldsCount'] += count($result['rejected_fields']);
-                    }
-
-                } catch (\Exception $e) {
-                    $results['failed']++;
-                    $fullMessage = $e->getMessage();
-                    $results['errors'][] = "Failed to import {$subscriber['email_address']}: " . $fullMessage;
-                    $results['errorDetails'][] = [
-                        'email' => $subscriber['email_address'],
-                        'error' => $fullMessage,
-                        'subscriber_data' => $subscriber
-                    ];
-                    Log::error('Manual import - Failed to import subscriber', [
-                        'email' => $subscriber['email_address'],
-                        'error' => $e->getMessage(),
-                        'tags' => $tags,
-                        'subscriber_data' => $subscriber
-                    ]);
-                }
-            }
-
-            // Log the import session if location_id is provided
-            if ($request->has('location_id')) {
-                try {
-                    $logStats = [
-                        'success' => $results['success'] > 0, // Boolean for compatibility
-                        'totalSubscribers' => count($request->subscribers),
-                        'successCount' => $results['success'],
-                        'failureCount' => $results['failed'],
-                        'updateCount' => $results['updated'],
-                        'newCount' => $results['new'],
-                        'errors' => $results['errors'],
-                        'errorDetails' => $results['errorDetails'],
-                        'rejectedFields' => $results['rejectedFields'],
-                        'rejectedFieldsCount' => $results['rejectedFieldsCount'],
-                        'tags' => $tags
-                    ];
-                    
-                    $logService->logImport($request->location_id, 'Manual Import', $logStats);
-
-                    // Note: One log per import is created by the frontend via logMailchimpImport() after all chunks complete.
-                    
-                    // Generate copy-paste data for spreadsheet
-                    try {
-                        $copyPasteData = $spreadsheetService->generateFormattedText(
-                            $request->location_id, 
-                            $logStats, 
-                            $tags
-                        );
-                        
-                        // Add copy-paste data to response
-                        $results['copy_paste_data'] = $copyPasteData;
-                        
-                        Log::info('Generated copy-paste data for spreadsheet', [
-                            'location_id' => $request->location_id
-                        ]);
-                        
-                    } catch (\Exception $e) {
-                        Log::error('Failed to generate copy-paste data', [
-                            'error' => $e->getMessage(),
-                            'location_id' => $request->location_id
-                        ]);
-                        // Don't fail the import if copy-paste generation fails
-                    }
-                } catch (\Exception $e) {
-                    Log::error('Failed to log manual import session', [
-                        'error' => $e->getMessage(),
-                        'location_id' => $request->location_id
-                    ]);
-                }
-            }
-
-            return response()->json([
-                'message' => "Manual import processed. Success: {$results['success']}, Failed: {$results['failed']}, New: {$results['new']}, Updated: {$results['updated']}",
-                'details' => $results
-            ]);
-
-        } catch (\Exception $e) {
-            Log::error('Manual Mailchimp import error: ' . $e->getMessage());
-            return response()->json([
-                'error' => 'An error occurred during manual import.',
-                'details' => $e->getMessage()
-            ], 500);
-        }
-    }
-
-    /**
-     * Create one Mailchimp import log (called once by frontend after all chunks complete).
-     * Optionally saves the imported subscriber data as a CSV file for download from the logs page.
-     */
-    public function logMailchimpImport(Request $request)
-    {
-        $request->validate([
-            'location_id' => 'required|integer|exists:locations,id',
-            'total_data' => 'required|integer|min:0',
-            'new_contacts' => 'required|integer|min:0',
-            'updated_data' => 'required|integer|min:0',
-            'data_with_error' => 'required|integer|min:0',
-            'tags' => 'required|array',
-            'errors' => 'nullable|array',
-            'errors.*' => 'string',
-            'failed_rows' => 'nullable|array',
-            'failed_rows.*' => 'array',
-            'subscribers' => 'nullable|array',
-            'subscribers.*' => 'array',
-            'source' => 'nullable|string|in:signup_form,ticket_data',
-            'mailchimp_account' => 'nullable|string|max:32',
-            'list_id' => 'nullable|string|max:64',
-            'list_name' => 'nullable|string|max:255',
-        ]);
-
-        $source = $request->input('source', 'signup_form');
-
-        // Normalize tags to a flat array so we never lose tags (e.g. from JSON/array shape)
-        $tags = $request->tags;
-        if (!is_array($tags)) {
-            $tags = is_string($tags) ? json_decode($tags, true) : [];
-        }
-        $tags = array_values(array_filter(array_map(function ($t) {
-            return is_string($t) ? trim($t) : (string) $t;
-        }, $tags ?: []), fn ($t) => $t !== ''));
-
-        $locationId = (int) $request->location_id;
-        $listId = $request->input('list_id');
-        $mailchimpAccount = $request->input('mailchimp_account');
-        $hadPreviousImport = $listId && $mailchimpAccount
-            ? MailchimpImportLog::where('location_id', $locationId)->where('list_id', $listId)->where('mailchimp_account', $mailchimpAccount)->where('source', $source)->exists()
-            : false;
-
-        // Reuse the same log line for this location/list/account/source on re-import instead of adding a new row.
-        $log = MailchimpImportLog::updateOrCreate([
-            'location_id' => $locationId,
-            'source' => $source,
-            'list_id' => $listId,
-            'mailchimp_account' => $mailchimpAccount,
-        ], [
-            'imported_by' => auth()->id(),
-            'total_data' => $request->total_data,
-            'new_contacts' => $request->new_contacts,
-            'updated_data' => $request->updated_data,
-            'data_with_error' => $request->data_with_error,
-            'errors' => $request->input('errors', []),
-            'failed_rows' => $request->input('failed_rows'),
-            'tags' => $tags,
-            'list_name' => $request->input('list_name'),
-            'status' => $hadPreviousImport ? 'reimport' : 'import',
-        ]);
-
-        $subscribers = $request->input('subscribers', []);
-        if (!empty($subscribers)) {
-            $headers = ['email_address', 'first_name', 'last_name', 'mobile_number', 'street_address', 'street_address_2', 'city', 'state', 'zip_code', 'country', 'gender', 'age'];
-            $escape = function ($v) {
-                $s = $v === null || $v === '' ? '' : (string) $v;
-                return strpos($s, ',') !== false || strpos($s, '"') !== false || strpos($s, "\n") !== false
-                    ? '"' . str_replace('"', '""', $s) . '"' : $s;
-            };
-            $lines = [implode(',', $headers)];
-            foreach ($subscribers as $row) {
-                $lines[] = implode(',', array_map(function ($key) use ($row, $escape) {
-                    return $escape($row[$key] ?? '');
-                }, $headers));
-            }
-            $csv = "\xEF\xBB\xBF" . implode("\r\n", $lines); // UTF-8 BOM
-            Storage::disk('local')->put('mailchimp_imports/' . $log->id . '.csv', $csv);
-            $log->update(['has_import_file' => true]);
-        }
-
-        return response()->json(['ok' => true]);
-    }
-
-    /**
-     * Generate spreadsheet data with cumulative totals
-     */
-    public function generateSpreadsheetData(Request $request, SpreadsheetLogService $spreadsheetService)
-    {
-        $request->validate([
-            'location_id' => 'required|exists:locations,id',
-            'import_data' => 'required|array',
-            // Tags are optional when generating a summary later; default to empty array if not provided
-            'tags' => 'array'
-        ]);
-
-        try {
-            $copyPasteData = $spreadsheetService->generateFormattedText(
-                $request->location_id,
-                $request->import_data,
-                $request->input('tags', [])
-            );
-
-            return response()->json([
-                'copy_paste_data' => $copyPasteData
-            ]);
-
-        } catch (\Exception $e) {
-            Log::error('Failed to generate spreadsheet data: ' . $e->getMessage());
-            return response()->json([
-                'error' => 'Failed to generate spreadsheet data',
-                'details' => $e->getMessage()
-            ], 500);
-        }
-    }
-
-    /**
-     * Fetch attendees from Eventbrite API
-     */
-    public function fetchEventbriteAttendees(Request $request)
-    {
-        $request->validate([
-            'event_id' => 'required|string',
-            'location_id' => 'required|exists:locations,id'
-        ]);
-
-        $eventId = $request->event_id;
-        $apiToken = config('services.eventbrite.api_token');
-
-        if (!$apiToken) {
-            return response()->json([
-                'error' => 'Eventbrite API token is not configured. Please set EVENTBRITE_API_TOKEN in your .env file.'
-            ], 500);
-        }
-
-        try {
-            $attendees = [];
-            $page = 1;
-            $hasMore = true;
-            $seenEmails = []; // Track unique emails
-
-            // Eventbrite API endpoint for attendees
-            $baseUrl = "https://www.eventbriteapi.com/v3/events/{$eventId}/attendees/";
-
-            while ($hasMore) {
-                $response = Http::withHeaders([
-                    'Authorization' => 'Bearer ' . $apiToken,
-                    'Accept' => 'application/json'
-                ])->get($baseUrl, [
-                    'page' => $page,
-                    'status' => 'attending', // Only get confirmed attendees
-                    'expand' => 'order,profile'
-                ]);
-
-                if (!$response->successful()) {
-                    $errorData = $response->json();
-                    $errorMessage = $errorData['error_description'] ?? $errorData['error'] ?? 'Failed to fetch attendees from Eventbrite';
-                    
-                    Log::error('Eventbrite API Error', [
-                        'status' => $response->status(),
-                        'error' => $errorMessage,
-                        'event_id' => $eventId
-                    ]);
-
-                    return response()->json([
-                        'error' => $errorMessage
-                    ], $response->status());
-                }
-
-                $data = $response->json();
-                $attendeesData = $data['attendees'] ?? [];
-
-                foreach ($attendeesData as $attendee) {
-                    $profile = $attendee['profile'] ?? [];
-                    $email = strtolower(trim($profile['email'] ?? ''));
-
-                    // Skip if no email or duplicate email
-                    if (empty($email) || isset($seenEmails[$email])) {
-                        continue;
-                    }
-
-                    // Mark email as seen
-                    $seenEmails[$email] = true;
-
-                    // Extract attendee information
-                    $attendeeData = [
-                        'email' => $email,
-                        'first_name' => $profile['first_name'] ?? '',
-                        'last_name' => $profile['last_name'] ?? '',
-                        'phone' => $profile['cell_phone'] ?? $profile['home_phone'] ?? '',
-                        'city' => $profile['city'] ?? '',
-                        'state' => $profile['region'] ?? '',
-                        'country' => $profile['country'] ?? '',
-                    ];
-
-                    $attendees[] = $attendeeData;
-                }
-
-                // Check if there are more pages
-                $pagination = $data['pagination'] ?? [];
-                $hasMore = ($pagination['has_more_items'] ?? false) && $page < 100; // Safety limit
-                $page++;
-            }
-
-            // Get location and event info
-            $location = Location::findOrFail($request->location_id);
-            $event = Events::findOrFail($location->event_id);
-
-            // Delete existing ticket attendees for this location (refresh data)
-            TicketAttendee::where('location_id', $request->location_id)->delete();
-
-            // Save attendees to database
-            $savedCount = 0;
-            foreach ($attendees as $attendee) {
-                TicketAttendee::create([
-                    'location_id' => $request->location_id,
-                    'event_id' => $location->event_id,
-                    'email' => $attendee['email'],
-                    'first_name' => $attendee['first_name'],
-                    'last_name' => $attendee['last_name'],
-                    'phone' => $attendee['phone'],
-                    'city' => $attendee['city'],
-                    'state' => $attendee['state'],
-                    'country' => $attendee['country'],
-                    'eventbrite_event_id' => $eventId
-                ]);
-                $savedCount++;
-            }
-
-            Log::info('Eventbrite attendees fetched and saved', [
-                'event_id' => $eventId,
-                'location_id' => $request->location_id,
-                'total_attendees' => count($attendees),
-                'unique_emails' => count($seenEmails),
-                'saved_count' => $savedCount
-            ]);
-
-            return response()->json([
-                'attendees' => $attendees,
-                'total' => count($attendees),
-                'event_id' => $eventId,
-                'saved' => $savedCount
-            ]);
-
-        } catch (\Exception $e) {
-            Log::error('Error fetching Eventbrite attendees', [
-                'error' => $e->getMessage(),
-                'event_id' => $eventId,
-                'trace' => $e->getTraceAsString()
-            ]);
-
-            return response()->json([
-                'error' => 'Failed to fetch attendees: ' . $e->getMessage()
-            ], 500);
-        }
-    }
-
-    /**
-     * Fetch attendees from Eventbrite API (preview only – does not save to DB).
-     * Used by the event-level "Import all" modal so data can be staged and reviewed first.
-     */
-    public function fetchEventbriteAttendeesPreview(Request $request)
-    {
-        $request->validate([
-            'event_id' => 'required|string',
-            'location_id' => 'required|exists:locations,id'
-        ]);
-
-        $eventId = $request->event_id;
-        $apiToken = config('services.eventbrite.api_token');
-
-        if (!$apiToken) {
-            return response()->json([
-                'error' => 'Eventbrite API token is not configured. Please set EVENTBRITE_API_TOKEN in your .env file.'
-            ], 500);
-        }
-
-        try {
-            $attendees = [];
-            $page = 1;
-            $hasMore = true;
-            $seenEmails = [];
-
-            $baseUrl = "https://www.eventbriteapi.com/v3/events/{$eventId}/attendees/";
-
-            while ($hasMore) {
-                $response = Http::withHeaders([
-                    'Authorization' => 'Bearer ' . $apiToken,
-                    'Accept' => 'application/json'
-                ])->get($baseUrl, [
-                    'page' => $page,
-                    'status' => 'attending',
-                    'expand' => 'order,profile'
-                ]);
-
-                if (!$response->successful()) {
-                    $errorData = $response->json();
-                    $errorMessage = $errorData['error_description'] ?? $errorData['error'] ?? 'Failed to fetch attendees from Eventbrite';
-                    Log::error('Eventbrite API Error (preview)', [
-                        'status' => $response->status(),
-                        'error' => $errorMessage,
-                        'event_id' => $eventId
-                    ]);
-                    return response()->json(['error' => $errorMessage], $response->status());
-                }
-
-                $data = $response->json();
-                $attendeesData = $data['attendees'] ?? [];
-
-                foreach ($attendeesData as $attendee) {
-                    $profile = $attendee['profile'] ?? [];
-                    $email = strtolower(trim($profile['email'] ?? ''));
-                    if (empty($email) || isset($seenEmails[$email])) {
-                        continue;
-                    }
-                    $seenEmails[$email] = true;
-                    $attendees[] = [
-                        'email' => $email,
-                        'first_name' => $profile['first_name'] ?? '',
-                        'last_name' => $profile['last_name'] ?? '',
-                        'phone' => $profile['cell_phone'] ?? $profile['home_phone'] ?? '',
-                        'city' => $profile['city'] ?? '',
-                        'state' => $profile['region'] ?? '',
-                        'country' => $profile['country'] ?? '',
-                    ];
-                }
-
-                $pagination = $data['pagination'] ?? [];
-                $hasMore = ($pagination['has_more_items'] ?? false) && $page < 100;
-                $page++;
-            }
-
-            Log::info('Eventbrite attendees fetched (preview only)', [
-                'event_id' => $eventId,
-                'location_id' => $request->location_id,
-                'total' => count($attendees)
-            ]);
-
-            return response()->json([
-                'attendees' => $attendees,
-                'total' => count($attendees),
-                'event_id' => $eventId,
-            ]);
-        } catch (\Exception $e) {
-            Log::error('Error fetching Eventbrite attendees (preview)', [
-                'error' => $e->getMessage(),
-                'event_id' => $eventId,
-                'trace' => $e->getTraceAsString()
-            ]);
-            return response()->json([
-                'error' => 'Failed to fetch attendees: ' . $e->getMessage()
-            ], 500);
-        }
-    }
-
-    /**
-     * Parse CSV file and return headers + rows.
-     * column_mapping: { email: "Email", first_name: "First Name", ... } maps our fields to CSV header names.
-     */
-    public function importCsvTicketAttendees(Request $request)
-    {
-        $request->validate([
-            'location_id' => 'required|integer|exists:locations,id',
-            'csv_file' => 'required|file|mimes:csv,txt|max:10240',
-            'column_mapping' => 'required',
-        ]);
-
-        $locationId = (int) $request->location_id;
-        $mapping = is_string($request->column_mapping)
-            ? json_decode($request->column_mapping, true)
-            : $request->column_mapping;
-        if (!is_array($mapping)) {
-            return response()->json(['error' => 'Invalid column_mapping.'], 422);
-        }
-        $file = $request->file('csv_file');
-
-        $location = Location::findOrFail($locationId);
-        $eventId = $location->event_id;
-
-        $required = ['email'];
-        foreach ($required as $field) {
-            if (empty($mapping[$field])) {
-                return response()->json(['error' => "Column mapping must include 'email'."], 422);
-            }
-        }
-
-        $rows = [];
-        $headers = [];
-        $path = $file->getRealPath();
-        $handle = fopen($path, 'r');
-        if ($handle === false) {
-            return response()->json(['error' => 'Could not read CSV file.'], 422);
-        }
-
-        // Read first row as headers (normalize: trim, UTF-8)
-        $firstRow = fgetcsv($handle);
-        if ($firstRow === false) {
-            fclose($handle);
-            return response()->json(['error' => 'CSV file is empty.'], 422);
-        }
-        $headers = array_map(function ($h) {
-            return trim(preg_replace('/^\xEF\xBB\xBF/', '', $h));
-        }, $firstRow);
-
-        $headerToIndex = array_flip($headers);
-        $fieldToCsvHeader = array_filter($mapping);
-        $fieldToIndex = [];
-        foreach ($fieldToCsvHeader as $field => $csvHeader) {
-            if (isset($headerToIndex[$csvHeader])) {
-                $fieldToIndex[$field] = $headerToIndex[$csvHeader];
-            }
-        }
-
-        if (!isset($fieldToIndex['email'])) {
-            fclose($handle);
-            return response()->json(['error' => "CSV must have a column mapped to 'email'."], 422);
-        }
-
-        $seenEmails = [];
-        $savedCount = 0;
-        $errors = [];
-
-        TicketAttendee::where('location_id', $locationId)->delete();
-
-        while (($data = fgetcsv($handle)) !== false) {
-            $email = isset($fieldToIndex['email']) && isset($data[$fieldToIndex['email']])
-                ? strtolower(trim($data[$fieldToIndex['email']]))
-                : '';
-            if ($email === '') {
-                continue;
-            }
-            if (isset($seenEmails[$email])) {
-                continue;
-            }
-            $seenEmails[$email] = true;
-
-            $get = function ($key, $default = '') use ($data, $fieldToIndex) {
-                if (!isset($fieldToIndex[$key])) {
-                    return $default;
-                }
-                $idx = $fieldToIndex[$key];
-                return isset($data[$idx]) ? trim($data[$idx]) : $default;
-            };
-
-            try {
-                TicketAttendee::create([
-                    'location_id' => $locationId,
-                    'event_id' => $eventId,
-                    'email' => $email,
-                    'first_name' => $get('first_name'),
-                    'last_name' => $get('last_name'),
-                    'phone' => $get('phone'),
-                    'city' => $get('city'),
-                    'state' => $get('state'),
-                    'country' => $get('country'),
-                ]);
-                $savedCount++;
-            } catch (\Exception $e) {
-                $errors[] = "Row {$email}: " . $e->getMessage();
-            }
-        }
-        fclose($handle);
-
-        return response()->json([
-            'saved' => $savedCount,
-            'total' => count($seenEmails),
-            'errors' => array_slice($errors, 0, 20),
-        ]);
     }
 
     /**
@@ -1416,396 +450,19 @@ class LocationController extends Controller
     }
 
     /**
-     * Import Eventbrite attendees to Mailchimp
-     */
-    public function importEventbriteToMailchimp(Request $request, MailchimpLogService $logService)
-    {
-        // Log incoming request for debugging
-        Log::info('Eventbrite import request received', [
-            'has_subscribers' => $request->has('subscribers'),
-            'subscribers_count' => $request->has('subscribers') ? count($request->subscribers) : 0,
-            'location_id' => $request->location_id,
-            'event_id' => $request->event_id,
-            'list_id' => $request->list_id,
-            'mailchimp_account' => $request->mailchimp_account,
-            'has_tags' => $request->has('tags'),
-            'tags' => $request->tags,
-            'tags_type' => gettype($request->tags),
-            'tags_is_array' => is_array($request->tags),
-        ]);
-
-        try {
-            $request->validate([
-                'subscribers' => 'required|array',
-                'location_id' => 'required|integer|exists:locations,id',
-                'event_id' => 'required|integer|exists:events,id',
-                'list_id' => 'required|string',
-                'mailchimp_account' => 'required|string|in:anz,usa',
-                'tags' => 'required|array'
-            ]);
-        } catch (\Illuminate\Validation\ValidationException $e) {
-            Log::error('Eventbrite import validation failed', [
-                'errors' => $e->errors(),
-                'request_data' => [
-                    'has_subscribers' => $request->has('subscribers'),
-                    'subscribers_count' => $request->has('subscribers') ? count($request->subscribers) : 0,
-                    'location_id' => $request->location_id,
-                    'location_id_type' => gettype($request->location_id),
-                    'event_id' => $request->event_id,
-                    'event_id_type' => gettype($request->event_id),
-                    'list_id' => $request->list_id,
-                    'mailchimp_account' => $request->mailchimp_account,
-                    'has_tags' => $request->has('tags'),
-                    'tags' => $request->tags,
-                    'tags_type' => gettype($request->tags),
-                    'tags_is_array' => is_array($request->tags),
-                ]
-            ]);
-            return response()->json([
-                'error' => 'Validation failed',
-                'errors' => $e->errors()
-            ], 422);
-        }
-
-        try {
-            $location = Location::with('event')->findOrFail($request->location_id);
-            $autoMailchimpService = app(AutoMailchimpService::class);
-            $settings = $autoMailchimpService->getSettings($request->event_id);
-
-            $listId = $request->list_id;
-            $mailchimpAccount = $request->mailchimp_account;
-
-            // Use tags from request (already includes default tags from frontend)
-            $tags = $request->tags;
-
-            // Create MailchimpService instance with selected account
-            $mailchimpService = new MailchimpService($mailchimpAccount);
-
-            $results = [
-                'success' => 0,
-                'failed' => 0,
-                'new' => 0,
-                'updated' => 0,
-                'errors' => []
-            ];
-
-            $totalSubscribers = count($request->subscribers);
-            $chunkSize = min(10, $totalSubscribers);
-            $totalChunks = ceil($totalSubscribers / $chunkSize);
-            $importedSubscribers = [];
-
-            // Process in chunks
-            for ($i = 0; $i < $totalChunks; $i++) {
-                $start = $i * $chunkSize;
-                $chunk = array_slice($request->subscribers, $start, $chunkSize);
-
-                foreach ($chunk as $subscriber) {
-                    try {
-                        if (empty($subscriber['email_address'])) {
-                            $results['failed']++;
-                            $results['errors'][] = "Skipped subscriber: Missing email address";
-                            continue;
-                        }
-
-                        // Import only: first name, last name, email, phone
-                        // Use manualImportSubscriber to get new/updated counts
-                        $result = $mailchimpService->manualImportSubscriber(
-                            $listId,
-                            [
-                                'email_address' => $subscriber['email_address'],
-                                'first_name' => $subscriber['first_name'] ?? '',
-                                'last_name' => $subscriber['last_name'] ?? '',
-                                'mobile_number' => $subscriber['mobile_number'] ?? '',
-                            ],
-                            $tags
-                        );
-
-                        $results['success']++;
-                        $importedSubscribers[] = $subscriber;
-                        
-                        // Track new vs updated
-                        if (isset($result['import_type'])) {
-                            if ($result['import_type'] === 'new') {
-                                $results['new']++;
-                            } else if ($result['import_type'] === 'updated') {
-                                $results['updated']++;
-                            }
-                        }
-
-                        // Log each successful import
-                        $logService->logImport($location->id, $location->name, [
-                            'success' => true,
-                            'email' => $subscriber['email_address'],
-                            'tags' => $tags,
-                            'source' => 'eventbrite'
-                        ]);
-
-                    } catch (\Exception $e) {
-                        $results['failed']++;
-                        $errorMessage = "Failed to import {$subscriber['email_address']}: " . substr($e->getMessage(), 0, 200);
-                        $results['errors'][] = $errorMessage;
-
-                        // Log failed import
-                        $logService->logImport($location->id, $location->name, [
-                            'success' => false,
-                            'email' => $subscriber['email_address'] ?? 'unknown',
-                            'error' => $e->getMessage(),
-                            'tags' => $tags,
-                            'source' => 'eventbrite'
-                        ]);
-
-                        Log::error('Eventbrite Mailchimp import error', [
-                            'email' => $subscriber['email_address'] ?? 'unknown',
-                            'error' => $e->getMessage()
-                        ]);
-                    }
-                }
-            }
-
-            Log::info('Eventbrite attendees imported to Mailchimp', [
-                'location_id' => $location->id,
-                'total' => $totalSubscribers,
-                'success' => $results['success'],
-                'failed' => $results['failed']
-            ]);
-
-            return response()->json([
-                'message' => "Import completed. Success: {$results['success']}, Failed: {$results['failed']}, New: {$results['new']}, Updated: {$results['updated']}",
-                'details' => [
-                    'success' => $results['success'],
-                    'failed' => $results['failed'],
-                    'new' => $results['new'],
-                    'updated' => $results['updated'],
-                    'total' => $totalSubscribers,
-                    'errors' => array_slice($results['errors'], 0, 10) // Limit errors in response
-                ]
-            ]);
-
-        } catch (\Exception $e) {
-            Log::error('Error importing Eventbrite to Mailchimp', [
-                'error' => $e->getMessage(),
-                'trace' => $e->getTraceAsString()
-            ]);
-
-            return response()->json([
-                'error' => 'Failed to import to Mailchimp: ' . $e->getMessage()
-            ], 500);
-        }
-    }
-
-    /**
-     * GET preview of how many contacts will be imported (win form counts per location).
-     * Used by Import All modal to show "Total contacts to be imported" (frontend adds staged ticket count).
-     */
-    public function getEventMailchimpImportPreview(Request $request, $eventId)
-    {
-        $event = Events::findOrFail($eventId);
-        $query = Location::where('event_id', $eventId);
-        if ($request->has('location_ids')) {
-            $locationIds = is_array($request->location_ids) ? $request->location_ids : explode(',', $request->location_ids);
-            $query->whereIn('id', $locationIds);
-        }
-        $locations = $query->get();
-        $signUpForm = SignUpForm::where('event_id', $eventId)->first();
-        $byLocation = [];
-        $totalForm = 0;
-        $previewRow = null;
-        if ($signUpForm && $signUpForm->table_name && Schema::hasTable($signUpForm->table_name)) {
-            foreach ($locations as $loc) {
-                $formCount = (int) DB::table($signUpForm->table_name)
-                    ->where('location_id', $loc->id)
-                    ->where('event_id', $eventId)
-                    ->count();
-                $byLocation[] = [
-                    'location_id' => $loc->id,
-                    'location_name' => $loc->name,
-                    'form_count' => $formCount,
-                ];
-                $totalForm += $formCount;
-            }
-            // One sample row for field-mapping preview (same shape as import)
-            $firstRow = DB::table($signUpForm->table_name)
-                ->where('event_id', $eventId)
-                ->whereNotNull('email_address')
-                ->where('email_address', '!=', '')
-                ->first();
-            if ($firstRow) {
-                $row = (array) $firstRow;
-                $street = trim($row['street_address'] ?? '');
-                $street2 = trim($row['street_address_2'] ?? '');
-                $city = trim($row['city'] ?? '');
-                $state = trim($row['state'] ?? '');
-                $zip = trim($row['zip_code'] ?? $row['postal_code'] ?? '');
-                $country = trim($row['country'] ?? '');
-                $addrParts = array_filter([$street, $street2, $city, $state, $zip, $country]);
-                $previewRow = array_merge($row, [
-                    'email_address' => trim($row['email_address'] ?? ''),
-                    'first_name' => $row['first_name'] ?? '',
-                    'last_name' => $row['last_name'] ?? '',
-                    'mobile_number' => $row['mobile_number'] ?? $row['phone'] ?? '',
-                    'street_address' => $street,
-                    'street_address_2' => $street2,
-                    'city' => $city,
-                    'state' => $state,
-                    'zip_code' => $zip,
-                    'country' => $country,
-                    'gender' => $row['gender'] ?? '',
-                    'age' => $row['age'] ?? '',
-                    'address_full' => implode(', ', $addrParts),
-                ]);
-            }
-        } else {
-            foreach ($locations as $loc) {
-                $byLocation[] = [
-                    'location_id' => $loc->id,
-                    'location_name' => $loc->name,
-                    'form_count' => 0,
-                ];
-            }
-        }
-        return response()->json([
-            'by_location' => $byLocation,
-            'total_form' => $totalForm,
-            'preview_row' => $previewRow,
-        ]);
-    }
-
-    /**
-     * GET source columns for Mailchimp import mapping (sign-up form + ticket + concatenated address).
-     * When data_mode=ticket, returns only email, first_name, last_name (ticket data has only those for mapping).
-     */
-    public function getImportSourceColumns(Request $request, $eventId)
-    {
-        $dataMode = $request->query('data_mode', '');
-
-        if ($dataMode === 'ticket') {
-            return response()->json([
-                'source_columns' => [
-                    ['key' => 'email', 'label' => 'Email (ticket)'],
-                    ['key' => 'first_name', 'label' => 'First name'],
-                    ['key' => 'last_name', 'label' => 'Last name'],
-                ],
-            ]);
-        }
-
-        $signUpForm = SignUpForm::where('event_id', $eventId)->first();
-        $formColumns = [];
-        if ($signUpForm && $signUpForm->table_name && Schema::hasTable($signUpForm->table_name)) {
-            $formColumns = Schema::getColumnListing($signUpForm->table_name);
-            $formColumns = array_diff($formColumns, ['id', 'created_at', 'updated_at']);
-        }
-        $fixedColumns = [
-            ['key' => 'email_address', 'label' => 'Email address'],
-            ['key' => 'email', 'label' => 'Email (ticket)'],
-            ['key' => 'first_name', 'label' => 'First name'],
-            ['key' => 'last_name', 'label' => 'Last name'],
-            ['key' => 'mobile_number', 'label' => 'Mobile number'],
-            ['key' => 'phone', 'label' => 'Phone'],
-            ['key' => 'street_address', 'label' => 'Street address'],
-            ['key' => 'street_address_2', 'label' => 'Street address 2'],
-            ['key' => 'city', 'label' => 'City'],
-            ['key' => 'state', 'label' => 'State'],
-            ['key' => 'zip_code', 'label' => 'Zip code'],
-            ['key' => 'postal_code', 'label' => 'Postal code'],
-            ['key' => 'country', 'label' => 'Country'],
-            ['key' => 'gender', 'label' => 'Gender'],
-            ['key' => 'age', 'label' => 'Age'],
-            ['key' => 'address_full', 'label' => 'Address (concatenated: street + city + state + zip + country)'],
-        ];
-        $existingKeys = array_column($fixedColumns, 'key');
-        foreach ($formColumns as $col) {
-            if (! in_array($col, $existingKeys, true)) {
-                $fixedColumns[] = ['key' => $col, 'label' => ucfirst(str_replace('_', ' ', $col))];
-            }
-        }
-
-        return response()->json(['source_columns' => $fixedColumns]);
-    }
-
-    /**
-     * Event-level "Import all": queue import to run in the background so the app stays responsive.
-     * Request: event_id, list_id, mailchimp_account, list_name?, locations: [{ location_id, attendees?, tags?, form_tags? }].
-     * Returns immediately with queued: true; results appear in Mailchimp Import Logs when the job finishes.
-     */
-    public function eventImportAll(Request $request)
-    {
-        $request->validate([
-            'event_id' => 'required|integer|exists:events,id',
-            'list_id' => 'required|string',
-            'mailchimp_account' => 'required|string|in:anz,usa',
-            'locations' => 'required|array',
-            'locations.*.location_id' => 'required|integer|exists:locations,id',
-            'locations.*.attendees' => 'nullable|array',
-            'locations.*.attendees.*.email' => 'required_with:locations.*.attendees|string|email',
-            'locations.*.tags' => 'nullable|array',
-            'locations.*.form_tags' => 'nullable|array',
-            'skip_already_imported' => 'nullable|boolean',
-            'field_mapping' => 'nullable|array',
-            'field_mapping.*' => 'nullable|string|max:100',
-        ]);
-
-        $eventId = (int) $request->event_id;
-        $listId = $request->list_id;
-        $mailchimpAccount = $request->mailchimp_account;
-        $listName = $request->input('list_name');
-        $locationsPayload = $request->locations;
-        $skipAlreadyImported = $request->boolean('skip_already_imported', false);
-        $fieldMapping = $request->input('field_mapping');
-        $fieldMapping = is_array($fieldMapping) ? array_filter($fieldMapping, fn ($v) => $v !== null && $v !== '') : null;
-
-        // Verify Mailchimp config before queuing
-        try {
-            new MailchimpService($mailchimpAccount);
-        } catch (\Exception $e) {
-            Log::error('Event import all: MailchimpService init failed', ['error' => $e->getMessage()]);
-            return response()->json(['error' => 'Mailchimp configuration error.', 'message' => $e->getMessage()], 500);
-        }
-
-        $importBatchId = Str::uuid()->toString();
-        EventImportAllToMailchimpJob::dispatch(
-            $eventId,
-            $listId,
-            $mailchimpAccount,
-            $listName,
-            $locationsPayload,
-            auth()->id(),
-            $skipAlreadyImported,
-            $importBatchId,
-            $fieldMapping
-        );
-
-        $totalLocations = count($locationsPayload);
-        $subscribersEstimate = array_reduce($locationsPayload, fn ($sum, $loc) => $sum + count($loc['attendees'] ?? []), 0);
-        Log::info('Event import all queued – total locations to import', [
-            'event_id' => $eventId,
-            'list_id' => $listId,
-            'import_batch_id' => $importBatchId,
-            'total_locations_to_import' => $totalLocations,
-            'subscribers_estimate' => $subscribersEstimate,
-        ]);
-
-        return response()->json([
-            'queued' => true,
-            'message' => 'Import started in the background. You can close this and keep using the app. Check Mailchimp Import Logs for results when it finishes.',
-        ]);
-    }
-
-    /**
      * Get locations for sheets modal (formatted for display)
      */
     public function getSheetsData($eventId)
     {
         try {
-            // Only get non-hidden locations for the master sheet
             $locations = Location::where('event_id', $eventId)
-                ->where('is_hidden', false)
                 ->orderBy('id', 'asc')
                 ->get();
 
             $sheetsData = $locations->map(function ($location) {
                 // Get state directly from database column
                 $state = $location->state ?? '';
-                
+
                 // Parse the name field: "Location State (if any) - Cinema"
                 $name = $location->name ?? '';
                 $locationName = '';
@@ -1817,16 +474,16 @@ class LocationController extends Controller
                     $parts = explode(' - ', $name, 2);
                     $locationPart = trim($parts[0]);
                     $cinema = trim($parts[1] ?? '');
-                    
+
                     // Remove state from location part if it's there (for backward compatibility)
-                    if (!empty($state)) {
-                        $locationPart = preg_replace('/\s+' . preg_quote($state, '/') . '$/i', '', $locationPart);
+                    if (! empty($state)) {
+                        $locationPart = preg_replace('/\s+'.preg_quote($state, '/').'$/i', '', $locationPart);
                     }
                     $locationName = trim($locationPart);
                 } else {
                     // No cinema, remove state from name if it's there
-                    if (!empty($state)) {
-                        $locationName = preg_replace('/\s+' . preg_quote($state, '/') . '$/i', '', $name);
+                    if (! empty($state)) {
+                        $locationName = preg_replace('/\s+'.preg_quote($state, '/').'$/i', '', $name);
                         $locationName = trim($locationName);
                     } else {
                         $locationName = $name;
@@ -1835,7 +492,7 @@ class LocationController extends Controller
 
                 // Format date: "Tuesday, 19 August 2025"
                 $formattedDate = '';
-                if (!empty($location->date) && $location->date !== 'TBA') {
+                if (! empty($location->date) && $location->date !== 'TBA') {
                     try {
                         $date = Carbon::parse($location->date);
                         $formattedDate = $date->format('l, j F Y'); // e.g., "Tuesday, 19 August 2025"
@@ -1848,13 +505,13 @@ class LocationController extends Controller
 
                 // Format time: "7:00 pm"
                 $formattedTime = '';
-                if (!empty($location->time) && $location->time !== 'TBA') {
+                if (! empty($location->time) && $location->time !== 'TBA') {
                     try {
                         // Handle both HH:MM:SS and HH:MM formats
                         $timeParts = explode(':', $location->time);
-                        $hours = (int)($timeParts[0] ?? 0);
-                        $minutes = (int)($timeParts[1] ?? 0);
-                        
+                        $hours = (int) ($timeParts[0] ?? 0);
+                        $minutes = (int) ($timeParts[1] ?? 0);
+
                         // Determine period and display hours
                         if ($hours == 0) {
                             // Midnight (00:00) -> 12:00 am
@@ -1873,7 +530,7 @@ class LocationController extends Controller
                             $displayHours = $hours;
                             $period = 'am';
                         }
-                        
+
                         $formattedTime = sprintf('%d:%02d %s', $displayHours, $minutes, $period);
                     } catch (\Exception $e) {
                         $formattedTime = $location->time; // Fallback to original if parsing fails
@@ -1890,17 +547,17 @@ class LocationController extends Controller
                     'Country' => $location->country ?? '',
                     'Date' => $formattedDate,
                     'Time' => $formattedTime,
-                    'Category' => $location->category ?? ''
+                    'Category' => $location->category ?? '',
                 ];
             });
 
             return response()->json([
                 'success' => true,
-                'data' => $sheetsData
+                'data' => $sheetsData,
             ]);
         } catch (\Exception $e) {
             return response()->json([
-                'error' => 'Failed to load locations: ' . $e->getMessage()
+                'error' => 'Failed to load locations: '.$e->getMessage(),
             ], 500);
         }
     }
@@ -1923,40 +580,43 @@ class LocationController extends Controller
         }
 
         $timeString = trim($timeString);
-        
+
         // Check if already in 24-hour format "HH:MM" or "H:MM"
         if (preg_match('/^(\d{1,2}):(\d{2})$/', $timeString, $matches)) {
-            $hour24 = (int)$matches[1];
-            $minutes = (int)$matches[2];
-            
+            $hour24 = (int) $matches[1];
+            $minutes = (int) $matches[2];
+
             // Validate
             if ($hour24 < 0 || $hour24 > 23 || $minutes < 0 || $minutes > 59) {
                 Log::warning('Invalid 24-hour time format', ['time' => $timeString]);
+
                 return null;
             }
-            
+
             // Return in HH:MM format
             return sprintf('%02d:%02d', $hour24, $minutes);
         }
-        
+
         // Handle formats like "7pm", "7PM", "7:00pm", "7:00 pm", "7:00PM", "7:00 PM"
         if (preg_match('/^(\d{1,2})(?::(\d{2}))?\s*(AM|PM)$/i', $timeString, $matches)) {
-            $hour = (int)$matches[1];
-            $minutes = isset($matches[2]) ? (int)$matches[2] : 0;
+            $hour = (int) $matches[1];
+            $minutes = isset($matches[2]) ? (int) $matches[2] : 0;
             $ampm = strtoupper($matches[3]);
-            
+
             // Validate hour
             if ($hour < 1 || $hour > 12) {
                 Log::warning('Invalid hour in time string', ['time' => $timeString, 'hour' => $hour]);
+
                 return null;
             }
-            
+
             // Validate minutes
             if ($minutes < 0 || $minutes > 59) {
                 Log::warning('Invalid minutes in time string', ['time' => $timeString, 'minutes' => $minutes]);
+
                 return null;
             }
-            
+
             // Convert to 24-hour format
             $hour24 = $hour;
             if ($ampm === 'PM' && $hour != 12) {
@@ -1964,23 +624,24 @@ class LocationController extends Controller
             } elseif ($ampm === 'AM' && $hour == 12) {
                 $hour24 = 0;
             }
-            
+
             // Return in HH:MM format
             return sprintf('%02d:%02d', $hour24, $minutes);
         }
-        
+
         // If no format matches, try to parse with Carbon as fallback
         try {
             // Try to parse as time
             $time = Carbon::createFromTimeString($timeString);
+
             // Return in 24-hour format HH:MM
             return $time->format('H:i');
         } catch (\Exception $e) {
             Log::warning('Unable to parse time string', [
                 'time_string' => $timeString,
-                'error' => $e->getMessage()
+                'error' => $e->getMessage(),
             ]);
-            
+
             // Return original if we can't parse it
             return $timeString;
         }
@@ -2004,61 +665,64 @@ class LocationController extends Controller
         }
 
         $dateString = trim($dateString);
-        
+
         // Check if already in YYYY-MM-DD format
         if (preg_match('/^\d{4}-\d{2}-\d{2}$/', $dateString)) {
             return $dateString;
         }
-        
+
         // Remove day name if present (e.g., "Friday, " or "Sunday, ")
         $cleanedDate = preg_replace('/^(Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday),\s*/i', '', $dateString);
-        
+
         // Try manual parsing first for specific formats
-        
+
         // Format 1: "31 May 2026" or "27 May 2026" (UK/Australian - day month year)
         if (preg_match('/^(\d{1,2})\s+(January|February|March|April|May|June|July|August|September|October|November|December)\s+(\d{4})$/i', $cleanedDate, $matches)) {
             $day = str_pad($matches[1], 2, '0', STR_PAD_LEFT);
             $monthName = ucfirst(strtolower($matches[2]));
             $year = $matches[3];
-            
+
             // Convert month name to number
-            $monthNum = date('m', strtotime($monthName . ' 1'));
+            $monthNum = date('m', strtotime($monthName.' 1'));
             if ($monthNum === false) {
                 Log::error('Failed to convert month name', ['month' => $monthName]);
+
                 return null;
             }
-            
+
             return "$year-$monthNum-$day";
         }
-        
+
         // Format 2: "January 23, 2026" or "January 24, 2026" (US - month day, year)
         if (preg_match('/^(January|February|March|April|May|June|July|August|September|October|November|December)\s+(\d{1,2}),?\s+(\d{4})$/i', $cleanedDate, $matches)) {
             $monthName = ucfirst(strtolower($matches[1]));
             $day = str_pad($matches[2], 2, '0', STR_PAD_LEFT);
             $year = $matches[3];
-            
+
             // Convert month name to number
-            $monthNum = date('m', strtotime($monthName . ' 1'));
+            $monthNum = date('m', strtotime($monthName.' 1'));
             if ($monthNum === false) {
                 Log::error('Failed to convert month name', ['month' => $monthName]);
+
                 return null;
             }
-            
+
             return "$year-$monthNum-$day";
         }
-        
+
         // Try Carbon as fallback for other formats
         try {
             $date = Carbon::parse($cleanedDate);
+
             return $date->format('Y-m-d');
         } catch (\Exception $e) {
             // If Carbon can't parse it, log and return null
             Log::error('Unable to parse date string', [
                 'original_date' => $dateString,
                 'cleaned_date' => $cleanedDate,
-                'error' => $e->getMessage()
+                'error' => $e->getMessage(),
             ]);
-            
+
             return null;
         }
     }
@@ -2081,6 +745,7 @@ class LocationController extends Controller
                 'data.*.Category' => 'nullable|string',
                 'ids_to_delete' => 'nullable|array',
                 'ids_to_delete.*' => 'integer|exists:locations,id',
+                'confirm_deletes' => 'nullable|boolean',
             ]);
 
             $eventId = $request->event_id;
@@ -2088,7 +753,29 @@ class LocationController extends Controller
             $created = 0;
             $updated = 0;
             $deleted = 0;
-            $hidden = 0;
+
+            $idsToDelete = array_values(array_filter(
+                (array) $request->input('ids_to_delete', []),
+                fn ($id) => Location::where('id', $id)->where('event_id', $eventId)->exists()
+            ));
+
+            // Removing a location takes its attendees with it — ticket_attendees
+            // cascades on delete and the sign-up entries lose their location. That is
+            // the intended outcome, but never a silent one: the first save comes back
+            // asking, and nothing at all is written until the answer is yes. Checking
+            // before any create or update keeps the save atomic, so a cancelled
+            // confirmation leaves the sheet exactly as it was.
+            if (! $request->boolean('confirm_deletes') && ! empty($idsToDelete)) {
+                $withData = $this->locationsWithAttendeeData($eventId, $idsToDelete);
+
+                if (! empty($withData)) {
+                    return response()->json([
+                        'success' => false,
+                        'needs_confirmation' => true,
+                        'locations_with_data' => $withData,
+                    ]);
+                }
+            }
 
             // Get existing locations for password logic
             $existingLocations = Location::where('event_id', $eventId)->get();
@@ -2116,21 +803,21 @@ class LocationController extends Controller
                 $cinema = trim($row['Cinema'] ?? '');
 
                 $name = $locationName;
-                if (!empty($state)) {
-                    $name .= ' ' . strtoupper($state);
+                if (! empty($state)) {
+                    $name .= ' '.strtoupper($state);
                 }
-                if (!empty($cinema)) {
-                    $name .= ' - ' . $cinema;
+                if (! empty($cinema)) {
+                    $name .= ' - '.$cinema;
                 }
 
                 // Parse and convert date to YYYY-MM-DD format
                 $parsedDate = $this->parseDate($row['Date'] ?? null);
-                
+
                 // Parse and convert time to standardized format
                 $parsedTime = $this->parseTime($row['Time'] ?? null);
-                
+
                 // Check if this is an update (has id) or create (no id)
-                if (!empty($row['id'])) {
+                if (! empty($row['id'])) {
                     // Update existing location
                     $location = Location::find($row['id']);
                     if ($location && $location->event_id == $eventId) {
@@ -2138,7 +825,7 @@ class LocationController extends Controller
                             'name' => $name,
                             'date' => $parsedDate,
                             'time' => $parsedTime,
-                            'state' => !empty($state) ? $state : null,
+                            'state' => ! empty($state) ? $state : null,
                             'country' => $row['Country'] ?? null,
                             'category' => $row['Category'] ?? null,
                         ]);
@@ -2152,61 +839,39 @@ class LocationController extends Controller
                         'event_id' => $eventId,
                         'date' => $parsedDate,
                         'time' => $parsedTime,
-                        'state' => !empty($state) ? $state : null,
+                        'state' => ! empty($state) ? $state : null,
                         'country' => $row['Country'] ?? null,
                         'category' => $row['Category'] ?? null,
-                        'password' => $password
+                        'password' => $password,
                     ]);
                     $created++;
                 }
             }
 
-            // Delete or hide locations that were removed from the master sheet
-            if ($request->has('ids_to_delete') && is_array($request->ids_to_delete)) {
-                foreach ($request->ids_to_delete as $locationId) {
-                    $location = Location::find($locationId);
-                    if ($location && $location->event_id == $eventId) {
-                        // Check if location has attendees (from signup form table or ticket attendees)
-                        $hasAttendees = false;
-                        
-                        // Check ticket attendees
-                        $ticketAttendeeCount = TicketAttendee::where('location_id', $locationId)->count();
-                        if ($ticketAttendeeCount > 0) {
-                            $hasAttendees = true;
-                        }
-                        
-                        // Check signup form attendees
-                        if (!$hasAttendees) {
-                            $signUpForm = SignUpForm::where('event_id', $eventId)->first();
-                            if ($signUpForm && $signUpForm->table_name) {
-                                $attendeeCount = DB::table($signUpForm->table_name)
-                                    ->where('location_id', $locationId)
-                                    ->count();
-                                if ($attendeeCount > 0) {
-                                    $hasAttendees = true;
-                                }
-                            }
-                        }
-                        
-                        if ($hasAttendees) {
-                            // Hide the location instead of deleting
-                            $location->update(['is_hidden' => true]);
-                            $hidden++;
-                        } else {
-                            // Safe to delete if no attendees
-                            $location->delete();
-                            $deleted++;
-                        }
-                    }
+            // Locations taken off the master sheet are deleted outright — the sheet is
+            // the source of truth for what the sign-up form offers, so anything not on
+            // it must not survive anywhere. Any attendee data this costs was named in
+            // the confirmation above.
+            $deletedNames = [];
+            foreach ($idsToDelete as $locationId) {
+                $location = Location::find($locationId);
+                if ($location && $location->event_id == $eventId) {
+                    $deletedNames[] = $location->name;
+                    $location->delete();
+                    $deleted++;
                 }
+            }
+
+            if (! empty($deletedNames)) {
+                Log::warning('Master sheet deleted locations', [
+                    'event_id' => $eventId,
+                    'locations' => $deletedNames,
+                ]);
             }
 
             $message = "Successfully saved. Created: {$created}, Updated: {$updated}";
             if ($deleted > 0) {
-                $message .= ", Deleted: {$deleted}";
-            }
-            if ($hidden > 0) {
-                $message .= ", Hidden: {$hidden} (locations with attendees were hidden instead of deleted)";
+                $message .= ", Deleted: {$deleted} (".implode(', ', $deletedNames).')';
             }
 
             return response()->json([
@@ -2215,16 +880,15 @@ class LocationController extends Controller
                 'created' => $created,
                 'updated' => $updated,
                 'deleted' => $deleted,
-                'hidden' => $hidden
             ]);
         } catch (\Exception $e) {
             Log::error('Failed to save sheets data', [
                 'error' => $e->getMessage(),
-                'trace' => $e->getTraceAsString()
+                'trace' => $e->getTraceAsString(),
             ]);
 
             return response()->json([
-                'error' => 'Failed to save locations: ' . $e->getMessage()
+                'error' => 'Failed to save locations: '.$e->getMessage(),
             ], 500);
         }
     }
@@ -2238,17 +902,17 @@ class LocationController extends Controller
         try {
             $location = Location::with('event')->findOrFail($locationId);
             $event = $location->event;
-            
+
             // Get ticket attendees (from Eventbrite)
             $ticketAttendees = TicketAttendee::where('location_id', $locationId)->get();
             $ticketEmails = $ticketAttendees->pluck('email')->map(function ($email) {
                 return strtolower(trim($email));
             })->filter()->unique()->values();
-            
+
             // Get sign-up form attendees (from system)
             $signUpForm = SignUpForm::where('event_id', $event->id)->first();
             $signUpEmails = collect();
-            
+
             if ($signUpForm && $signUpForm->table_name) {
                 $tableName = $signUpForm->table_name;
                 // Check if table exists
@@ -2257,7 +921,7 @@ class LocationController extends Controller
                         ->where('location_id', $locationId)
                         ->where('event_id', $event->id)
                         ->get();
-                    
+
                     $signUpEmails = $signUpAttendees->pluck('email_address')
                         ->map(function ($email) {
                             return strtolower(trim($email));
@@ -2267,25 +931,25 @@ class LocationController extends Controller
                         ->values();
                 }
             }
-            
+
             // Find duplicates (emails that appear in both ticket and sign-up data)
             $duplicateEmails = $ticketEmails->intersect($signUpEmails)->values();
-            
+
             // Emails only in tickets
             $ticketOnlyEmails = $ticketEmails->diff($signUpEmails)->values();
-            
+
             // Emails only in sign-up forms
             $signUpOnlyEmails = $signUpEmails->diff($ticketEmails)->values();
-            
+
             // Get detailed duplicate information
             $duplicateDetails = $duplicateEmails->map(function ($email) use ($ticketAttendees, $signUpForm, $locationId, $event) {
                 // Find ticket data (case-insensitive match)
                 $ticketData = $ticketAttendees->first(function ($attendee) use ($email) {
                     return strtolower(trim($attendee->email)) === strtolower(trim($email));
                 });
-                
+
                 $signUpData = null;
-                
+
                 if ($signUpForm && $signUpForm->table_name && Schema::hasTable($signUpForm->table_name)) {
                     $signUpData = DB::table($signUpForm->table_name)
                         ->where('location_id', $locationId)
@@ -2293,24 +957,24 @@ class LocationController extends Controller
                         ->whereRaw('LOWER(TRIM(email_address)) = ?', [strtolower(trim($email))])
                         ->first();
                 }
-                
+
                 return [
                     'email' => $email,
                     'ticket_data' => $ticketData ? [
                         'first_name' => $ticketData->first_name,
                         'last_name' => $ticketData->last_name,
                         'phone' => $ticketData->phone,
-                        'source' => 'Eventbrite Ticket'
+                        'source' => 'Eventbrite Ticket',
                     ] : null,
                     'signup_data' => $signUpData ? [
                         'first_name' => $signUpData->first_name ?? null,
                         'last_name' => $signUpData->last_name ?? null,
                         'phone' => $signUpData->mobile_number ?? null,
-                        'source' => 'Sign-Up Form'
-                    ] : null
+                        'source' => 'Sign-Up Form',
+                    ] : null,
                 ];
             });
-            
+
             return response()->json([
                 'location' => $location,
                 'summary' => [
@@ -2319,21 +983,21 @@ class LocationController extends Controller
                     'duplicate_emails_count' => $duplicateEmails->count(),
                     'ticket_only_count' => $ticketOnlyEmails->count(),
                     'signup_only_count' => $signUpOnlyEmails->count(),
-                    'total_unique_emails' => $ticketEmails->merge($signUpEmails)->unique()->count()
+                    'total_unique_emails' => $ticketEmails->merge($signUpEmails)->unique()->count(),
                 ],
                 'duplicate_emails' => $duplicateDetails,
                 'ticket_only_emails' => $ticketOnlyEmails,
-                'signup_only_emails' => $signUpOnlyEmails
+                'signup_only_emails' => $signUpOnlyEmails,
             ]);
         } catch (\Exception $e) {
             Log::error('Error getting location ticket report', [
                 'location_id' => $locationId,
                 'error' => $e->getMessage(),
-                'trace' => $e->getTraceAsString()
+                'trace' => $e->getTraceAsString(),
             ]);
-            
+
             return response()->json([
-                'error' => 'Failed to get ticket report: ' . $e->getMessage()
+                'error' => 'Failed to get ticket report: '.$e->getMessage(),
             ], 500);
         }
     }
@@ -2346,40 +1010,40 @@ class LocationController extends Controller
     {
         try {
             $film = Films::findOrFail($filmId);
-            
+
             // Get all events for this film
             $events = Events::where('film_id', $filmId)->with('signUpForm')->get();
             $eventIds = $events->pluck('id');
-            
+
             // Get all locations for these events
             $locations = Location::whereIn('event_id', $eventIds)->get();
             $locationIds = $locations->pluck('id');
-            
+
             // Get all ticket attendees for these locations
             $ticketAttendees = TicketAttendee::whereIn('location_id', $locationIds)
                 ->with(['location', 'event'])
                 ->get();
-            
+
             $ticketEmails = $ticketAttendees->pluck('email')->map(function ($email) {
                 return strtolower(trim($email));
             })->filter()->unique()->values();
-            
+
             // Get all sign-up form emails across all events
             $allSignUpEmails = collect();
             $signUpAttendeesByLocation = [];
-            
+
             foreach ($events as $event) {
                 $signUpForm = $event->signUpForm;
                 if ($signUpForm && $signUpForm->table_name && Schema::hasTable($signUpForm->table_name)) {
                     $tableName = $signUpForm->table_name;
                     $eventLocations = $locations->where('event_id', $event->id);
-                    
+
                     foreach ($eventLocations as $location) {
                         $signUpAttendees = DB::table($tableName)
                             ->where('location_id', $location->id)
                             ->where('event_id', $event->id)
                             ->get();
-                        
+
                         $locationSignUpEmails = $signUpAttendees->pluck('email_address')
                             ->map(function ($email) {
                                 return strtolower(trim($email));
@@ -2387,46 +1051,46 @@ class LocationController extends Controller
                             ->filter()
                             ->unique()
                             ->values();
-                        
+
                         $allSignUpEmails = $allSignUpEmails->merge($locationSignUpEmails);
                         $signUpAttendeesByLocation[$location->id] = $signUpAttendees;
                     }
                 }
             }
-            
+
             $signUpEmails = $allSignUpEmails->unique()->values();
-            
+
             // Find duplicates (emails in both ticket and sign-up data)
             $duplicateEmails = $ticketEmails->intersect($signUpEmails)->values();
-            
+
             // Emails only in tickets
             $ticketOnlyEmails = $ticketEmails->diff($signUpEmails)->values();
-            
+
             // Emails only in sign-up forms
             $signUpOnlyEmails = $signUpEmails->diff($ticketEmails)->values();
-            
+
             // Get detailed duplicate information
             $duplicateDetails = $duplicateEmails->map(function ($email) use ($ticketAttendees, $events, $signUpAttendeesByLocation, $locations) {
                 // Find ticket data (case-insensitive match)
                 $ticketData = $ticketAttendees->first(function ($attendee) use ($email) {
                     return strtolower(trim($attendee->email)) === strtolower(trim($email));
                 });
-                
+
                 $signUpDataList = [];
-                
+
                 // Find all sign-up data for this email across all locations
                 foreach ($events as $event) {
                     $signUpForm = $event->signUpForm;
                     if ($signUpForm && $signUpForm->table_name && Schema::hasTable($signUpForm->table_name)) {
                         $eventLocations = $locations->where('event_id', $event->id);
-                        
+
                         foreach ($eventLocations as $location) {
                             if (isset($signUpAttendeesByLocation[$location->id])) {
                                 $signUpData = $signUpAttendeesByLocation[$location->id]
                                     ->first(function ($attendee) use ($email) {
                                         return strtolower(trim($attendee->email_address ?? '')) === strtolower(trim($email));
                                     });
-                                
+
                                 if ($signUpData) {
                                     $signUpDataList[] = [
                                         'first_name' => $signUpData->first_name ?? null,
@@ -2434,14 +1098,14 @@ class LocationController extends Controller
                                         'phone' => $signUpData->mobile_number ?? null,
                                         'location_name' => $location->name,
                                         'event_name' => $event->event_name,
-                                        'source' => 'Sign-Up Form'
+                                        'source' => 'Sign-Up Form',
                                     ];
                                 }
                             }
                         }
                     }
                 }
-                
+
                 return [
                     'email' => $email,
                     'ticket_data' => $ticketData ? [
@@ -2450,12 +1114,12 @@ class LocationController extends Controller
                         'phone' => $ticketData->phone,
                         'location_name' => $ticketData->location->name ?? 'N/A',
                         'event_name' => $ticketData->event->event_name ?? 'N/A',
-                        'source' => 'Eventbrite Ticket'
+                        'source' => 'Eventbrite Ticket',
                     ] : null,
-                    'signup_data' => $signUpDataList
+                    'signup_data' => $signUpDataList,
                 ];
             });
-            
+
             // Per location statistics
             $locationStats = $locations->map(function ($location) use ($ticketAttendees, $events, $signUpAttendeesByLocation) {
                 $locationTicketAttendees = $ticketAttendees->where('location_id', $location->id);
@@ -2466,10 +1130,10 @@ class LocationController extends Controller
                     ->filter()
                     ->unique()
                     ->values();
-                
+
                 $locationSignUpEmails = collect();
                 $event = $events->where('id', $location->event_id)->first();
-                
+
                 if ($event && $event->signUpForm && $event->signUpForm->table_name && Schema::hasTable($event->signUpForm->table_name)) {
                     if (isset($signUpAttendeesByLocation[$location->id])) {
                         $locationSignUpEmails = $signUpAttendeesByLocation[$location->id]
@@ -2482,9 +1146,9 @@ class LocationController extends Controller
                             ->values();
                     }
                 }
-                
+
                 $locationDuplicates = $locationTicketEmails->intersect($locationSignUpEmails)->count();
-                
+
                 return [
                     'location_id' => $location->id,
                     'location_name' => $location->name,
@@ -2493,7 +1157,7 @@ class LocationController extends Controller
                     'signup_emails_count' => $locationSignUpEmails->count(),
                     'duplicate_emails_count' => $locationDuplicates,
                     'ticket_only_count' => $locationTicketEmails->diff($locationSignUpEmails)->count(),
-                    'signup_only_count' => $locationSignUpEmails->diff($locationTicketEmails)->count()
+                    'signup_only_count' => $locationSignUpEmails->diff($locationTicketEmails)->count(),
                 ];
             });
 
@@ -2503,6 +1167,7 @@ class LocationController extends Controller
             });
             $byCountry = $attendeesByEmail->groupBy(function ($a) {
                 $c = trim($a->country ?? '');
+
                 return $c !== '' ? $c : 'N/A';
             })->map(function ($group) {
                 return $group->count();
@@ -2513,16 +1178,17 @@ class LocationController extends Controller
             // By state (within country) for drill-down
             $byState = $attendeesByEmail->filter(fn ($a) => trim($a->country ?? '') !== '' && trim($a->state ?? '') !== '')
                 ->groupBy(function ($a) {
-                    return trim($a->country ?? '') . '|' . trim($a->state ?? '');
+                    return trim($a->country ?? '').'|'.trim($a->state ?? '');
                 })->map(function ($group) {
                     $first = $group->first();
+
                     return [
                         'country' => trim($first->country ?? ''),
                         'state' => trim($first->state ?? ''),
-                        'count' => $group->count()
+                        'count' => $group->count(),
                     ];
                 })->sortByDesc('count')->values();
-            
+
             return response()->json([
                 'film' => $film,
                 'summary' => [
@@ -2533,7 +1199,7 @@ class LocationController extends Controller
                     'signup_only_count' => $signUpOnlyEmails->count(),
                     'total_unique_emails' => $ticketEmails->merge($signUpEmails)->unique()->count(),
                     'total_locations' => $locations->count(),
-                    'total_events' => $events->count()
+                    'total_events' => $events->count(),
                 ],
                 'duplicate_emails' => $duplicateDetails,
                 'ticket_only_emails' => $ticketOnlyEmails,
@@ -2542,18 +1208,18 @@ class LocationController extends Controller
                 'events' => $events,
                 'demographics' => [
                     'by_country' => $byCountry,
-                    'by_state' => $byState
-                ]
+                    'by_state' => $byState,
+                ],
             ]);
         } catch (\Exception $e) {
             Log::error('Error getting film ticket report', [
                 'film_id' => $filmId,
                 'error' => $e->getMessage(),
-                'trace' => $e->getTraceAsString()
+                'trace' => $e->getTraceAsString(),
             ]);
-            
+
             return response()->json([
-                'error' => 'Failed to get film ticket report: ' . $e->getMessage()
+                'error' => 'Failed to get film ticket report: '.$e->getMessage(),
             ], 500);
         }
     }
@@ -2642,7 +1308,7 @@ class LocationController extends Controller
                                     'phone' => $signUpData->mobile_number ?? null,
                                     'location_name' => $location->name,
                                     'event_name' => $event->event_name,
-                                    'source' => 'Sign-Up Form'
+                                    'source' => 'Sign-Up Form',
                                 ];
                             }
                         }
@@ -2657,9 +1323,9 @@ class LocationController extends Controller
                         'phone' => $ticketData->phone,
                         'location_name' => $ticketData->location->name ?? 'N/A',
                         'event_name' => $ticketData->event->event_name ?? 'N/A',
-                        'source' => 'Eventbrite Ticket'
+                        'source' => 'Eventbrite Ticket',
                     ] : null,
-                    'signup_data' => $signUpDataList
+                    'signup_data' => $signUpDataList,
                 ];
             });
 
@@ -2699,7 +1365,7 @@ class LocationController extends Controller
                     'signup_emails_count' => $locationSignUpEmails->count(),
                     'duplicate_emails_count' => $locationDuplicates,
                     'ticket_only_count' => $locationTicketEmails->diff($locationSignUpEmails)->count(),
-                    'signup_only_count' => $locationSignUpEmails->diff($locationTicketEmails)->count()
+                    'signup_only_count' => $locationSignUpEmails->diff($locationTicketEmails)->count(),
                 ];
             });
 
@@ -2718,17 +1384,17 @@ class LocationController extends Controller
                 'ticket_only_emails' => $ticketOnlyEmails,
                 'signup_only_emails' => $signUpOnlyEmails,
                 'location_stats' => $locationStats,
-                'locations' => $locations
+                'locations' => $locations,
             ]);
         } catch (\Exception $e) {
             Log::error('Error getting event ticket report', [
                 'event_id' => $eventId,
                 'error' => $e->getMessage(),
-                'trace' => $e->getTraceAsString()
+                'trace' => $e->getTraceAsString(),
             ]);
 
             return response()->json([
-                'error' => 'Failed to get event ticket report: ' . $e->getMessage()
+                'error' => 'Failed to get event ticket report: '.$e->getMessage(),
             ], 500);
         }
     }
@@ -2741,28 +1407,28 @@ class LocationController extends Controller
         try {
             $location = Location::with('event')->findOrFail($locationId);
             $event = $location->event;
-            
+
             // Get Mailchimp settings for tag generation
             $autoMailchimpService = app(AutoMailchimpService::class);
             $settings = $autoMailchimpService->getSettings($event->id);
-            
+
             $filmTour = $settings['film_tour'] ?? 'WM';
             $year = $event->event_year ?? date('Y');
             $locationName = $location->name;
             $locationCountry = $location->country ?? '';
-            
+
             // Extract location tag (everything before hyphen)
             $locationTag = explode(' - ', $locationName)[0];
             $locationTagUpper = strtoupper($locationTag);
-            
+
             // SHOW tag: USA & Canada event only = include state. Australia/NZ/other event = location only, no state. Use event country for this decision.
             $eventCountryUpper = strtoupper($event->event_country ?? $location->country ?? '');
             $isUSA = in_array($eventCountryUpper, ['USA', 'USA & CANADA', 'USA AND CANADA']);
             $locationCountry = strtoupper($location->country ?? $event->event_country ?? '');
             $sourceTagLocation = trim(preg_replace('/,?\s+[A-Z]{2,3}$/i', '', $locationTagUpper));
-            if (!empty($location->state)) {
+            if (! empty($location->state)) {
                 $stateEsc = preg_quote(trim(strtoupper($location->state)), '/');
-                $stripped = trim(preg_replace('/,?\s*' . $stateEsc . '$/i', '', $sourceTagLocation));
+                $stripped = trim(preg_replace('/,?\s*'.$stateEsc.'$/i', '', $sourceTagLocation));
                 if ($stripped !== '') {
                     $sourceTagLocation = $stripped;
                 }
@@ -2779,40 +1445,40 @@ class LocationController extends Controller
             }
             $state = $stateFromName ?: trim(strtoupper($location->state ?? ''));
             $showTagLocation = ($isUSA && $state)
-                ? trim($locationWithoutState) . ', ' . $state
+                ? trim($locationWithoutState).', '.$state
                 : $sourceTagLocation;
-            
+
             // Get default tags
             $defaultTags = [];
-            if (!empty($settings['default_tags'])) {
+            if (! empty($settings['default_tags'])) {
                 if (is_array($settings['default_tags'])) {
                     $defaultTags = $settings['default_tags'];
                 } else {
                     $defaultTags = array_map('trim', explode(',', $settings['default_tags']));
                 }
             }
-            
+
             // Get ticket attendees
             $ticketAttendees = TicketAttendee::where('location_id', $locationId)->get();
             $ticketEmails = $ticketAttendees->pluck('email')->map(function ($email) {
                 return strtolower(trim($email));
             })->filter()->unique();
-            
+
             // Get sign-up form attendees
             $signUpForm = SignUpForm::where('event_id', $event->id)->first();
             $signUpAttendees = collect();
-            
+
             if ($signUpForm && $signUpForm->table_name && Schema::hasTable($signUpForm->table_name)) {
                 $signUpAttendees = DB::table($signUpForm->table_name)
                     ->where('location_id', $locationId)
                     ->where('event_id', $event->id)
                     ->get();
             }
-            
+
             $signUpEmails = $signUpAttendees->pluck('email_address')->map(function ($email) {
                 return strtolower(trim($email));
             })->filter()->unique();
-            
+
             // Combine all unique emails
             $allEmails = $ticketEmails->merge($signUpEmails)->unique();
 
@@ -2857,30 +1523,31 @@ class LocationController extends Controller
                 if ($key === 'email') {
                     return $columnToQuestion['email_address'] ?? 'Email';
                 }
+
                 return $columnToQuestion[$key] ?? ucwords(str_replace('_', ' ', $key));
             }, $columnOrder);
-            
+
             // Build export data (all columns per row)
             $exportData = [];
-            
+
             foreach ($allEmails as $email) {
                 $isInTickets = $ticketEmails->contains($email);
                 $isInSignUp = $signUpEmails->contains($email);
-                
+
                 $ticketData = null;
                 if ($isInTickets) {
                     $ticketData = $ticketAttendees->first(function ($attendee) use ($email) {
                         return strtolower(trim($attendee->email)) === $email;
                     });
                 }
-                
+
                 $signUpData = null;
                 if ($isInSignUp) {
                     $signUpData = $signUpAttendees->first(function ($attendee) use ($email) {
                         return strtolower(trim($attendee->email_address ?? '')) === $email;
                     });
                 }
-                
+
                 $signUpRow = $signUpData ? (array) $signUpData : [];
                 $rowData = [];
                 foreach ($columnOrder as $key) {
@@ -2889,6 +1556,7 @@ class LocationController extends Controller
                     }
                     if ($key === 'email') {
                         $rowData[$key] = $ticketData ? $ticketData->email : ($signUpRow['email_address'] ?? $email);
+
                         continue;
                     }
                     $fromTicket = $ticketData && in_array($key, $ticketColumns, true) ? ($ticketData->{$key} ?? '') : null;
@@ -2901,33 +1569,33 @@ class LocationController extends Controller
                         $rowData[$key] = '';
                     }
                 }
-                
+
                 // Generate tags
                 $tags = [];
                 if ($locationCountry) {
-                    $tags[] = "COUNTRY - " . strtoupper($locationCountry);
+                    $tags[] = 'COUNTRY - '.strtoupper($locationCountry);
                 }
-                $tags[] = "SHOW - " . $showTagLocation;
+                $tags[] = 'SHOW - '.$showTagLocation;
                 if ($isInTickets) {
-                    $tags[] = "SOURCE - " . strtoupper($filmTour) . " " . $sourceTagLocation . " TIX " . $year;
+                    $tags[] = 'SOURCE - '.strtoupper($filmTour).' '.$sourceTagLocation.' TIX '.$year;
                 }
                 if ($isInSignUp) {
-                    $tags[] = "SOURCE - " . strtoupper($filmTour) . " " . $sourceTagLocation . " COMP " . $year;
+                    $tags[] = 'SOURCE - '.strtoupper($filmTour).' '.$sourceTagLocation.' COMP '.$year;
                 }
                 $tags = array_merge($tags, $defaultTags);
                 $rowData['tags'] = implode(', ', $tags);
-                
+
                 $exportData[] = $rowData;
             }
-            
+
             // Generate CSV with all columns
-            $filename = 'location_export_' . Str::slug($locationName) . '_' . date('Y-m-d') . '.csv';
+            $filename = 'location_export_'.Str::slug($locationName).'_'.date('Y-m-d').'.csv';
             $headers = [
                 'Content-Type' => 'text/csv',
-                'Content-Disposition' => 'attachment; filename="' . $filename . '"',
+                'Content-Disposition' => 'attachment; filename="'.$filename.'"',
             ];
-            
-            $callback = function() use ($exportData, $columnOrder, $csvHeaders) {
+
+            $callback = function () use ($exportData, $columnOrder, $csvHeaders) {
                 $file = fopen('php://output', 'w');
                 fputcsv($file, $csvHeaders);
                 foreach ($exportData as $row) {
@@ -2939,18 +1607,18 @@ class LocationController extends Controller
                 }
                 fclose($file);
             };
-            
+
             return response()->stream($callback, 200, $headers);
-            
+
         } catch (\Exception $e) {
             Log::error('Error exporting location data', [
                 'location_id' => $locationId,
                 'error' => $e->getMessage(),
-                'trace' => $e->getTraceAsString()
+                'trace' => $e->getTraceAsString(),
             ]);
-            
+
             return response()->json([
-                'error' => 'Failed to export location data: ' . $e->getMessage()
+                'error' => 'Failed to export location data: '.$e->getMessage(),
             ], 500);
         }
     }
@@ -2963,38 +1631,38 @@ class LocationController extends Controller
         try {
             $event = Events::findOrFail($eventId);
             $locations = Location::where('event_id', $eventId)->get();
-            
+
             if ($locations->isEmpty()) {
                 return response()->json([
-                    'error' => 'No locations found for this event'
+                    'error' => 'No locations found for this event',
                 ], 404);
             }
-            
+
             // Get Mailchimp settings for tag generation
             $autoMailchimpService = app(AutoMailchimpService::class);
             $settings = $autoMailchimpService->getSettings($eventId);
-            
+
             $filmTour = $settings['film_tour'] ?? 'WM';
             $year = $event->event_year ?? date('Y');
-            
+
             // Get default tags
             $defaultTags = [];
-            if (!empty($settings['default_tags'])) {
+            if (! empty($settings['default_tags'])) {
                 if (is_array($settings['default_tags'])) {
                     $defaultTags = $settings['default_tags'];
                 } else {
                     $defaultTags = array_map('trim', explode(',', $settings['default_tags']));
                 }
             }
-            
+
             // Get sign-up form for the event
             $signUpForm = SignUpForm::where('event_id', $eventId)->first();
-            
+
             // Collect all unique emails across all locations
             // Structure: email => [email, first_name, last_name, phone, city, state, country, locations => []]
             // locations: [{location_id, location_name, location_tag, location_country, has_ticket, has_signup}]
             $allEmailsMap = [];
-            
+
             // Process each location
             // Use event country for "add state to tags?" so Australia & New Zealand events never get state in SHOW tag.
             $eventCountryUpper = strtoupper($event->event_country ?? '');
@@ -3006,9 +1674,9 @@ class LocationController extends Controller
                 $locCountryUpper = strtoupper($locationCountry);
                 $isUSA = in_array($eventCountryUpper ?: $locCountryUpper, ['USA', 'USA & CANADA', 'USA AND CANADA']);
                 $sourceTagLocation = trim(preg_replace('/,?\s+[A-Z]{2,3}$/i', '', $locationTagUpper));
-                if (!empty($location->state)) {
+                if (! empty($location->state)) {
                     $stateEsc = preg_quote(trim(strtoupper($location->state)), '/');
-                    $stripped = trim(preg_replace('/,?\s*' . $stateEsc . '$/i', '', $sourceTagLocation));
+                    $stripped = trim(preg_replace('/,?\s*'.$stateEsc.'$/i', '', $sourceTagLocation));
                     if ($stripped !== '') {
                         $sourceTagLocation = $stripped;
                     }
@@ -3025,15 +1693,15 @@ class LocationController extends Controller
                 }
                 $state = $stateFromName ?: trim(strtoupper($location->state ?? ''));
                 $showTagLocation = ($isUSA && $state)
-                    ? trim($locationWithoutState) . ', ' . $state
+                    ? trim($locationWithoutState).', '.$state
                     : $sourceTagLocation;
-                
+
                 // Get ticket attendees for this location
                 $ticketAttendees = TicketAttendee::where('location_id', $location->id)->get();
                 $ticketEmails = $ticketAttendees->pluck('email')->map(function ($email) {
                     return strtolower(trim($email));
                 })->filter()->unique();
-                
+
                 // Get sign-up form attendees for this location
                 $signUpAttendees = collect();
                 if ($signUpForm && $signUpForm->table_name && Schema::hasTable($signUpForm->table_name)) {
@@ -3042,18 +1710,18 @@ class LocationController extends Controller
                         ->where('event_id', $eventId)
                         ->get();
                 }
-                
+
                 $signUpEmails = $signUpAttendees->pluck('email_address')->map(function ($email) {
                     return strtolower(trim($email));
                 })->filter()->unique();
-                
+
                 // Process ticket emails - add or update existing email entry
                 foreach ($ticketEmails as $email) {
                     $ticketData = $ticketAttendees->first(function ($attendee) use ($email) {
                         return strtolower(trim($attendee->email)) === $email;
                     });
-                    
-                    if (!isset($allEmailsMap[$email])) {
+
+                    if (! isset($allEmailsMap[$email])) {
                         // Create new entry
                         $allEmailsMap[$email] = [
                             'email' => $ticketData ? $ticketData->email : $email,
@@ -3063,10 +1731,10 @@ class LocationController extends Controller
                             'city' => $ticketData ? $ticketData->city : '',
                             'state' => $ticketData ? $ticketData->state : '',
                             'country' => $ticketData ? $ticketData->country : '',
-                            'locations' => []
+                            'locations' => [],
                         ];
                     }
-                    
+
                     // Check if this location already exists in the locations array
                     $locationIndex = null;
                     foreach ($allEmailsMap[$email]['locations'] as $idx => $loc) {
@@ -3075,7 +1743,7 @@ class LocationController extends Controller
                             break;
                         }
                     }
-                    
+
                     if ($locationIndex === null) {
                         // Add new location entry
                         $allEmailsMap[$email]['locations'][] = [
@@ -3085,14 +1753,14 @@ class LocationController extends Controller
                             'location_tag_source' => $sourceTagLocation, // Separate tag for SOURCE
                             'location_country' => $locationCountry,
                             'has_ticket' => false,
-                            'has_signup' => false
+                            'has_signup' => false,
                         ];
                         $locationIndex = count($allEmailsMap[$email]['locations']) - 1;
                     }
-                    
+
                     // Mark as having ticket from this location
                     $allEmailsMap[$email]['locations'][$locationIndex]['has_ticket'] = true;
-                    
+
                     // Update data if ticket data is better (has more info)
                     if ($ticketData) {
                         if (empty($allEmailsMap[$email]['first_name']) && $ticketData->first_name) {
@@ -3115,14 +1783,14 @@ class LocationController extends Controller
                         }
                     }
                 }
-                
+
                 // Process sign-up emails - add or update existing email entry
                 foreach ($signUpEmails as $email) {
                     $signUpData = $signUpAttendees->first(function ($attendee) use ($email) {
                         return strtolower(trim($attendee->email_address ?? '')) === $email;
                     });
-                    
-                    if (!isset($allEmailsMap[$email])) {
+
+                    if (! isset($allEmailsMap[$email])) {
                         // Create new entry
                         $allEmailsMap[$email] = [
                             'email' => $signUpData ? ($signUpData->email_address ?? $email) : $email,
@@ -3132,10 +1800,10 @@ class LocationController extends Controller
                             'city' => $signUpData ? ($signUpData->city ?? '') : '',
                             'state' => $signUpData ? ($signUpData->state ?? '') : '',
                             'country' => $signUpData ? ($signUpData->country ?? '') : '',
-                            'locations' => []
+                            'locations' => [],
                         ];
                     }
-                    
+
                     // Check if this location already exists in the locations array
                     $locationIndex = null;
                     foreach ($allEmailsMap[$email]['locations'] as $idx => $loc) {
@@ -3144,7 +1812,7 @@ class LocationController extends Controller
                             break;
                         }
                     }
-                    
+
                     if ($locationIndex === null) {
                         // Add new location entry
                         $allEmailsMap[$email]['locations'][] = [
@@ -3154,14 +1822,14 @@ class LocationController extends Controller
                             'location_tag_source' => $sourceTagLocation, // Separate tag for SOURCE
                             'location_country' => $locationCountry,
                             'has_ticket' => false,
-                            'has_signup' => false
+                            'has_signup' => false,
                         ];
                         $locationIndex = count($allEmailsMap[$email]['locations']) - 1;
                     }
-                    
+
                     // Mark as having sign-up from this location
                     $allEmailsMap[$email]['locations'][$locationIndex]['has_signup'] = true;
-                    
+
                     // Update data if sign-up data is better
                     if ($signUpData) {
                         if (empty($allEmailsMap[$email]['first_name']) && ($signUpData->first_name ?? '')) {
@@ -3185,10 +1853,10 @@ class LocationController extends Controller
                     }
                 }
             }
-            
+
             // Build export data with tags
             $exportData = [];
-            
+
             foreach ($allEmailsMap as $email => $data) {
                 // Collect all tags from all locations this email appears in
                 $allTags = [];
@@ -3196,50 +1864,50 @@ class LocationController extends Controller
                 $locationTags = [];
                 $tixTags = [];
                 $compTags = [];
-                
+
                 foreach ($data['locations'] as $loc) {
                     // COUNTRY tag
-                    if ($loc['location_country'] && !in_array($loc['location_country'], $countries)) {
+                    if ($loc['location_country'] && ! in_array($loc['location_country'], $countries)) {
                         $countries[] = $loc['location_country'];
-                        $allTags[] = "COUNTRY - " . strtoupper($loc['location_country']);
+                        $allTags[] = 'COUNTRY - '.strtoupper($loc['location_country']);
                     }
-                    
+
                     // SHOW tag
-                    $showTag = "SHOW - " . $loc['location_tag'];
-                    if (!in_array($showTag, $locationTags)) {
+                    $showTag = 'SHOW - '.$loc['location_tag'];
+                    if (! in_array($showTag, $locationTags)) {
                         $locationTags[] = $showTag;
                         $allTags[] = $showTag;
                     }
-                    
+
                     // SOURCE tags based on has_ticket and has_signup flags
                     // If email has ticket from this location, add TIX tag
                     if ($loc['has_ticket']) {
                         $sourceLocation = $loc['location_tag_source'] ?? $loc['location_tag'];
-                        $tixTag = "SOURCE - " . strtoupper($filmTour) . " " . $sourceLocation . " TIX " . $year;
-                        if (!in_array($tixTag, $tixTags)) {
+                        $tixTag = 'SOURCE - '.strtoupper($filmTour).' '.$sourceLocation.' TIX '.$year;
+                        if (! in_array($tixTag, $tixTags)) {
                             $tixTags[] = $tixTag;
                             $allTags[] = $tixTag;
                         }
                     }
-                    
+
                     // If email has signup from this location, add COMP tag
                     if ($loc['has_signup']) {
                         $sourceLocation = $loc['location_tag_source'] ?? $loc['location_tag'];
-                        $compTag = "SOURCE - " . strtoupper($filmTour) . " " . $sourceLocation . " COMP " . $year;
-                        if (!in_array($compTag, $compTags)) {
+                        $compTag = 'SOURCE - '.strtoupper($filmTour).' '.$sourceLocation.' COMP '.$year;
+                        if (! in_array($compTag, $compTags)) {
                             $compTags[] = $compTag;
                             $allTags[] = $compTag;
                         }
                     }
                 }
-                
+
                 // Add default tags
                 $allTags = array_merge($allTags, $defaultTags);
-                
+
                 // Remove duplicates and sort
                 $allTags = array_unique($allTags);
                 sort($allTags);
-                
+
                 $exportData[] = [
                     'email' => $data['email'],
                     'first_name' => $data['first_name'],
@@ -3248,23 +1916,23 @@ class LocationController extends Controller
                     'city' => $data['city'],
                     'state' => $data['state'],
                     'country' => $data['country'],
-                    'tags' => implode(', ', $allTags)
+                    'tags' => implode(', ', $allTags),
                 ];
             }
-            
+
             // Generate CSV
-            $filename = 'event_export_' . Str::slug($event->event_name) . '_' . date('Y-m-d') . '.csv';
+            $filename = 'event_export_'.Str::slug($event->event_name).'_'.date('Y-m-d').'.csv';
             $headers = [
                 'Content-Type' => 'text/csv',
-                'Content-Disposition' => 'attachment; filename="' . $filename . '"',
+                'Content-Disposition' => 'attachment; filename="'.$filename.'"',
             ];
-            
-            $callback = function() use ($exportData) {
+
+            $callback = function () use ($exportData) {
                 $file = fopen('php://output', 'w');
-                
+
                 // Write headers
                 fputcsv($file, ['Email', 'First Name', 'Last Name', 'Phone', 'City', 'State', 'Country', 'Tags']);
-                
+
                 // Write data
                 foreach ($exportData as $row) {
                     fputcsv($file, [
@@ -3275,24 +1943,24 @@ class LocationController extends Controller
                         $row['city'],
                         $row['state'],
                         $row['country'],
-                        $row['tags']
+                        $row['tags'],
                     ]);
                 }
-                
+
                 fclose($file);
             };
-            
+
             return response()->stream($callback, 200, $headers);
-            
+
         } catch (\Exception $e) {
             Log::error('Error exporting event data', [
                 'event_id' => $eventId,
                 'error' => $e->getMessage(),
-                'trace' => $e->getTraceAsString()
+                'trace' => $e->getTraceAsString(),
             ]);
-            
+
             return response()->json([
-                'error' => 'Failed to export event data: ' . $e->getMessage()
+                'error' => 'Failed to export event data: '.$e->getMessage(),
             ], 500);
         }
     }

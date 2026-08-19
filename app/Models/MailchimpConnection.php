@@ -24,7 +24,7 @@ class MailchimpConnection extends Model
 
     /**
      * The account slots this application connects, matching the keys already used
-     * by sms_campaigns.account and mailchimp_import_logs.mailchimp_account.
+     * by sms_campaigns.account.
      */
     public const ACCOUNTS = [
         'anz' => 'ANZ',

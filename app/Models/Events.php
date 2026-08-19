@@ -31,14 +31,9 @@ class Events extends Model
         'event_uuid',
         'instructions_password',
         'film_id',
-        'auto_import_enabled',
-        'auto_import_list_id',
-        'auto_import_list_name',
-        'auto_import_account',
     ];
 
     protected $casts = [
-        'auto_import_enabled' => 'boolean',
     ];
 
     // event_date / event_end_date are intentionally left uncast: the admin form's

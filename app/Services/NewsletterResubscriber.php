@@ -3,7 +3,6 @@
 namespace App\Services;
 
 use App\Models\Events;
-use App\Models\MailchimpImportLog;
 use App\Models\NewsletterResubscribeAttempt;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
@@ -160,38 +159,36 @@ class NewsletterResubscriber
     }
 
     /**
-     * Increment a per-location, per-day Mailchimp import log row tracking
-     * how many newsletter resubscribes happened on the signup form.
+     * Attach the location the user just picked to the resubscribe attempt that
+     * checkSubscription already recorded for them (it ran before a location existed).
      */
-    public function recordLocationCounter(?int $locationId, array $info): void
+    private function attributePendingResubToLocation(Events $event, string $email, ?int $locationId): void
     {
         if (! $locationId) {
             return;
         }
-        $log = MailchimpImportLog::where('location_id', $locationId)
-            ->where('source', 'signup_form_resub')
-            ->where('list_id', $info['list_id'] ?? null)
-            ->whereDate('created_at', now()->toDateString())
-            ->first();
-        if ($log) {
-            $log->increment('total_resubscribed');
-            $log->increment('total_data');
 
-            return;
+        try {
+            // Fetched then saved rather than UPDATE ... ORDER BY ... LIMIT, which SQLite
+            // rejects unless it was compiled with the update/delete-limit option.
+            $attempt = NewsletterResubscribeAttempt::where('event_id', $event->id)
+                ->where('email', $email)
+                ->where('outcome', NewsletterResubscribeAttempt::RESUBSCRIBED)
+                ->whereNull('location_id')
+                ->latest('id')
+                ->first();
+
+            if ($attempt) {
+                $attempt->location_id = $locationId;
+                $attempt->save();
+            }
+        } catch (\Exception $e) {
+            // Reporting must never cost someone their entry to the draw.
+            Log::error('Could not attribute newsletter resubscribe to a location', [
+                'event_id' => $event->id,
+                'error' => $e->getMessage(),
+            ]);
         }
-        MailchimpImportLog::create([
-            'location_id' => $locationId,
-            'source' => 'signup_form_resub',
-            'mailchimp_account' => $info['account'] ?? null,
-            'list_id' => $info['list_id'] ?? null,
-            'list_name' => $info['list_name'] ?? null,
-            'status' => 'import',
-            'total_data' => 1,
-            'new_contacts' => 0,
-            'updated_data' => 0,
-            'data_with_error' => 0,
-            'total_resubscribed' => 1,
-        ]);
     }
 
     /**
@@ -204,11 +201,13 @@ class NewsletterResubscriber
      */
     public function resubscribeAfterSubmit(Events $event, string $email, ?int $locationId = null): void
     {
-        // If checkSubscription already resubbed this email, attribute it to the picked location
+        // If checkSubscription already resubbed this email, attribute it to the picked
+        // location. The attempt row was written before the user chose one, so it is
+        // backfilled here rather than recorded a second time.
         $pendingKey = $this->pendingCacheKey($event->id, $email);
         if (Cache::has($pendingKey)) {
-            $pendingInfo = Cache::pull($pendingKey);
-            $this->recordLocationCounter($locationId, $pendingInfo);
+            Cache::pull($pendingKey);
+            $this->attributePendingResubToLocation($event, $email, $locationId);
         }
 
         $account = null;
@@ -263,7 +262,6 @@ class NewsletterResubscriber
                 return;
             }
 
-            $this->recordLocationCounter($locationId, $listInfo);
             $this->recordAttempt(
                 $event,
                 $email,

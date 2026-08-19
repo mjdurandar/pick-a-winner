@@ -33,7 +33,6 @@ class MasterSheetController extends Controller
 
         // Get all locations for events in this year
         $locations = Location::with(['event.film'])
-            ->where('is_hidden', false)
             ->whereHas('event', function ($q) use ($selectedYear) {
                 $q->where('event_year', $selectedYear);
             })

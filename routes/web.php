@@ -9,7 +9,6 @@ use App\Http\Controllers\LaravelLogsController;
 use App\Http\Controllers\LocationController;
 use App\Http\Controllers\MailchimpAutoSyncController;
 use App\Http\Controllers\MailchimpImportController;
-use App\Http\Controllers\MailchimpImportLogsController;
 use App\Http\Controllers\MasterSheetController;
 use App\Http\Controllers\McDashboardController;
 use App\Http\Controllers\NewsletterResubscribeReportController;
@@ -81,25 +80,6 @@ Route::middleware(['auth', RoleMiddleware::class.':admin,host'])->group(function
     Route::post('/mc-dashboard/snapshot', [McDashboardController::class, 'snapshotNow'])->name('mcDashboard.snapshotNow');
     Route::delete('/mc-dashboard/{snapshot}', [McDashboardController::class, 'destroy'])->name('mcDashboard.destroy');
 
-    // MAILCHIMP IMPORT LOGS (dedicated page + export)
-    Route::get('/mailchimp-import-logs', [MailchimpImportLogsController::class, 'index'])->name('mailchimpImportLogs.index');
-    Route::post('/mailchimp-import-logs/log-manual-import', [MailchimpImportLogsController::class, 'logManualImport'])->name('mailchimpImportLogs.logManualImport');
-    Route::post('/mailchimp-import-logs/queue-manual-import', [MailchimpImportLogsController::class, 'queueManualImport'])->name('mailchimpImportLogs.queueManualImport');
-    Route::get('/mailchimp-import-logs/queued-imports', [MailchimpImportLogsController::class, 'queuedImports'])->name('mailchimpImportLogs.queuedImports');
-    Route::post('/mailchimp-import-logs/queued-imports/cancel-location', [MailchimpImportLogsController::class, 'cancelQueuedLocation'])->name('mailchimpImportLogs.cancelQueuedLocation');
-    Route::delete('/mailchimp-import-logs/queued-imports/{jobId}', [MailchimpImportLogsController::class, 'cancelQueuedImport'])->name('mailchimpImportLogs.cancelQueuedImport');
-    Route::get('/mailchimp-import-logs/{id}/download', [MailchimpImportLogsController::class, 'download'])->middleware('log.exports')->name('mailchimpImportLogs.download');
-    Route::patch('/mailchimp-import-logs/{id}/notes', [MailchimpImportLogsController::class, 'updateNotes'])->name('mailchimpImportLogs.updateNotes');
-    Route::post('/mailchimp-import-logs/reimport-failed', [MailchimpImportLogsController::class, 'reimportFailedRows'])->name('mailchimpImportLogs.reimportFailed');
-    Route::delete('/mailchimp-import-logs/all', [MailchimpImportLogsController::class, 'destroyAll'])->name('mailchimpImportLogs.destroyAll');
-    Route::post('/mailchimp-import-logs/destroy-multiple', [MailchimpImportLogsController::class, 'destroyMultiple'])->name('mailchimpImportLogs.destroyMultiple');
-    Route::post('/mailchimp-import-logs/auto-runs/preview', [MailchimpImportLogsController::class, 'previewAutoImportNow'])->name('mailchimpImportLogs.previewAutoRun');
-    Route::post('/mailchimp-import-logs/auto-runs/run-now', [MailchimpImportLogsController::class, 'runAutoImportNow'])->name('mailchimpImportLogs.runAutoRunNow');
-    Route::post('/mailchimp-import-logs/auto-runs/reset-stuck', [MailchimpImportLogsController::class, 'resetStuckAutoImportRuns'])->name('mailchimpImportLogs.resetStuckAutoRuns');
-    Route::delete('/mailchimp-import-logs/auto-runs/all', [MailchimpImportLogsController::class, 'destroyAllAutoImportRuns'])->name('mailchimpImportLogs.destroyAllAutoRuns');
-    Route::delete('/mailchimp-import-logs/auto-runs/{id}', [MailchimpImportLogsController::class, 'destroyAutoImportRun'])->name('mailchimpImportLogs.destroyAutoRun');
-    Route::delete('/mailchimp-import-logs/{id}', [MailchimpImportLogsController::class, 'destroy'])->name('mailchimpImportLogs.destroy');
-
     // ATTENDEES ROUTES
     Route::get('/attendees/{eventId}', [AttendeesController::class, 'index'])->name('attendees.index');
     Route::get('/attendees/{eventId}/export-all', [AttendeesController::class, 'exportAll'])->middleware('log.exports')->name('attendees.exportAll');
@@ -125,33 +105,17 @@ Route::middleware(['auth', RoleMiddleware::class.':admin,host'])->group(function
     Route::delete('/location/{location}', [LocationController::class, 'destroy'])->name('location.destroy');
     Route::delete('/location/delete-all/{eventId}', [LocationController::class, 'deleteAllLocations'])->name('location.deleteAll');
 
-    // IMPORT DATA TO MAILCHIMP ROUTES
-    Route::post('/location/import-data-to-mailchimp', [LocationController::class, 'importDataToMailChimp'])->name('location.importDataToMailChimp');
-    Route::post('/location/manual-import-to-mailchimp', [LocationController::class, 'manualImportToMailchimp'])->name('location.manualImportToMailchimp');
-    Route::post('/location/log-mailchimp-import', [LocationController::class, 'logMailchimpImport'])->name('location.logMailchimpImport');
-    Route::post('/location/generate-spreadsheet-data', [LocationController::class, 'generateSpreadsheetData'])->name('location.generateSpreadsheetData');
-    Route::get('/location/{locationId}/mailchimp-report', [LocationController::class, 'getMailchimpLocationReport'])->name('location.mailchimpReport');
+    // MAILCHIMP LOOKUP ROUTES (audience + merge-field pickers for auto-sync settings)
     Route::get('/api/location/mailchimp/lists', [LocationController::class, 'getMailchimpLists'])->name('location.mailchimpLists');
     Route::get('/api/location/mailchimp/merge-fields', [LocationController::class, 'getMailchimpMergeFields'])->name('location.mailchimpMergeFields');
     Route::get('/api/location/subscribers', [LocationController::class, 'getSubscribers'])->name('location.getSubscribers');
 
-    // EVENTBRITE ROUTES
-    Route::post('/location/fetch-eventbrite-attendees', [LocationController::class, 'fetchEventbriteAttendees'])->name('location.fetchEventbriteAttendees');
-    Route::post('/location/fetch-eventbrite-attendees-preview', [LocationController::class, 'fetchEventbriteAttendeesPreview'])->name('location.fetchEventbriteAttendeesPreview');
-    Route::post('/location/import-eventbrite-to-mailchimp', [LocationController::class, 'importEventbriteToMailchimp'])->name('location.importEventbriteToMailchimp');
-    Route::get('/event/{eventId}/mailchimp-import-preview', [LocationController::class, 'getEventMailchimpImportPreview'])->name('event.mailchimpImportPreview');
-    Route::get('/event/{eventId}/import-source-columns', [LocationController::class, 'getImportSourceColumns'])->name('event.importSourceColumns');
-    Route::post('/event/import-all', [LocationController::class, 'eventImportAll'])->name('event.importAll');
-
-    // MANUAL CSV IMPORT (ticket attendees)
-    Route::post('/location/import-csv-ticket-attendees', [LocationController::class, 'importCsvTicketAttendees'])->name('location.importCsvTicketAttendees');
     Route::get('/location/{locationId}/ticket-attendees', [LocationController::class, 'getTicketAttendees'])->name('location.getTicketAttendees');
 
     // TICKET REPORTING ROUTES
     Route::get('/location/{locationId}/ticket-report', [LocationController::class, 'getLocationTicketReport'])->name('location.ticketReport');
     Route::get('/film/{filmId}/ticket-report', [LocationController::class, 'getFilmTicketReport'])->name('film.ticketReport');
     Route::get('/event/{eventId}/ticket-report', [LocationController::class, 'getEventTicketReport'])->name('event.ticketReport');
-    Route::get('/event/{eventId}/mailchimp-report', [LocationController::class, 'getMailchimpEventReport'])->name('event.mailchimpReport');
 
     // EXPORT ROUTES
     Route::get('/location/{locationId}/export', [LocationController::class, 'exportLocationData'])->middleware('log.exports')->name('location.export');
@@ -220,11 +184,6 @@ Route::middleware(['auth', RoleMiddleware::class.':admin,host'])->group(function
     Route::get('/weekly-report/event-breakdown', [App\Http\Controllers\WeeklyReportController::class, 'getEventBreakdown'])->name('weekly-report.event-breakdown');
     Route::post('/weekly-report/event-breakdown/export-pdf', [App\Http\Controllers\WeeklyReportController::class, 'exportEventBreakdownPdf'])->middleware('log.exports')->name('weekly-report.event-breakdown.export-pdf');
     Route::post('/weekly-report/end-of-film-tour/export-pdf', [App\Http\Controllers\WeeklyReportController::class, 'exportEndOfFilmTourPdf'])->middleware('log.exports')->name('weekly-report.end-of-film-tour.export-pdf');
-
-    // Mailchimp import logs download
-    Route::get('/location/mailchimp-logs/download', [LocationController::class, 'downloadMailchimpLogs'])
-        ->middleware('log.exports')
-        ->name('location.downloadMailchimpLogs');
 });
 
 // Mailchimp CSV import wizard. Admin only. The upload endpoint is rate limited

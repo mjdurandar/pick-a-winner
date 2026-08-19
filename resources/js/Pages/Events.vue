@@ -606,6 +606,45 @@ const handleCellChange = (rowIndex, columnKey, value) => {
     }, 500); // Save to history 500ms after last change
 };
 
+const escapeHtml = (value) =>
+    String(value ?? '').replace(/[&<>"']/g, (char) => ({
+        '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+    })[char]);
+
+// Spell out exactly what each removed screening is taking with it. The master sheet
+// is the source of truth for what the sign-up form offers, so a location taken off it
+// really is deleted — and the entries people already submitted go with it.
+const confirmDeletesWithData = async (locationsWithData) => {
+    const rows = locationsWithData.map(loc => {
+        const parts = [];
+        if (loc.signups) parts.push(`${loc.signups} sign-up${loc.signups === 1 ? '' : 's'}`);
+        if (loc.tickets) parts.push(`${loc.tickets} ticket attendee${loc.tickets === 1 ? '' : 's'}`);
+        return `<li class="mb-1"><b>${escapeHtml(loc.name)}</b>${loc.date ? ` (${escapeHtml(loc.date)})` : ''}
+                <br><span style="color:#b91c1c;">${parts.join(' + ')}</span></li>`;
+    }).join('');
+
+    const total = locationsWithData.reduce((sum, loc) => sum + loc.signups + loc.tickets, 0);
+
+    const result = await Swal.fire({
+        title: 'Delete these locations and their data?',
+        html: `<p class="text-start">You removed ${locationsWithData.length} location${locationsWithData.length === 1 ? '' : 's'}
+                  that already ${locationsWithData.length === 1 ? 'has' : 'have'} entries. Saving deletes
+                  ${locationsWithData.length === 1 ? 'it' : 'them'} along with <b>${total} attendee record${total === 1 ? '' : 's'}</b>.</p>
+               <ul class="text-start" style="max-height:240px; overflow-y:auto;">${rows}</ul>
+               <p class="text-start"><b>This cannot be undone.</b> Cancel to leave the sheet as it was —
+                  nothing is saved either way until you choose.</p>`,
+        icon: 'warning',
+        showCancelButton: true,
+        confirmButtonColor: '#d33',
+        cancelButtonColor: '#6c757d',
+        confirmButtonText: 'Yes, delete permanently',
+        cancelButtonText: 'Cancel',
+        focusCancel: true,
+    });
+
+    return result.isConfirmed;
+};
+
 // Save sheets data
 const saveSheetsData = async () => {
     if (!selectedEventForSheets.value) {
@@ -629,12 +668,25 @@ const saveSheetsData = async () => {
         .filter(id => id !== null && id !== undefined);
     const idsToDelete = originalLocationIds.value.filter(id => !currentLocationIds.includes(id));
 
+    const post = (confirmDeletes) => axios.post(route('location.saveSheetsData'), {
+        event_id: selectedEventForSheets.value.id,
+        data: dataToSave,
+        ids_to_delete: idsToDelete, // Send IDs that should be deleted
+        confirm_deletes: confirmDeletes,
+    });
+
     try {
-        const response = await axios.post(route('location.saveSheetsData'), {
-            event_id: selectedEventForSheets.value.id,
-            data: dataToSave,
-            ids_to_delete: idsToDelete // Send IDs that should be deleted
-        });
+        let response = await post(false);
+
+        // Nothing was written yet — the server is asking about the attendee data the
+        // removed locations hold. Answering yes replays the identical save.
+        if (response.data.needs_confirmation) {
+            if (!await confirmDeletesWithData(response.data.locations_with_data)) {
+                Swal.fire('Nothing saved', 'You cancelled, so the sheet was left as it was.', 'info');
+                return;
+            }
+            response = await post(true);
+        }
 
         if (response.data.success) {
             Swal.fire('Success!', response.data.message, 'success');

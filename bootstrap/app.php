@@ -21,9 +21,6 @@ return Application::configure(basePath: dirname(__DIR__))
         // Snapshot Mailchimp audience counts every Friday at 9am
         $schedule->job(new McSnapshotJob)->weeklyOn(5, '09:00');
 
-        // Auto-import locations that finished 4+ days ago (per-event opt-in), every day at 8am.
-        $schedule->command('mailchimp:auto-import-finished')->dailyAt('08:00')->withoutOverlapping(10);
-
         // Work through the opt-ins the hosted signup form rate-limited an import out
         // of. Offered hourly; the job decides for itself whether enough time has
         // passed, since only it knows what the form did last time.

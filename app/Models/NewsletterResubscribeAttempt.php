@@ -9,9 +9,9 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 /**
  * One attempt to bring a contact back to the newsletter from the sign-up form.
  *
- * Every attempt is recorded, including the ones Mailchimp refuses. The per-location
- * counters on MailchimpImportLog only ever counted successes, so "who could we not
- * resubscribe, and why" had no answer before this table.
+ * Every attempt is recorded, including the ones Mailchimp refuses, so "who could we
+ * not resubscribe, and why" has an answer. Also the source for the per-location
+ * resubscribe breakdown on the attendees page.
  */
 class NewsletterResubscribeAttempt extends Model
 {

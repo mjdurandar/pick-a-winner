@@ -17,23 +17,6 @@ return [
 
     /*
     |--------------------------------------------------------------------------
-    | Mailchimp Import All dispatch job timeout (seconds)
-    |--------------------------------------------------------------------------
-    | The Import All job only dispatches per-location jobs; it exits quickly.
-    | 300s (5 min) is enough for many locations. retry_after can stay high for
-    | the per-location jobs (EventImportLocationToMailchimpJob).
-    */
-    'mailchimp_import_dispatch_job_timeout' => (int) env('MAILCHIMP_IMPORT_DISPATCH_JOB_TIMEOUT', 300),
-
-    /*
-    |--------------------------------------------------------------------------
-    | Mailchimp Import job timeout (seconds) – manual / legacy
-    |--------------------------------------------------------------------------
-    */
-    'mailchimp_import_job_timeout' => (int) env('MAILCHIMP_IMPORT_JOB_TIMEOUT', 57600),
-
-    /*
-    |--------------------------------------------------------------------------
     | Queue Connections
     |--------------------------------------------------------------------------
     |

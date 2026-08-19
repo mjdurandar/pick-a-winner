@@ -4,7 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\Events;
 use App\Models\Location;
-use App\Models\MailchimpImportLog;
+use App\Models\NewsletterResubscribeAttempt;
 use App\Models\Prize;
 use App\Models\SignUpForm;
 use App\Services\AutoMailchimpService;
@@ -57,8 +57,9 @@ class AttendeesController extends Controller
 
         // Newsletter resubscribes summed per location (every location of this event,
         // including ones with 0 resubs, so the table is complete).
-        $resubByLocation = MailchimpImportLog::query()
-            ->selectRaw('location_id, SUM(total_resubscribed) as total_resubscribed')
+        $resubByLocation = NewsletterResubscribeAttempt::query()
+            ->selectRaw('location_id, COUNT(*) as total_resubscribed')
+            ->where('outcome', NewsletterResubscribeAttempt::RESUBSCRIBED)
             ->whereIn('location_id', $locations->pluck('id'))
             ->groupBy('location_id')
             ->pluck('total_resubscribed', 'location_id');
@@ -110,17 +111,6 @@ class AttendeesController extends Controller
         $prizes = Prize::where('event_id', $eventId)
             ->where('location_id', $locationId)
             ->get();
-
-        // Win vs ticket import to Mailchimp (for header indicators)
-        $location->imported_win_to_mailchimp = MailchimpImportLog::where('location_id', $locationId)
-            ->where('source', 'signup_form')
-            ->exists();
-        $location->imported_ticket_to_mailchimp = MailchimpImportLog::where('location_id', $locationId)
-            ->where(function ($q) {
-                $q->where('source', 'ticket_data')
-                    ->orWhereRaw("(tags IS NOT NULL AND (tags LIKE '%TIX%'))");
-            })
-            ->exists();
 
         return Inertia::render('LocationAttendees', [
             'event' => $event,

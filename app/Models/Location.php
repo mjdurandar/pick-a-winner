@@ -18,7 +18,6 @@ class Location extends Model
         'state',
         'country',
         'category',
-        'is_hidden',
         'cinema_contact',
         'number_of_screenings',
         'status',

@@ -302,6 +302,18 @@
         }
     ]);
 
+    // Clicking one of the today / tomorrow / this week rows opens that location's
+    // attendee list — the same place the Location page sends you when you click a
+    // location, so the dashboard is a shortcut into it rather than a dead end.
+    const openLocation = (location) => {
+        if (!location.location_id || !location.event_id) return;
+
+        router.get(route('attendees.location', {
+            eventId: location.event_id,
+            locationId: location.location_id,
+        }));
+    };
+
     // Static class maps so Tailwind keeps the utilities at build time
     const accents = {
         cyan:    { bar: 'bg-cyan-500',    soft: 'bg-cyan-50',    text: 'text-cyan-600',    ring: 'ring-cyan-100' },
@@ -481,9 +493,12 @@
 
                             <div v-else class="flex flex-1 flex-col">
                                 <div class="flex-1 space-y-2 overflow-y-auto pr-1" style="max-height: 340px;">
-                                    <div v-for="(location, i) in section.data.locations"
+                                    <button v-for="(location, i) in section.data.locations"
                                          :key="`${section.key}-${i}`"
-                                         :class="['rounded-xl px-3 py-2.5 transition hover:brightness-[0.98]', accents[section.accent].soft]">
+                                         type="button"
+                                         @click="openLocation(location)"
+                                         :title="`View attendees for ${location.location_name}`"
+                                         :class="['group block w-full cursor-pointer rounded-xl px-3 py-2.5 text-left transition hover:brightness-[0.98] focus:outline-none focus:ring-2 focus:ring-offset-1', accents[section.accent].soft, accents[section.accent].ring]">
                                         <div class="flex items-start justify-between gap-2">
                                             <div class="min-w-0">
                                                 <p class="truncate text-sm font-semibold text-gray-900">{{ location.location_name }}</p>
@@ -503,8 +518,13 @@
                                                 <svg class="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
                                                 {{ location.time }}
                                             </span>
+                                            <span class="ml-auto inline-flex items-center gap-1 font-medium opacity-0 transition group-hover:opacity-100 group-focus:opacity-100"
+                                                  :class="accents[section.accent].text">
+                                                View
+                                                <svg class="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7"/></svg>
+                                            </span>
                                         </div>
-                                    </div>
+                                    </button>
                                 </div>
 
                                 <!-- Total footer -->

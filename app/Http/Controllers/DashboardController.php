@@ -205,6 +205,8 @@ class DashboardController extends Controller
             }
             
             $todayData[] = [
+                'location_id' => $location->id,
+                'event_id' => $location->event_id,
                 'location_name' => $location->name,
                 'event_name' => $location->event->event_name,
                 'time' => date('g:i A', strtotime($location->time)),
@@ -250,6 +252,8 @@ class DashboardController extends Controller
             }
             
             $tomorrowData[] = [
+                'location_id' => $location->id,
+                'event_id' => $location->event_id,
                 'location_name' => $location->name,
                 'event_name' => $location->event->event_name,
                 'time' => date('g:i A', strtotime($location->time)),
@@ -297,6 +301,8 @@ class DashboardController extends Controller
             }
             
             $weekData[] = [
+                'location_id' => $location->id,
+                'event_id' => $location->event_id,
                 'location_name' => $location->name,
                 'event_name' => $location->event->event_name,
                 'date' => date('M d', strtotime($location->date)),
