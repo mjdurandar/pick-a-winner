@@ -213,34 +213,40 @@ const formatLocationDateTime = (date, time) => {
         return `${date} ${time}`;
     }
 };
-// Helper function to sort locations by date and time
+// Helper function to sort locations by date, then time
+// Date is the primary key: a TBA/unparseable time only affects ordering
+// within the same day, it never pushes a location past a later date.
+const dateKey = (location) => {
+    if (!location.date || location.date === 'TBA') return null;
+    const parsed = Date.parse(`${location.date}T00:00:00`);
+    return isNaN(parsed) ? null : parsed;
+};
+
+const timeKey = (location) => {
+    if (!location.time || location.time === 'TBA') return null;
+    const match = /^(\d{1,2}):(\d{2})/.exec(location.time);
+    return match ? Number(match[1]) * 60 + Number(match[2]) : null;
+};
+
 const sortLocationsByDateTime = (locations) => {
-    return locations.sort((a, b) => {
-        // Handle TBA dates - put them at the end
-        if (a.date === 'TBA' && b.date !== 'TBA') return 1;
-        if (a.date !== 'TBA' && b.date === 'TBA') return -1;
-        if (a.date === 'TBA' && b.date === 'TBA') return 0;
-        
-        // Handle TBA times - put them at the end
-        if (a.time === 'TBA' && b.time !== 'TBA') return 1;
-        if (a.time !== 'TBA' && b.time === 'TBA') return -1;
-        if (a.time === 'TBA' && b.time === 'TBA') return 0;
-        
-        // Try to create Date objects for comparison
-        try {
-            const dateA = new Date(`${a.date}T${a.time}`);
-            const dateB = new Date(`${b.date}T${b.time}`);
-            
-            // Check if dates are valid
-            if (isNaN(dateA.getTime()) && isNaN(dateB.getTime())) return 0;
-            if (isNaN(dateA.getTime())) return 1;
-            if (isNaN(dateB.getTime())) return -1;
-            
-            return dateA - dateB;
-        } catch (e) {
-            // If date parsing fails, compare as strings
-            return `${a.date} ${a.time}`.localeCompare(`${b.date} ${b.time}`);
-        }
+    // Copy first so we never sort props.locations in place
+    return [...locations].sort((a, b) => {
+        const dateA = dateKey(a);
+        const dateB = dateKey(b);
+
+        // Locations with no usable date (TBA) go at the end
+        if (dateA === null && dateB === null) return 0;
+        if (dateA === null) return 1;
+        if (dateB === null) return -1;
+        if (dateA !== dateB) return dateA - dateB;
+
+        // Same date - order by time, TBA times last within that day
+        const timeA = timeKey(a);
+        const timeB = timeKey(b);
+        if (timeA === null && timeB === null) return 0;
+        if (timeA === null) return 1;
+        if (timeB === null) return -1;
+        return timeA - timeB;
     });
 };
 
@@ -525,8 +531,11 @@ const openLocationModal = (location = null) => {
         // Extract state and location name separately
         locationForm.name = extractLocationName(location.name);
         locationForm.state = extractStateFromName(location.name);
-        locationForm.date = location.date;
-        locationForm.time = location.time;
+        // 'TBA' is not a value a date/time input can hold - it would be silently
+        // dropped and reappear as a blank field. Leave the input empty and let the
+        // checkbox below carry the TBA state instead.
+        locationForm.date = location.date === 'TBA' ? '' : location.date;
+        locationForm.time = location.time === 'TBA' ? '' : location.time;
         locationForm.country = location.country || '';
         locationForm.category = location.category || '';
         locationForm.event_id = props.event.id;

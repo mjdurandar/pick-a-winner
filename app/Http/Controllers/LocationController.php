@@ -41,7 +41,10 @@ class LocationController extends Controller
     public function locationpage($eventId)
     {
         $event = Events::findOrFail($eventId);
-        $locations = Location::where('event_id', $eventId)->get();
+        $locations = Location::where('event_id', $eventId)
+            ->orderBy('date')
+            ->orderBy('time')
+            ->get();
 
         $locationIds = $locations->pluck('id');
 
@@ -111,12 +114,31 @@ class LocationController extends Controller
         return back()->with('success', 'Password updated successfully');
     }
 
+    /**
+     * Validation rule for a location's date. A screening is often booked before its
+     * date is locked in, so the literal 'TBA' is as valid as a calendar date - the
+     * column is a varchar precisely so it can hold one. Anything else must be a real
+     * YYYY-MM-DD date, which is what the form's date input sends.
+     */
+    private function locationDateRule(): array
+    {
+        return ['required', 'string', function ($attribute, $value, $fail) {
+            if ($value === 'TBA') {
+                return;
+            }
+
+            if (! preg_match('/^(\d{4})-(\d{2})-(\d{2})$/', $value, $m) || ! checkdate((int) $m[2], (int) $m[3], (int) $m[1])) {
+                $fail('The date must be a valid date, or TBA if it is not set yet.');
+            }
+        }];
+    }
+
     public function store(Request $request)
     {
         $request->validate([
             'name' => 'required|string|max:255',
             'event_id' => 'required|exists:events,id',
-            'date' => 'required|date',
+            'date' => $this->locationDateRule(),
             'time' => 'required',
             'country' => 'required|string|in:Australia,New Zealand,Canada,USA',
             'category' => 'required|string|in:Theatrical,AE Tour Stop,Host a Show',
@@ -162,7 +184,7 @@ class LocationController extends Controller
     {
         $request->validate([
             'name' => 'required|string|max:255',
-            'date' => 'required|date',
+            'date' => $this->locationDateRule(),
             'time' => 'required',
             'country' => 'required|string|in:Australia,New Zealand,Canada,USA',
             'category' => 'required|string|in:Theatrical,AE Tour Stop,Host a Show',
@@ -581,6 +603,11 @@ class LocationController extends Controller
 
         $timeString = trim($timeString);
 
+        // Same as the date: 'TBA' is a real value, not a parse failure.
+        if (strcasecmp($timeString, 'TBA') === 0) {
+            return 'TBA';
+        }
+
         // Check if already in 24-hour format "HH:MM" or "H:MM"
         if (preg_match('/^(\d{1,2}):(\d{2})$/', $timeString, $matches)) {
             $hour24 = (int) $matches[1];
@@ -665,6 +692,12 @@ class LocationController extends Controller
         }
 
         $dateString = trim($dateString);
+
+        // A sheet can say the date is not set yet - keep that as the same 'TBA'
+        // marker the location form writes, rather than failing to parse it.
+        if (strcasecmp($dateString, 'TBA') === 0) {
+            return 'TBA';
+        }
 
         // Check if already in YYYY-MM-DD format
         if (preg_match('/^\d{4}-\d{2}-\d{2}$/', $dateString)) {
