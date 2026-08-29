@@ -3,9 +3,8 @@
 namespace App\Http\Middleware;
 
 use Illuminate\Http\Request;
-use Inertia\Middleware;
-use Illuminate\Support\Facades\Auth;
 use Inertia\Inertia;
+use Inertia\Middleware;
 
 class HandleInertiaRequests extends Middleware
 {
@@ -40,6 +39,44 @@ class HandleInertiaRequests extends Middleware
                 'error' => $request->session()->get('error'),
                 'success' => $request->session()->get('success'),
             ],
+            // Master sheet tabs sitting on changes nobody has accepted yet. Shared
+            // with every page so the alert follows an admin around rather than only
+            // appearing on the screen they would have to think to visit.
+            'sheetReview' => $this->sheetReview($request),
+            'canManageMasterSheet' => (bool) $request->user()?->canManageMasterSheet(),
+        ];
+    }
+
+    /**
+     * Tabs awaiting review, for the nav badge and banner. Admin-only, and skipped
+     * entirely for anyone else so a host never pays for the query.
+     *
+     * @return array{count: int, tabs: array<int, array<string, mixed>>}|null
+     */
+    protected function sheetReview(Request $request): ?array
+    {
+        // Gated on the owner account, not the admin role: an admin who cannot
+        // open the sync screen would get a banner pointing at a 403.
+        if (! $request->user()?->canManageMasterSheet()) {
+            return null;
+        }
+
+        $sources = \App\Models\SheetSource::needingReview()->with('event')->get();
+
+        if ($sources->isEmpty()) {
+            return ['count' => 0, 'missing' => 0, 'tabs' => []];
+        }
+
+        return [
+            'count' => $sources->count(),
+            'missing' => $sources->sum(fn ($s) => $s->missingCount()),
+            'tabs' => $sources->map(fn ($s) => [
+                'id' => $s->id,
+                'tab_name' => $s->tab_name,
+                'event_name' => $s->event?->event_name,
+                'pending' => $s->pendingChangeCount(),
+                'missing' => $s->missingCount(),
+            ])->all(),
         ];
     }
 
@@ -48,11 +85,11 @@ class HandleInertiaRequests extends Middleware
      */
     public function handle(Request $request, \Closure $next)
     {
-        if (!$request->user() && !$request->is([
-            'login', 
-            'register', 
-            'forgot-password', 
-            'reset-password/*', 
+        if (! $request->user() && ! $request->is([
+            'login',
+            'register',
+            'forgot-password',
+            'reset-password/*',
             'form/*',
             'host-guide/*',
             'pickawinner',
@@ -60,11 +97,12 @@ class HandleInertiaRequests extends Middleware
             'api/events/*/locations',
             'picka-winner/verify',
             'prize/*',
-            'prize'
+            'prize',
         ])) {
             if ($request->header('X-Inertia')) {
                 return Inertia::location(route('login'));
             }
+
             return redirect()->route('login');
         }
 

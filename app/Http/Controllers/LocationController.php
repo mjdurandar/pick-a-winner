@@ -8,6 +8,7 @@ use App\Models\Location;
 use App\Models\SignUpForm;
 use App\Models\TicketAttendee;
 use App\Services\AutoMailchimpService;
+use App\Services\LocationValueParser;
 use App\Services\MailchimpService;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
@@ -23,10 +24,16 @@ class LocationController extends Controller
 
     protected $autoMailchimpService;
 
-    public function __construct(MailchimpService $mailchimpService, AutoMailchimpService $autoMailchimpService)
-    {
+    protected LocationValueParser $values;
+
+    public function __construct(
+        MailchimpService $mailchimpService,
+        AutoMailchimpService $autoMailchimpService,
+        LocationValueParser $values
+    ) {
         $this->mailchimpService = $mailchimpService;
         $this->autoMailchimpService = $autoMailchimpService;
+        $this->values = $values;
     }
 
     public function index()
@@ -585,179 +592,19 @@ class LocationController extends Controller
     }
 
     /**
-     * Parse time string to 24-hour format (HH:MM) like "20:00", "19:00", "18:30"
-     * Handles formats like:
-     * - "7:00PM" or "7:00 PM" → "19:00"
-     * - "7pm" or "7PM" → "19:00"
-     * - "7:00pm" or "7:00 pm" → "19:00"
-     * - "7:00AM" or "7:00 AM" → "07:00"
-     * - "7am" or "7AM" → "07:00"
-     * - "19:00" (already in 24-hour format) → "19:00"
-     * - "7:00" (assumes PM if no AM/PM specified and hour < 12)
+     * Date and time parsing live in LocationValueParser so the scheduled Google
+     * Sheets sync writes byte-identical values to this paste-a-grid save. A
+     * screening pasted by hand and one pulled by the sync must not become two
+     * different locations.
      */
     private function parseTime($timeString)
     {
-        if (empty($timeString)) {
-            return null;
-        }
-
-        $timeString = trim($timeString);
-
-        // Same as the date: 'TBA' is a real value, not a parse failure.
-        if (strcasecmp($timeString, 'TBA') === 0) {
-            return 'TBA';
-        }
-
-        // Check if already in 24-hour format "HH:MM" or "H:MM"
-        if (preg_match('/^(\d{1,2}):(\d{2})$/', $timeString, $matches)) {
-            $hour24 = (int) $matches[1];
-            $minutes = (int) $matches[2];
-
-            // Validate
-            if ($hour24 < 0 || $hour24 > 23 || $minutes < 0 || $minutes > 59) {
-                Log::warning('Invalid 24-hour time format', ['time' => $timeString]);
-
-                return null;
-            }
-
-            // Return in HH:MM format
-            return sprintf('%02d:%02d', $hour24, $minutes);
-        }
-
-        // Handle formats like "7pm", "7PM", "7:00pm", "7:00 pm", "7:00PM", "7:00 PM"
-        if (preg_match('/^(\d{1,2})(?::(\d{2}))?\s*(AM|PM)$/i', $timeString, $matches)) {
-            $hour = (int) $matches[1];
-            $minutes = isset($matches[2]) ? (int) $matches[2] : 0;
-            $ampm = strtoupper($matches[3]);
-
-            // Validate hour
-            if ($hour < 1 || $hour > 12) {
-                Log::warning('Invalid hour in time string', ['time' => $timeString, 'hour' => $hour]);
-
-                return null;
-            }
-
-            // Validate minutes
-            if ($minutes < 0 || $minutes > 59) {
-                Log::warning('Invalid minutes in time string', ['time' => $timeString, 'minutes' => $minutes]);
-
-                return null;
-            }
-
-            // Convert to 24-hour format
-            $hour24 = $hour;
-            if ($ampm === 'PM' && $hour != 12) {
-                $hour24 = $hour + 12;
-            } elseif ($ampm === 'AM' && $hour == 12) {
-                $hour24 = 0;
-            }
-
-            // Return in HH:MM format
-            return sprintf('%02d:%02d', $hour24, $minutes);
-        }
-
-        // If no format matches, try to parse with Carbon as fallback
-        try {
-            // Try to parse as time
-            $time = Carbon::createFromTimeString($timeString);
-
-            // Return in 24-hour format HH:MM
-            return $time->format('H:i');
-        } catch (\Exception $e) {
-            Log::warning('Unable to parse time string', [
-                'time_string' => $timeString,
-                'error' => $e->getMessage(),
-            ]);
-
-            // Return original if we can't parse it
-            return $timeString;
-        }
+        return $this->values->parseTime($timeString);
     }
 
-    /**
-     * Parse date string to YYYY-MM-DD format
-     * Handles formats like:
-     * - "Friday, January 23, 2026"
-     * - "Sunday, 31 May 2026"
-     * - "Saturday, January 24, 2026"
-     * - "Wednesday, 27 May 2026"
-     * - "January 24, 2026"
-     * - "27 May 2026"
-     * - "2026-01-24" (already in correct format)
-     */
     private function parseDate($dateString)
     {
-        if (empty($dateString)) {
-            return null;
-        }
-
-        $dateString = trim($dateString);
-
-        // A sheet can say the date is not set yet - keep that as the same 'TBA'
-        // marker the location form writes, rather than failing to parse it.
-        if (strcasecmp($dateString, 'TBA') === 0) {
-            return 'TBA';
-        }
-
-        // Check if already in YYYY-MM-DD format
-        if (preg_match('/^\d{4}-\d{2}-\d{2}$/', $dateString)) {
-            return $dateString;
-        }
-
-        // Remove day name if present (e.g., "Friday, " or "Sunday, ")
-        $cleanedDate = preg_replace('/^(Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday),\s*/i', '', $dateString);
-
-        // Try manual parsing first for specific formats
-
-        // Format 1: "31 May 2026" or "27 May 2026" (UK/Australian - day month year)
-        if (preg_match('/^(\d{1,2})\s+(January|February|March|April|May|June|July|August|September|October|November|December)\s+(\d{4})$/i', $cleanedDate, $matches)) {
-            $day = str_pad($matches[1], 2, '0', STR_PAD_LEFT);
-            $monthName = ucfirst(strtolower($matches[2]));
-            $year = $matches[3];
-
-            // Convert month name to number
-            $monthNum = date('m', strtotime($monthName.' 1'));
-            if ($monthNum === false) {
-                Log::error('Failed to convert month name', ['month' => $monthName]);
-
-                return null;
-            }
-
-            return "$year-$monthNum-$day";
-        }
-
-        // Format 2: "January 23, 2026" or "January 24, 2026" (US - month day, year)
-        if (preg_match('/^(January|February|March|April|May|June|July|August|September|October|November|December)\s+(\d{1,2}),?\s+(\d{4})$/i', $cleanedDate, $matches)) {
-            $monthName = ucfirst(strtolower($matches[1]));
-            $day = str_pad($matches[2], 2, '0', STR_PAD_LEFT);
-            $year = $matches[3];
-
-            // Convert month name to number
-            $monthNum = date('m', strtotime($monthName.' 1'));
-            if ($monthNum === false) {
-                Log::error('Failed to convert month name', ['month' => $monthName]);
-
-                return null;
-            }
-
-            return "$year-$monthNum-$day";
-        }
-
-        // Try Carbon as fallback for other formats
-        try {
-            $date = Carbon::parse($cleanedDate);
-
-            return $date->format('Y-m-d');
-        } catch (\Exception $e) {
-            // If Carbon can't parse it, log and return null
-            Log::error('Unable to parse date string', [
-                'original_date' => $dateString,
-                'cleaned_date' => $cleanedDate,
-                'error' => $e->getMessage(),
-            ]);
-
-            return null;
-        }
+        return $this->values->parseDate($dateString);
     }
 
     /**

@@ -5,6 +5,7 @@ use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\EventsController;
 use App\Http\Controllers\ExportLogsController;
 use App\Http\Controllers\FilmsController;
+use App\Http\Controllers\GoogleIntegrationController;
 use App\Http\Controllers\LaravelLogsController;
 use App\Http\Controllers\LocationController;
 use App\Http\Controllers\MailchimpAutoSyncController;
@@ -15,6 +16,7 @@ use App\Http\Controllers\NewsletterResubscribeReportController;
 use App\Http\Controllers\PickaWinnerController;
 use App\Http\Controllers\PrizeController;
 use App\Http\Controllers\ProfileController;
+use App\Http\Controllers\SheetSyncController;
 use App\Http\Controllers\SignUpFormController;
 use App\Http\Controllers\UsersController;
 use App\Http\Middleware\RoleMiddleware;
@@ -127,6 +129,29 @@ Route::middleware(['auth', RoleMiddleware::class.':admin,host'])->group(function
 });
 
 Route::middleware(['auth', RoleMiddleware::class.':admin'])->group(function () {
+    // MASTER SHEET SYNC — admin *and* the named owner account. See
+    // EnsureMasterSheetAccess: this screen holds the Google connection and can
+    // delete locations, so it is not open to every admin.
+    Route::middleware(\App\Http\Middleware\EnsureMasterSheetAccess::class)->group(function () {
+        // GOOGLE ACCOUNT (master sheet sync reads the shared spreadsheet as this account)
+        Route::get('/integrations/google/connect', [GoogleIntegrationController::class, 'redirect'])->name('google.integration.connect');
+        Route::get('/integrations/google/callback', [GoogleIntegrationController::class, 'callback'])->name('google.integration.callback');
+        Route::delete('/integrations/google', [GoogleIntegrationController::class, 'destroy'])->name('google.integration.destroy');
+
+        // MASTER SHEET SYNC (read-only: which Google tabs feed which events)
+        Route::get('/master-sheet/sync', [SheetSyncController::class, 'index'])->name('sheetSync.index');
+        Route::post('/master-sheet/sync/tabs', [SheetSyncController::class, 'tabs'])->name('sheetSync.tabs');
+        Route::post('/master-sheet/sync/sources', [SheetSyncController::class, 'store'])->name('sheetSync.store');
+        Route::patch('/master-sheet/sync/sources/{sheetSource}', [SheetSyncController::class, 'update'])->name('sheetSync.update');
+        Route::delete('/master-sheet/sync/sources/{sheetSource}', [SheetSyncController::class, 'destroy'])->name('sheetSync.destroy');
+        Route::post('/master-sheet/sync/sources/{sheetSource}/run', [SheetSyncController::class, 'run'])->name('sheetSync.run');
+        Route::get('/master-sheet/sync/sources/{sheetSource}/changes', [SheetSyncController::class, 'changes'])->name('sheetSync.changes');
+        Route::post('/master-sheet/sync/sources/{sheetSource}/approve', [SheetSyncController::class, 'approve'])->name('sheetSync.approve');
+        Route::post('/master-sheet/sync/sources/{sheetSource}/discard', [SheetSyncController::class, 'discard'])->name('sheetSync.discard');
+        Route::delete('/master-sheet/sync/sources/{sheetSource}/missing/{sheetSourceChange}', [SheetSyncController::class, 'removeLocation'])->name('sheetSync.removeLocation');
+        Route::post('/master-sheet/sync/sources/{sheetSource}/missing/{sheetSourceChange}/keep', [SheetSyncController::class, 'keepLocation'])->name('sheetSync.keepLocation');
+    });
+
     // EXPORT AUDIT LOGS
     Route::get('/admin/export-logs', [ExportLogsController::class, 'index'])->name('admin.exportLogs.index');
     Route::get('/admin/export-logs/export', [ExportLogsController::class, 'export'])->name('admin.exportLogs.export');

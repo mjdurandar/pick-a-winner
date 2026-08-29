@@ -15,6 +15,35 @@ const page = usePage();
 const user = computed(() => page.props.auth.user || null);
 const userRole = computed(() => user.value?.role); 
 
+// Master sheet tabs holding changes nobody has accepted yet. Shared from the
+// server on every page, and null for anyone who is not an admin.
+// Whether this account owns the master sheet sync. Decided on the server (see
+// User::canManageMasterSheet) so the address lives in one place and the nav
+// cannot disagree with what the routes actually allow.
+const canManageMasterSheet = computed(() => page.props.canManageMasterSheet === true);
+
+const sheetReview = computed(() => page.props.sheetReview ?? null);
+const reviewCount = computed(() => sheetReview.value?.count ?? 0);
+
+// Removals are called out separately from edits: one is a batch to approve, the
+// other is a question about deleting a location and its attendees.
+const removedCount = computed(() => sheetReview.value?.missing ?? 0);
+
+const reviewSummary = computed(() => {
+    const tabs = sheetReview.value?.tabs ?? [];
+    if (!tabs.length) return '';
+
+    return tabs
+        .map((t) => {
+            const bits = [];
+            if (t.pending) bits.push(`${t.pending} change${t.pending === 1 ? '' : 's'}`);
+            if (t.missing) bits.push(`${t.missing} removed from the sheet`);
+
+            return `${t.tab_name} (${bits.join(', ')})`;
+        })
+        .join(', ');
+});
+
 </script>
 
 <template>
@@ -144,6 +173,18 @@ const userRole = computed(() => user.value?.role);
                                             :href="route('mailchimpImport.index')"
                                         >
                                             MC Import
+                                        </DropdownLink>
+                                        <DropdownLink
+                                            v-if="canManageMasterSheet"
+                                            :href="route('sheetSync.index')"
+                                        >
+                                            MC Sync
+                                            <span
+                                                v-if="reviewCount > 0"
+                                                class="ms-1 inline-flex items-center rounded-full bg-amber-100 px-1.5 text-xs font-medium text-amber-800"
+                                            >
+                                                {{ reviewCount }}
+                                            </span>
                                         </DropdownLink>
                                         <DropdownLink
                                             v-if="userRole === 'admin'"
@@ -305,6 +346,18 @@ const userRole = computed(() => user.value?.role);
                                 Laravel Logs
                             </ResponsiveNavLink>
                             <ResponsiveNavLink
+                                v-if="canManageMasterSheet"
+                                :href="route('sheetSync.index')"
+                            >
+                                MC Sync
+                                <span
+                                    v-if="reviewCount > 0"
+                                    class="ms-1 inline-flex items-center rounded-full bg-amber-100 px-1.5 text-xs font-medium text-amber-800"
+                                >
+                                    {{ reviewCount }}
+                                </span>
+                            </ResponsiveNavLink>
+                            <ResponsiveNavLink
                                 v-if="userRole === 'admin'"
                                 :href="route('admin.exportLogs.index')"
                             >
@@ -337,6 +390,26 @@ const userRole = computed(() => user.value?.role);
                     <slot name="header" />
                 </div>
             </header>
+
+            <!-- Master sheet changes awaiting review -->
+            <div v-if="reviewCount > 0" class="bg-amber-50 border-b border-amber-200">
+                <div class="mx-auto max-w-7xl px-4 py-3 sm:px-6 lg:px-8 flex flex-wrap items-center gap-3">
+                    <span class="flex h-2.5 w-2.5 shrink-0 rounded-full bg-amber-500"></span>
+                    <p class="text-sm text-amber-900 flex-1 min-w-0">
+                        <strong>{{ reviewCount }} film{{ reviewCount === 1 ? '' : 's' }} updated in the master sheet</strong>
+                        and {{ reviewCount === 1 ? 'needs' : 'need' }} review<template v-if="removedCount > 0">,
+                        including <strong>{{ removedCount }} screening{{ removedCount === 1 ? '' : 's' }} removed from the sheet</strong></template>
+                        &mdash;
+                        <span class="text-amber-800">{{ reviewSummary }}</span>
+                    </p>
+                    <Link
+                        :href="route('sheetSync.index')"
+                        class="shrink-0 rounded-md bg-amber-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-amber-700"
+                    >
+                        Review &amp; approve
+                    </Link>
+                </div>
+            </div>
 
             <!-- Page Content -->
             <main>

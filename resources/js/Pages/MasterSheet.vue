@@ -1,6 +1,6 @@
 <script setup>
 import { ref, computed, watch, nextTick, onMounted, onUnmounted } from 'vue';
-import { router, usePage } from '@inertiajs/vue3';
+import { Link, router, usePage } from '@inertiajs/vue3';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout.vue';
 import { Head } from '@inertiajs/vue3';
 import Swal from 'sweetalert2';
@@ -264,7 +264,14 @@ watch(
         <template #header>
             <div class="flex justify-between items-center">
                 <h2 class="text-xl font-semibold text-gray-800 leading-tight">Master Sheet</h2>
-                <div class="flex items-center gap-2">
+                <div class="flex items-center gap-3">
+                    <Link
+                        v-if="userRole === 'admin'"
+                        :href="route('sheetSync.index')"
+                        class="text-sm text-teal-700 hover:text-teal-900"
+                    >
+                        Sheet sync
+                    </Link>
                     <label class="text-sm font-medium text-gray-500">Year:</label>
                     <select
                         :value="selectedYear"

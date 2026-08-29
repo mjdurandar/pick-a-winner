@@ -12,6 +12,7 @@ class Location extends Model
     protected $fillable = [
         'name',
         'event_id',
+        'sheet_source_id',
         'date',
         'time',
         'password',
@@ -30,6 +31,17 @@ class Location extends Model
         'dcp_sent',
         'specific_deliverable_requests',
     ];
+
+    /**
+     * The master sheet tab this location came from, if any.
+     *
+     * Null means nobody's spreadsheet owns it — either it was made by hand, or
+     * an admin pressed Keep after its row disappeared from the sheet.
+     */
+    public function sheetSource()
+    {
+        return $this->belongsTo(SheetSource::class, 'sheet_source_id');
+    }
 
     /**
      * Get the event that owns the location.

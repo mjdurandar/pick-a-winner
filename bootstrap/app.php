@@ -25,6 +25,15 @@ return Application::configure(basePath: dirname(__DIR__))
         // of. Offered hourly; the job decides for itself whether enough time has
         // passed, since only it knows what the form did last time.
         $schedule->job(new DripOutstandingOptInsJob)->hourly()->withoutOverlapping(60);
+
+        // Pull the configured master schedule tabs. Read-only against Google —
+        // the connection holds spreadsheets.readonly and cannot write back.
+        //
+        // Hourly on the half hour: the schedule is edited throughout a working day
+        // and an hour-old view of it is fine, while anything more frequent spends
+        // quota re-reading twenty unchanged tabs. Queued rather than inline so one
+        // slow tab cannot hold up the rest of the scheduler.
+        $schedule->command('sheets:sync --queue')->hourlyAt(30)->withoutOverlapping(60);
     })
     ->withMiddleware(function (Middleware $middleware) {
         $middleware->web(append: [

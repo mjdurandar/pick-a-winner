@@ -86,6 +86,38 @@ return [
         'server' => env('MAILCHIMP_SERVER_PREFIX'),
     ],
 
+    'google' => [
+        // OAuth2 credentials from a Google Cloud project (APIs & Services ->
+        // Credentials -> OAuth client ID, type "Web application"). The Google
+        // Sheets API must be enabled on the same project or every read returns 403.
+        //
+        // The redirect must match what is registered in the Cloud console character
+        // for character; left null it falls back to the callback route.
+        'oauth' => [
+            'client_id' => env('GOOGLE_OAUTH_CLIENT_ID'),
+            'client_secret' => env('GOOGLE_OAUTH_CLIENT_SECRET'),
+            'redirect' => env('GOOGLE_OAUTH_REDIRECT'),
+        ],
+
+        // The shared master sheet the location sync pulls from. The id is the long
+        // path segment in the sheet's URL:
+        // docs.google.com/spreadsheets/d/<THIS PART>/edit
+        //
+        // The range is read in A1 notation and must include the header row — the
+        // importer maps columns by header name, not by position, so inserting a
+        // column in the sheet does not break the sync.
+        'sheets' => [
+            'master_sheet_id' => env('GOOGLE_MASTER_SHEET_ID'),
+            'master_sheet_range' => env('GOOGLE_MASTER_SHEET_RANGE'),
+
+            // The one account allowed near the sync screen. Narrower than the
+            // admin role on purpose: this screen holds a Google connection and
+            // can delete locations, and every other admin has no reason to be
+            // there. Set MASTER_SHEET_OWNER_EMAIL to hand it to someone else.
+            'owner_email' => env('MASTER_SHEET_OWNER_EMAIL', 'mj@adventureentertainment.com'),
+        ],
+    ],
+
     'eventbrite' => [
         'api_token' => env('EVENTBRITE_API_TOKEN'),
     ],

@@ -9,6 +9,21 @@ use Illuminate\Notifications\Notifiable;
 
 class User extends Authenticatable
 {
+    /**
+     * Whether this account may reach the master sheet sync screen.
+     *
+     * Deliberately one named account rather than the admin role: the screen
+     * holds a Google connection, applies batches to live locations and can
+     * delete a location along with its attendees. Compared case-insensitively
+     * because an email typed with different capitalisation is the same mailbox.
+     */
+    public function canManageMasterSheet(): bool
+    {
+        $owner = config('services.google.sheets.owner_email');
+
+        return $owner !== null && strcasecmp((string) $this->email, (string) $owner) === 0;
+    }
+
     /** @use HasFactory<\Database\Factories\UserFactory> */
     use HasFactory, Notifiable;
 
