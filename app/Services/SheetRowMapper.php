@@ -200,9 +200,13 @@ class SheetRowMapper
     /**
      * The Location attribute payload for a screening row.
      *
-     * Only fields present on this tab are returned. A tab missing
-     * 'Specific Deliverable Requests' (three of the twenty) must leave the
-     * existing value alone rather than blanking it.
+     * Six columns only — cinema and location (composed into the name), state,
+     * country, date, time and show type. These are what a sign-up form shows;
+     * everything else on the tab belongs to the master sheet page and is read
+     * but not written. See the note at the end of this method.
+     *
+     * Only fields present on this tab are returned. A tab with no Time column
+     * must leave the existing time alone rather than blanking it.
      *
      * @param  array<string, string>  $fields
      * @return array<string, mixed>
@@ -247,36 +251,28 @@ class SheetRowMapper
             $attributes['country'] = $country;
         }
 
-        foreach (['category', 'status', 'ticketing_type', 'booked_by', 'film_format', 'cinema_contact', 'specific_deliverable_requests'] as $field) {
-            if ($has($field) && $fields[$field] !== '') {
-                $attributes[$field] = $fields[$field];
-            }
+        // Show type is the last of the six columns this sync owns: cinema and
+        // location (folded into the name), state, country, date, time, show type.
+        if ($has('category') && $fields['category'] !== '') {
+            $attributes['category'] = $fields['category'];
         }
 
-        if ($has('number_of_screenings')) {
-            $screenings = $this->values->parseInt($fields['number_of_screenings']);
-
-            if ($screenings !== null) {
-                $attributes['number_of_screenings'] = $screenings;
-            }
-        }
-
-        if ($has('date_booking_confirmed')) {
-            $confirmed = $this->values->parseDate($fields['date_booking_confirmed']);
-
-            // The column is a real date in the database, so TBA cannot go in it.
-            if ($confirmed !== null && $confirmed !== 'TBA') {
-                $attributes['date_booking_confirmed'] = $confirmed;
-            }
-        }
-
-        // Checkbox columns are only written when the tab has them, but unlike the
-        // text fields an unticked box is a meaningful false, not an absent value.
-        foreach (['dcp_trailer_sent', 'media_kit_sent', 'dcp_sent'] as $field) {
-            if ($has($field)) {
-                $attributes[$field] = $this->values->parseBool($fields[$field]);
-            }
-        }
+        // Deliberately stops here.
+        //
+        // The tab also carries booking status, ticketing type, booked by, film
+        // format, cinema contact, deliverable requests, no. of screenings, date
+        // booking confirmed and the three DCP checkboxes. Those belong to the
+        // master sheet page, which is a later feature — nothing in the app reads
+        // them from here yet.
+        //
+        // Importing them anyway had a cost with no benefit: they are the columns
+        // a working spreadsheet churns through all week, so every touched cell
+        // became a screening "changed in the sheet" and an alert to approve. The
+        // six below are the ones a sign-up form actually shows, and they barely
+        // move once a screening is booked.
+        //
+        // Locations already holding values in those columns keep them untouched —
+        // this only narrows what the sheet writes, it never blanks anything.
 
         return $attributes;
     }
