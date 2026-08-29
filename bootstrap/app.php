@@ -29,11 +29,16 @@ return Application::configure(basePath: dirname(__DIR__))
         // Pull the configured master schedule tabs. Read-only against Google —
         // the connection holds spreadsheets.readonly and cannot write back.
         //
-        // Hourly on the half hour: the schedule is edited throughout a working day
-        // and an hour-old view of it is fine, while anything more frequent spends
-        // quota re-reading twenty unchanged tabs. Queued rather than inline so one
-        // slow tab cannot hold up the rest of the scheduler.
-        $schedule->command('sheets:sync --queue')->hourlyAt(30)->withoutOverlapping(60);
+        // Every five minutes. This was hourly, sized for the twenty tabs the sync
+        // was expected to watch; with a handful the quota argument is gone — 288
+        // reads a day per tab against a limit of 300 a minute — and an admin who
+        // fixes a screening wants to see it now, not up to an hour later.
+        //
+        // Queued rather than inline so one slow tab cannot hold up the rest of the
+        // scheduler. The overlap lock is ten minutes: long enough to outlast a
+        // normal run, short enough that a crashed one is not still blocking an
+        // hour later.
+        $schedule->command('sheets:sync --queue')->everyFiveMinutes()->withoutOverlapping(10);
     })
     ->withMiddleware(function (Middleware $middleware) {
         $middleware->web(append: [
