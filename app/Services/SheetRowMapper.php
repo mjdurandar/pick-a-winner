@@ -24,15 +24,15 @@ class SheetRowMapper
      * never swallow 'Cinema Contact (Current)'.
      */
     public const ALIASES = [
-        'cinema_contact' => ['Cinema Contact (Current)', 'Cinema Contact'],
+        'cinema_contact' => ['Cinema or Promoter Contact Email', 'Cinema Contact (Current)', 'Cinema Contact'],
         'film' => ['Film'],
-        'location' => ['Location'],
-        'cinema' => ['Cinema'],
+        'location' => ['Show Location', 'Location'],
+        'cinema' => ['Cinema Name', 'Cinema'],
         'country' => ['Country', 'Country/State', 'Country/ State'],
-        'state' => ['State'],
-        'date' => ['Date'],
-        'time' => ['Time'],
-        'number_of_screenings' => ['Number of Screenings'],
+        'state' => ['Show Location (State)', 'State'],
+        'date' => ['Screening Start Date', 'Screening Date', 'Date'],
+        'time' => ['Screening Time', 'Time'],
+        'number_of_screenings' => ['Number of Screenings', 'No. of Screenings', '# of Screenings', '# Screenings'],
         'category' => ['Show Type'],
         'status' => ['Booking Status', 'Status'],
         'ticketing_type' => ['Ticketing Type'],
@@ -47,9 +47,23 @@ class SheetRowMapper
 
     /**
      * Headers that must be present for a row to be believed to be the header row.
-     * All twenty tabs carry these four.
+     *
+     * Only the two that every schedule carries and that the sync cannot work
+     * without: a row with no location is nothing to name, and one with no date is
+     * nothing to book. Anything more specific is a regional habit — the ANZ tabs
+     * all carry Booked By and Film Format, the USA tabs carry neither — and
+     * anchoring on those rejected the USA schedule outright.
      */
-    public const HEADER_ANCHORS = ['location', 'date', 'booked_by', 'film_format'];
+    public const HEADER_ANCHORS = ['location', 'date'];
+
+    /**
+     * On top of the anchors, how many known columns a row must carry to be the
+     * header rather than a coincidence.
+     *
+     * Two columns alone are weak evidence: a summary tab can easily have a
+     * "Location" and a "Date". A real schedule row maps eight or more.
+     */
+    public const HEADER_MIN_FIELDS = 4;
 
     /** How far down a tab to look for the header before giving up. */
     public const HEADER_SEARCH_DEPTH = 30;
@@ -86,9 +100,49 @@ class SheetRowMapper
 
             $hasAnchors = ! array_diff(self::HEADER_ANCHORS, array_keys($columns));
 
-            if ($hasAnchors) {
+            if ($hasAnchors && count($columns) >= self::HEADER_MIN_FIELDS) {
                 return ['index' => $i, 'columns' => $columns];
             }
+        }
+
+        return null;
+    }
+
+    /**
+     * The country a section banner announces, or null if the row is not one.
+     *
+     * The USA workbook is not only the USA: 'USA - THEATRICAL', 'USA - HAS',
+     * 'CANADA - THEATRICAL' and 'CANADA - HAS' divide it into blocks, and the
+     * rows beneath a banner carry a province ('AB', 'ON') with no country column
+     * to put it in. Reading the banner is the only way to know that Calgary is
+     * not in the United States.
+     *
+     * Only asked of rows that are not screenings, so the banner text is the row's
+     * whole meaning and there is nothing else it could be. 'Premiere Week' and
+     * the other non-country banners name no country and leave the current one
+     * standing.
+     *
+     * The cells beside the text are not empty: the banner is drawn as a black bar
+     * by filling the rest of the row with '.', and one of them carries a running
+     * total. The country is whatever the first cell that says something says.
+     *
+     * @param  list<string>  $row
+     */
+    public function sectionCountry(array $row): ?string
+    {
+        foreach ($row as $cell) {
+            $cell = trim($cell);
+
+            // The bar's filler, not a value.
+            if ($cell === '' || preg_match('/^[.\-–—_·]+$/u', $cell)) {
+                continue;
+            }
+
+            // 'CANADA - HAS' names the country up to the dash that separates it
+            // from the show type; 'AUSTRALIA' has no dash and is the whole cell.
+            $name = trim(preg_split('/[-–—]/u', $cell)[0]);
+
+            return LocationValueParser::COUNTRIES[strtolower($name)] ?? null;
         }
 
         return null;
@@ -168,8 +222,24 @@ class SheetRowMapper
             return 'Section heading, not a screening';
         }
 
-        if (($fields['location'] ?? '') === '') {
-            return 'No location';
+        // A cancelled screening is left in the sheet, struck through, as a record
+        // of what was booked — it is not a screening to sell tickets to. One
+        // already imported turns up as missing on the next run, which is a
+        // question for an admin rather than something to delete here.
+        if ($this->isCancelled($fields['status'] ?? '')) {
+            return 'Cancelled in the sheet';
+        }
+
+        // Where the screening is: the town, the venue, or both. A row naming
+        // neither cannot be given a name, and a name is the identity this sync
+        // matches on. Either one alone is enough — a venue with no town still
+        // says where to go, and the placeholders a booker types for the other
+        // ('-', 'TBD') are the absence of a value, not one.
+        $location = $this->values->blankPlaceholder($fields['location'] ?? '');
+        $cinema = $this->values->blankPlaceholder($fields['cinema'] ?? '');
+
+        if ($location === '' && $cinema === '') {
+            return 'No location or cinema';
         }
 
         $date = $fields['date'] ?? '';
@@ -190,11 +260,57 @@ class SheetRowMapper
         // not a screening — every actual screening in the schedule says both
         // where and when. Without this the subtotal is imported as a location
         // named after the country.
+        // Read from the raw cells, not the placeholder-blanked ones: a subtotal
+        // leaves both truly empty, while a booked screening whose venue is not
+        // settled has 'TBD' typed in it, and that difference is the whole test.
         if (($fields['cinema'] ?? '') === '' && ($fields['time'] ?? '') === '') {
             return 'Section subtotal, not a screening';
         }
 
         return null;
+    }
+
+    /**
+     * Whether a status column says the screening is off.
+     *
+     * Matched on the stem so the spellings a dropdown collects over the years —
+     * 'Cancelled', 'Canceled', 'CANCELLED - venue closed' — all count.
+     */
+    public function isCancelled(?string $status): bool
+    {
+        return str_contains(strtolower(trim((string) $status)), 'cancel');
+    }
+
+    /**
+     * The name this row would have composed before placeholders were stripped
+     * from it, or null when stripping changed nothing.
+     *
+     * Only ever used to match, never to write. The identity of a screening is
+     * its composed name, so tightening what goes into that name renames every
+     * location the change touches — 'Townsville QLD - TBA' becomes 'Townsville
+     * QLD'. Without this the sync sees a name it has never met, creates a second
+     * location beside the first, and reports the original as dropped from the
+     * sheet; approving that would leave the ticket attendees on the row nobody
+     * is looking at any more. Matching the old name instead renames in place.
+     *
+     * @param  array<string, string>  $fields
+     */
+    public function priorName(array $fields): ?string
+    {
+        ['state' => $state] = $this->values->splitRegion(
+            $fields['country'] ?? '',
+            $fields['state'] ?? ''
+        );
+
+        $prior = $this->values->composeName(
+            $fields['location'] ?? '',
+            $state,
+            $fields['cinema'] ?? ''
+        );
+
+        $current = $this->toLocationAttributes($fields)['name'];
+
+        return $prior === $current ? null : $prior;
     }
 
     /**
@@ -208,10 +324,15 @@ class SheetRowMapper
      * Only fields present on this tab are returned. A tab with no Time column
      * must leave the existing time alone rather than blanking it.
      *
+     * $defaultCountry is the country the tab's region names, used only when the
+     * tab has no country column at all — the USA schedule tracks the state and
+     * takes the country as read, and without this every screening it creates
+     * would have a state and a blank country.
+     *
      * @param  array<string, string>  $fields
      * @return array<string, mixed>
      */
-    public function toLocationAttributes(array $fields): array
+    public function toLocationAttributes(array $fields, ?string $defaultCountry = null): array
     {
         $attributes = [];
 
@@ -219,15 +340,26 @@ class SheetRowMapper
 
         // 'Country/State' holds whichever the tab tracks, so which of the two a
         // cell means has to be worked out rather than assumed by column.
+        //
+        // Every part of the name is read through blankPlaceholder: a dash or a
+        // 'TBD' typed into any of them means the value is not known, and letting
+        // one through would bake it into the location's name.
         ['state' => $state, 'country' => $country] = $this->values->splitRegion(
-            $fields['country'] ?? '',
-            $fields['state'] ?? ''
+            $this->values->blankPlaceholder($fields['country'] ?? ''),
+            $this->values->blankPlaceholder($fields['state'] ?? '')
         );
 
+        // Only when the column is absent, never when it is present and empty: a
+        // blank cell on a tab that does track country is a gap in the sheet, and
+        // filling it in from the tab's region would be a guess.
+        if ($country === '' && ! $has('country') && $defaultCountry !== null) {
+            $country = $defaultCountry;
+        }
+
         $attributes['name'] = $this->values->composeName(
-            $fields['location'] ?? '',
+            $this->values->blankPlaceholder($fields['location'] ?? ''),
             $state,
-            $fields['cinema'] ?? ''
+            $this->values->blankPlaceholder($fields['cinema'] ?? '')
         );
 
         $attributes['date'] = $this->values->parseDate($fields['date'] ?? null);

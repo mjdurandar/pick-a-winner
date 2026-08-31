@@ -19,6 +19,60 @@ use Illuminate\Support\Str;
 class LocationValueParser
 {
     /**
+     * The spellings that mean "booked, but this is not settled yet".
+     *
+     * Stored as 'TBA' whichever is typed: the ANZ schedule writes TBA, the USA
+     * schedule writes TBD, and the rest of the application only knows TBA. A
+     * date or time reading one of these is a real screening, not a parse
+     * failure, so it must survive rather than be rejected as prose.
+     */
+    public const UNDECIDED = ['TBA', 'TBD', 'TBC'];
+
+    /**
+     * Whether a cell says the value is not settled yet.
+     *
+     * Matched on the opening word, because a booker annotates the placeholder
+     * rather than replacing it: 'TBD (second screening)' is still a date nobody
+     * has set, and reading it as prose would drop a booked screening off the
+     * sign-up page until someone noticed. It comes in as TBA and the day the
+     * real date is typed the sync reports it as a change to approve.
+     */
+    public function isUndecided($value): bool
+    {
+        return (bool) preg_match(
+            '/^('.implode('|', self::UNDECIDED).')\b/',
+            strtoupper(trim((string) $value))
+        );
+    }
+
+    /**
+     * Cells that are a hand-typed stand-in rather than a value.
+     *
+     * A booker filling a grid does not leave a cell blank, they type something
+     * that means blank — a dash, TBD, n/a. In a date or a time that is a real
+     * state of the booking and becomes 'TBA'; in a venue or a place name it is
+     * simply the absence of one, and must not end up in a location's name as
+     * "Toledo OH - TBD".
+     */
+    public const PLACEHOLDERS = ['-', '--', '---', '.', '..', '...', '?', '??', 'N/A', 'NA', 'N.A.', 'NONE', 'TBD', 'TBA', 'TBC'];
+
+    public function isPlaceholder($value): bool
+    {
+        $value = strtoupper(trim((string) $value));
+
+        // The dash a spreadsheet inserts is not always the one on the keyboard.
+        $value = str_replace(["\xe2\x80\x93", "\xe2\x80\x94"], '-', $value);
+
+        return $value === '' || in_array($value, self::PLACEHOLDERS, true);
+    }
+
+    /** The cell's value, or '' when it is one of the placeholders above. */
+    public function blankPlaceholder($value): string
+    {
+        return $this->isPlaceholder($value) ? '' : trim((string) $value);
+    }
+
+    /**
      * Parse time string to 24-hour format (HH:MM) like "20:00", "19:00", "18:30".
      * Handles "7:00PM", "7pm", "7:00 pm", "07:00", and 'TBA'.
      */
@@ -32,7 +86,7 @@ class LocationValueParser
 
         // 'TBA' is a real value, not a parse failure — a screening is often booked
         // before its time is locked in.
-        if (strcasecmp($timeString, 'TBA') === 0) {
+        if ($this->isUndecided($timeString)) {
             return 'TBA';
         }
 
@@ -91,9 +145,10 @@ class LocationValueParser
     /**
      * Parse date string to YYYY-MM-DD.
      *
-     * The master schedule writes dates as "Thursday, 5 November 2026" — day-first,
+     * The ANZ schedule writes dates as "Thursday, 5 November 2026" — day-first,
      * month spelled out — which Format 1 below handles after the day name is
-     * stripped. 'TBA' passes through as itself.
+     * stripped; the USA schedule writes "Wednesday, April 1, 2026", which is
+     * Format 2. An unsettled date comes back as 'TBA'.
      */
     public function parseDate($dateString): ?string
     {
@@ -103,7 +158,7 @@ class LocationValueParser
 
         $dateString = trim($dateString);
 
-        if (strcasecmp($dateString, 'TBA') === 0) {
+        if ($this->isUndecided($dateString)) {
             return 'TBA';
         }
 
@@ -288,7 +343,10 @@ class LocationValueParser
         $cinema = trim((string) $cinema);
 
         if ($state !== '') {
-            $name .= ' '.strtoupper($state);
+            // A row can name the venue without naming the town. Appending blindly
+            // would give " OR - Sisters Movie House", and the leading space makes
+            // it a different name from the same row read on any other run.
+            $name = $name === '' ? strtoupper($state) : $name.' '.strtoupper($state);
         }
 
         if ($cinema !== '') {

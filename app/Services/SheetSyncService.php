@@ -156,7 +156,9 @@ class SheetSyncService
         if ($header === null) {
             throw new \App\Exceptions\GoogleSheetsException(
                 'No screening header found in the first '.SheetRowMapper::HEADER_SEARCH_DEPTH
-                ." rows of '{$source->tab_name}'. Check the tab is a screening schedule and not a summary or notes tab."
+                ." rows of '{$source->tab_name}'. A header row needs a location column"
+                .' (Location or Show Location) and a date column (Date or Screening Start Date).'
+                .' Check the tab is a screening schedule and not a summary or notes tab.'
             );
         }
 
@@ -174,6 +176,13 @@ class SheetSyncService
 
         $plan = [];
 
+        // The country the rows being read belong to. A tab with its own country
+        // column never consults this; the USA workbook, which has none and runs
+        // a CANADA block below its USA one, is why it is tracked at all. It
+        // starts at whatever the tab's region implies, for the rows above the
+        // first banner.
+        $country = $source->defaultCountry();
+
         foreach ($rows as $index => $row) {
             if ($index <= $header['index']) {
                 continue;
@@ -185,6 +194,13 @@ class SheetSyncService
             $fields = $this->mapper->rawFields($row, $header['columns']);
 
             if ($reason = $this->mapper->rejectionReason($fields)) {
+                // Asked only of the rows that are not screenings, which is what
+                // makes reading a banner safe: a promoter genuinely called
+                // "Canada Fly Co - Banff" is a screening and never reaches here.
+                if ($banner = $this->mapper->sectionCountry($row)) {
+                    $country = $banner;
+                }
+
                 $plan[] = [
                     'sheet_row' => $sheetRow,
                     'action' => SheetSourceChange::ACTION_SKIPPED,
@@ -198,10 +214,11 @@ class SheetSyncService
                 continue;
             }
 
-            $attributes = $this->mapper->toLocationAttributes($fields);
+            $attributes = $this->mapper->toLocationAttributes($fields, $country);
             $label = trim($attributes['name'].' — '.($attributes['date'] ?? ''), ' —');
 
-            $match = $this->matchLocation($existing, $attributes, $claimed);
+            $match = $this->matchLocation($existing, $attributes['name'], $attributes, $claimed)
+                ?: $this->matchLocation($existing, $this->mapper->priorName($fields), $attributes, $claimed);
 
             if (! $match) {
                 $plan[] = [
@@ -273,6 +290,10 @@ class SheetSyncService
     /**
      * The location this row already corresponds to, or null if it is new.
      *
+     * The name to try is passed in rather than read from the payload, because a
+     * row is looked up under more than one: the name it composes now, and the
+     * one it composed before placeholders were stripped. See priorName().
+     *
      * The composed name is the identity — it is what the paste-a-grid save writes
      * and what the sign-up form shows. Where a venue appears once for the event,
      * the name alone decides, so a screening whose date moved in the sheet is
@@ -283,9 +304,13 @@ class SheetSyncService
      * @param  array<string, mixed>  $attributes
      * @param  array<int, bool>  $claimed
      */
-    protected function matchLocation($existing, array $attributes, array $claimed): ?Location
+    protected function matchLocation($existing, ?string $name, array $attributes, array $claimed): ?Location
     {
-        $candidates = ($existing[$attributes['name']] ?? collect())
+        if ($name === null) {
+            return null;
+        }
+
+        $candidates = ($existing[$name] ?? collect())
             ->reject(fn (Location $l) => isset($claimed[$l->id]));
 
         if ($candidates->isEmpty()) {
@@ -296,7 +321,19 @@ class SheetSyncService
             return $candidates->first();
         }
 
-        return $candidates->firstWhere('date', $attributes['date']);
+        // The date is what tells two screenings at one venue apart, so it decides
+        // whenever it can.
+        if ($dated = $candidates->firstWhere('date', $attributes['date'])) {
+            return $dated;
+        }
+
+        // Nothing carries this date yet. A screening imported while its date was
+        // still TBA is the one that has been waiting for exactly this — matching
+        // it fills the date in rather than standing up a second location beside
+        // it and reporting the first as dropped. A candidate with a real date
+        // that simply moved is left alone: which of several it moved from is a
+        // guess, and a guess here silently rewrites a live screening.
+        return $candidates->firstWhere('date', 'TBA');
     }
 
     /**

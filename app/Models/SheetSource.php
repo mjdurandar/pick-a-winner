@@ -132,6 +132,19 @@ class SheetSource extends Model
         ])->save();
     }
 
+    /**
+     * The country to assume for a tab that tracks states but not countries.
+     *
+     * The USA schedule has a 'Show Location (State)' column and no country
+     * column — the country is in the workbook's name, not its cells. 'anz'
+     * covers two countries and so can never be assumed; those tabs all carry a
+     * Country/State column of their own anyway.
+     */
+    public function defaultCountry(): ?string
+    {
+        return $this->region === 'usa' ? 'USA' : null;
+    }
+
     /** The spreadsheet as a human would open it, for links on the settings screen. */
     public function url(): string
     {
