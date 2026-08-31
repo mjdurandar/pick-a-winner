@@ -161,11 +161,17 @@ class SheetSource extends Model
      */
     public function range(): string
     {
+        return $this->rangeFor('A:BZ');
+    }
+
+    /** The same tab, narrowed to some other A1 span — a single column, say. */
+    public function rangeFor(string $span): string
+    {
         // A tab name containing a quote or space has to be quoted in A1 notation,
         // with embedded single quotes doubled.
         $escaped = str_replace("'", "''", $this->tab_name);
 
-        return "'{$escaped}'!A:BZ";
+        return "'{$escaped}'!{$span}";
     }
 
     public function recordSuccess(int $created, int $updated, int $skipped, bool $applied = false): void

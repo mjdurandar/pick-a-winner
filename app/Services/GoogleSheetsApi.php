@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Exceptions\GoogleOAuthException;
 use App\Exceptions\GoogleSheetsException;
 use App\Models\GoogleConnection;
+use App\Models\SheetSource;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 
@@ -107,6 +108,101 @@ class GoogleSheetsApi
             fn (array $row) => array_pad(array_map(fn ($cell) => (string) $cell, $row), $width, ''),
             $rows
         );
+    }
+
+    /**
+     * Which cells of the given columns are struck through.
+     *
+     * Strikethrough is how the schedule says a screening is off — the row is left
+     * in place as a record and drawn through. It is formatting, not a value, so
+     * the values endpoint cannot see it and a second read is unavoidable.
+     *
+     * Only the named columns are asked for. The same read across the whole tab is
+     * seventeen megabytes, because the API emits 'strikethrough: false' for every
+     * cell of every one of the seventy-eight columns; three single-column ranges
+     * are a few hundred kilobytes and answer the same question.
+     *
+     * Indices are 0-based and line up with the rows values() returns, both ranges
+     * starting at row 1. A row or column the response stops short of is simply
+     * not struck.
+     *
+     * @param  list<int>  $columns  0-based column indexes
+     * @return array<int, array<int, bool>> row index => column index => struck
+     *
+     * @throws GoogleSheetsException
+     */
+    public function strikethrough(string $spreadsheetId, SheetSource $source, array $columns): array
+    {
+        $columns = array_values(array_unique($columns));
+
+        if ($columns === []) {
+            return [];
+        }
+
+        $connection = $this->connection();
+
+        if (! $connection) {
+            throw new GoogleSheetsException(
+                'No active Google connection. Connect a Google account that can see the master sheet.'
+            );
+        }
+
+        $ranges = array_map(
+            fn (int $c) => $source->rangeFor(self::columnLetter($c).':'.self::columnLetter($c)),
+            $columns
+        );
+
+        // Built by hand because the ranges repeat: Google wants 'ranges=A:A&
+        // ranges=B:B', and an array passed as a query option is encoded as
+        // 'ranges[0]=', which it rejects as malformed.
+        $query = implode('&', array_map(fn (string $r) => 'ranges='.rawurlencode($r), $ranges))
+            .'&includeGridData=true'
+            .'&fields='.rawurlencode('sheets.data.rowData.values.effectiveFormat.textFormat.strikethrough');
+
+        $response = Http::withToken($connection->access_token)
+            ->timeout(60)
+            ->get(self::BASE_URL.'/'.rawurlencode($spreadsheetId).'?'.$query);
+
+        if ($response->failed()) {
+            Log::error('Google Sheets formatting read failed', [
+                'spreadsheet_id' => $spreadsheetId,
+                'ranges' => $ranges,
+                'status' => $response->status(),
+                'body' => $response->body(),
+            ]);
+
+            throw new GoogleSheetsException($this->readErrorMessage($response->status(), implode(', ', $ranges)));
+        }
+
+        $struck = [];
+
+        // One data block per range, in the order they were asked for.
+        foreach ($response->json('sheets.0.data') ?? [] as $i => $block) {
+            $column = $columns[$i] ?? null;
+
+            if ($column === null) {
+                continue;
+            }
+
+            foreach ($block['rowData'] ?? [] as $rowIndex => $row) {
+                $struck[$rowIndex][$column] =
+                    (bool) ($row['values'][0]['effectiveFormat']['textFormat']['strikethrough'] ?? false);
+            }
+        }
+
+        return $struck;
+    }
+
+    /** 0-based column index to its A1 letters: 0 => A, 26 => AA. */
+    public static function columnLetter(int $index): string
+    {
+        $letters = '';
+
+        for ($i = $index; $i >= 0; $i = intdiv($i, 26) - 1) {
+            $letters = chr(65 + $i % 26).$letters;
+        }
+
+        return $letters;
     }
 
     /**

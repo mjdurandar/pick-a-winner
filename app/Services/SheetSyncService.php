@@ -162,6 +162,15 @@ class SheetSyncService
             );
         }
 
+        // Which rows the sheet has drawn a line through. Read separately because
+        // it is formatting rather than a value, and narrowed to the three columns
+        // that decide it — see GoogleSheetsApi::strikethrough().
+        $struck = $this->sheets->strikethrough(
+            $source->spreadsheet_id,
+            $source,
+            $this->mapper->identityColumns($header['columns'])
+        );
+
         // Locations of this event as they stand, indexed by the composed name the
         // mapper produces. Loaded once — a tab is a few hundred rows and querying
         // per row would be a few hundred round trips.
@@ -193,7 +202,9 @@ class SheetSyncService
 
             $fields = $this->mapper->rawFields($row, $header['columns']);
 
-            if ($reason = $this->mapper->rejectionReason($fields)) {
+            $isStruck = $this->mapper->isStruckThrough($fields, $header['columns'], $struck[$index] ?? []);
+
+            if ($reason = $this->mapper->rejectionReason($fields, $isStruck)) {
                 // Asked only of the rows that are not screenings, which is what
                 // makes reading a banner safe: a promoter genuinely called
                 // "Canada Fly Co - Banff" is a screening and never reaches here.

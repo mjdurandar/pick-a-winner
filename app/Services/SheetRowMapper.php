@@ -207,8 +207,9 @@ class SheetRowMapper
      * was left behind.
      *
      * @param  array<string, string>  $fields
+     * @param  bool  $struck  the row is drawn through in the sheet
      */
-    public function rejectionReason(array $fields): ?string
+    public function rejectionReason(array $fields, bool $struck = false): ?string
     {
         $filled = count(array_filter($fields, fn ($v) => $v !== ''));
 
@@ -222,12 +223,12 @@ class SheetRowMapper
             return 'Section heading, not a screening';
         }
 
-        // A cancelled screening is left in the sheet, struck through, as a record
-        // of what was booked — it is not a screening to sell tickets to. One
-        // already imported turns up as missing on the next run, which is a
-        // question for an admin rather than something to delete here.
-        if ($this->isCancelled($fields['status'] ?? '')) {
-            return 'Cancelled in the sheet';
+        // Drawing a line through the row is how the schedule retires a screening
+        // it wants to keep a record of. The status column is not the test: a row
+        // reading 'Cancelled' is often one leg of a booking that was rearranged
+        // rather than dropped, and the sheet keeps selling the rest of it.
+        if ($struck) {
+            return 'Struck through in the sheet';
         }
 
         // Where the screening is: the town, the venue, or both. A row naming
@@ -271,14 +272,46 @@ class SheetRowMapper
     }
 
     /**
-     * Whether a status column says the screening is off.
-     *
-     * Matched on the stem so the spellings a dropdown collects over the years —
-     * 'Cancelled', 'Canceled', 'CANCELLED - venue closed' — all count.
+     * The columns that say which screening a row is, and so the ones whose
+     * formatting says whether that screening still stands.
      */
-    public function isCancelled(?string $status): bool
+    public const IDENTITY_FIELDS = ['location', 'cinema', 'date'];
+
+    /** The column indexes of those fields on this tab, for the formatting read. */
+    public function identityColumns(array $columns): array
     {
-        return str_contains(strtolower(trim((string) $status)), 'cancel');
+        return array_values(array_intersect_key($columns, array_flip(self::IDENTITY_FIELDS)));
+    }
+
+    /**
+     * Whether the row is drawn through, and so a screening that no longer stands.
+     *
+     * Every identity cell that holds something has to be struck. A line through
+     * one of the three is a correction — a moved date, a renamed venue — and only
+     * a line through all of them is the whole screening being retired. Formatting
+     * on an empty cell means nothing and is ignored.
+     *
+     * @param  array<string, string>  $fields
+     * @param  array<string, int>  $columns
+     * @param  array<int, bool>  $struckCells  column index => struck
+     */
+    public function isStruckThrough(array $fields, array $columns, array $struckCells): bool
+    {
+        $written = 0;
+
+        foreach (self::IDENTITY_FIELDS as $field) {
+            if (($fields[$field] ?? '') === '' || ! isset($columns[$field])) {
+                continue;
+            }
+
+            if (! ($struckCells[$columns[$field]] ?? false)) {
+                return false;
+            }
+
+            $written++;
+        }
+
+        return $written > 0;
     }
 
     /**
