@@ -17,8 +17,11 @@ use App\Http\Controllers\PickaWinnerController;
 use App\Http\Controllers\PrizeController;
 use App\Http\Controllers\ProfileController;
 use App\Http\Controllers\SheetSyncController;
+use App\Http\Controllers\ShortLinkController;
 use App\Http\Controllers\SignUpFormController;
+use App\Http\Controllers\SmsScheduleController;
 use App\Http\Controllers\UsersController;
+use App\Http\Controllers\WordPressFeedController;
 use App\Http\Middleware\RoleMiddleware;
 use Illuminate\Support\Facades\Route;
 use Inertia\Inertia;
@@ -59,6 +62,19 @@ Route::get('/', function () {
 Route::get('/form/{event_uuid}', [SignUpFormController::class, 'embed'])->name('signup.embed');
 Route::post('/form/{event_uuid}', [SignUpFormController::class, 'storeEmbeddedData'])->name('signup.storeEmbedded');
 Route::post('/form/{event_uuid}/check-subscription', [SignUpFormController::class, 'checkSubscription'])->name('signup.checkSubscription');
+
+// The app's own SMS short links. Public by nature; throttled since the codes
+// are guessable-ish and each hit is a DB write.
+Route::get('/s/{code}', [ShortLinkController::class, 'redirect'])
+    ->where('code', '[A-Za-z0-9]{4,12}')
+    ->middleware('throttle:120,1')
+    ->name('short.redirect');
+
+// Read-only JSON feed for the WordPress banner plugin. uuid-gated like the
+// routes above; sits under /api/* so Laravel's default CORS paths cover it.
+Route::get('/api/wp/event/{event_uuid}/banner', [WordPressFeedController::class, 'banner'])
+    ->middleware('throttle:60,1')
+    ->name('wp.banner');
 
 // SHARED ROUTES
 Route::middleware(['auth', RoleMiddleware::class.':admin,host'])->group(function () {
@@ -139,6 +155,17 @@ Route::middleware(['auth', RoleMiddleware::class.':admin'])->group(function () {
         Route::delete('/integrations/google', [GoogleIntegrationController::class, 'destroy'])->name('google.integration.destroy');
 
         // MASTER SHEET SYNC (read-only: which Google tabs feed which events)
+        // SMS scheduler: paste the planning sheet, push rows into Mailchimp as
+        // drafts or scheduled campaigns. Never sends.
+        // Gated to one account on top of admin (sms.access): it spends credits.
+        Route::middleware('sms.access')->group(function () {
+            Route::get('/sms', [SmsScheduleController::class, 'index'])->name('sms.index');
+            Route::post('/sms/paste', [SmsScheduleController::class, 'paste'])->name('sms.paste');
+            Route::post('/sms/rows', [SmsScheduleController::class, 'store'])->name('sms.store');
+            Route::post('/sms/actions', [SmsScheduleController::class, 'actions'])->name('sms.actions');
+            Route::patch('/sms/{smsSchedule}', [SmsScheduleController::class, 'update'])->name('sms.update');
+        });
+
         Route::get('/master-sheet/sync', [SheetSyncController::class, 'index'])->name('sheetSync.index');
         Route::post('/master-sheet/sync/tabs', [SheetSyncController::class, 'tabs'])->name('sheetSync.tabs');
         Route::post('/master-sheet/sync/sources', [SheetSyncController::class, 'store'])->name('sheetSync.store');

@@ -21,6 +21,7 @@ const userRole = computed(() => user.value?.role);
 // User::canManageMasterSheet) so the address lives in one place and the nav
 // cannot disagree with what the routes actually allow.
 const canManageMasterSheet = computed(() => page.props.canManageMasterSheet === true);
+const canManageSms = computed(() => page.props.canManageSms === true);
 
 const sheetReview = computed(() => page.props.sheetReview ?? null);
 const reviewCount = computed(() => sheetReview.value?.count ?? 0);
@@ -104,6 +105,13 @@ const reviewSummary = computed(() => {
                                     target="_blank"
                                 >
                                     Pick a Winner
+                                </NavLink>
+                                <NavLink
+                                    v-if="canManageSms"
+                                    :href="route('sms.index')"
+                                    :active="route().current('sms.index')"
+                                >
+                                    SMS
                                 </NavLink>
                                 <!-- <NavLink
                                     v-if="userRole === 'admin' || userRole === 'host'"
@@ -297,6 +305,13 @@ const reviewSummary = computed(() => {
                                     target="_blank"
                                 >
                                     Pick a Winner
+                        </ResponsiveNavLink>
+                        <ResponsiveNavLink
+                            v-if="canManageSms"
+                            :href="route('sms.index')"
+                            :active="route().current('sms.index')"
+                        >
+                            SMS
                         </ResponsiveNavLink>
                         <!-- <ResponsiveNavLink
                                 v-if="userRole === 'admin'"

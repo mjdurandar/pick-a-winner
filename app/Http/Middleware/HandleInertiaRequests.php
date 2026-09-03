@@ -38,12 +38,14 @@ class HandleInertiaRequests extends Middleware
             'flash' => [
                 'error' => $request->session()->get('error'),
                 'success' => $request->session()->get('success'),
+                'warning' => $request->session()->get('warning'),
             ],
             // Master sheet tabs sitting on changes nobody has accepted yet. Shared
             // with every page so the alert follows an admin around rather than only
             // appearing on the screen they would have to think to visit.
             'sheetReview' => $this->sheetReview($request),
             'canManageMasterSheet' => (bool) $request->user()?->canManageMasterSheet(),
+            'canManageSms' => (bool) $request->user()?->canManageSms(),
         ];
     }
 
@@ -95,6 +97,10 @@ class HandleInertiaRequests extends Middleware
             'pickawinner',
             'pickawinner/*',
             'api/events/*/locations',
+            // Read-only banner feed for the WordPress plugin (uuid-gated).
+            'api/wp/*',
+            // SMS short links: the whole point is a stranger tapping them.
+            's/*',
             'picka-winner/verify',
             'prize/*',
             'prize',

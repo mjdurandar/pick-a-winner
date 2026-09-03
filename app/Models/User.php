@@ -24,6 +24,14 @@ class User extends Authenticatable
         return $owner !== null && strcasecmp((string) $this->email, (string) $owner) === 0;
     }
 
+    /** The SMS scheduler is one person's tool (see services.mailchimp.anz.sms_owner_email). */
+    public function canManageSms(): bool
+    {
+        $owner = config('services.mailchimp.anz.sms_owner_email');
+
+        return $owner !== null && strcasecmp((string) $this->email, (string) $owner) === 0;
+    }
+
     /** @use HasFactory<\Database\Factories\UserFactory> */
     use HasFactory, Notifiable;
 
