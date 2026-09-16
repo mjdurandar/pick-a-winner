@@ -57,7 +57,7 @@ class PickaWinnerController extends Controller
         // The draw runs unauthenticated, so the event's passwords must not ride
         // along in the page props. event_uuid is kept — the "How to Pick a
         // Winner" link needs it, and the guide asks for its own password.
-        $event = Events::findOrFail($eventId)->makeHidden(['instructions_password', 'national_password']);
+        $event = Events::findOrFail($eventId)->makeHidden(['instructions_password']);
         $prize = Prize::where('event_id', $eventId)->where('location_id', $locationId)->get();
 
         // Get the dynamic table name from the event
@@ -163,7 +163,7 @@ class PickaWinnerController extends Controller
      * account can open it (reached from the Locations page).
      */
     public function allLocation($eventId) {
-        $event = Events::findOrFail($eventId)->makeHidden(['instructions_password', 'national_password']);
+        $event = Events::findOrFail($eventId)->makeHidden(['instructions_password']);
         $signUpForm = SignUpForm::where('event_id', $eventId)->first();
         if (!$signUpForm) {
             return redirect()->route('signup.index', ['eventId' => $event]);
