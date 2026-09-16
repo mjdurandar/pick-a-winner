@@ -3,6 +3,7 @@ import Swal from 'sweetalert2';
 import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue';
 import { router } from '@inertiajs/vue3';
 import PickaWinnerLayout from '@/Layouts/PickaWinnerLayout.vue';
+import HowToPickAWinner from '@/Components/HowToPickAWinner.vue';
 import { Head } from '@inertiajs/vue3';
 import { syncState, enqueue, removeItem, pruneSynced, processQueue, startAutoSync, makeUuid, connectionQuality, pendingSyncDetail } from '@/stores/winnerSync';
 
@@ -26,6 +27,13 @@ const props = defineProps({
 
 // ✅ The tour-wide draw pool is every attendee of the event
 const eventAttendees = computed(() => props.attendees || []);
+
+// "How to Pick a Winner" — shown in a modal right here. No password: the host
+// already unlocked this draw, and leaving the page mid-draw risks the winners
+// still sitting in the offline sync queue.
+const openInstructions = () => {
+    new bootstrap.Modal(document.getElementById('howToPickModal')).show();
+};
 
 // ✅ Location filter — the host can narrow the tour-wide draw to a chosen set of
 // screenings. Empty means the whole tour (every location).
@@ -1122,10 +1130,21 @@ input:-webkit-autofill:active {
                         </div>
                     </div>
 
-                    <!-- Centered Pick a Winner Button -->
-                    <div class="d-flex justify-content-center gap-3 my-5 flex-wrap">
+                    <!-- Centered Pick a Winner Button, with the guide underneath -->
+                    <div class="d-flex flex-column align-items-center gap-3 my-5">
                         <button class="btn btn-primary btn-lg" @click="openPickWinnerModal">
                             🎉 Pick a Winner 🎉
+                        </button>
+                        <!-- The guide is one tap away mid-draw, in a modal —
+                             no password, and the draw page stays open. -->
+                        <button
+                            type="button"
+                            @click="openInstructions"
+                            class="text-sm font-bold underline underline-offset-2"
+                            style="color: #16C3D9;"
+                        >
+                            <i class="fa-solid fa-circle-question me-1"></i>
+                            How to Pick a Winner
                         </button>
                     </div>
 
@@ -1223,6 +1242,28 @@ input:-webkit-autofill:active {
                                 </button>
                                 <button type="button" style="width: 140px; margin: 0 auto; font-size: 12px;" class="btn btn-secondary d-block" v-if="!isPicking" @click="pickAgain()">Nope! Pick Again...</button>
                             </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- How to Pick a Winner — the shared guide, minus the password card
+                 and the "Open Pick a Winner" button (the host is already here). -->
+            <div class="modal fade" id="howToPickModal" tabindex="-1" aria-labelledby="howToPickModalLabel" aria-hidden="true">
+                <div class="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable">
+                    <div class="modal-content text-white" style="background-color: #151515;">
+                        <div class="modal-header border-gray-700">
+                            <h5 class="modal-title" id="howToPickModalLabel">
+                                <i class="fa-solid fa-circle-question me-2" style="color: #16C3D9;"></i>
+                                How to Pick a Winner
+                            </h5>
+                            <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+                        </div>
+                        <div class="modal-body">
+                            <HowToPickAWinner :event="event" in-draw tour-wide />
+                        </div>
+                        <div class="modal-footer border-gray-700">
+                            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
                         </div>
                     </div>
                 </div>

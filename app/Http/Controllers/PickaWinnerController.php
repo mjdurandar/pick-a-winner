@@ -54,7 +54,10 @@ class PickaWinnerController extends Controller
         $tableName = $signUpForm->table_name;
     
         $location = Location::where('id', $locationId)->firstOrFail();
-        $event = Events::findOrFail($eventId);
+        // The draw runs unauthenticated, so the event's passwords must not ride
+        // along in the page props. event_uuid is kept — the "How to Pick a
+        // Winner" link needs it, and the guide asks for its own password.
+        $event = Events::findOrFail($eventId)->makeHidden(['instructions_password', 'national_password']);
         $prize = Prize::where('event_id', $eventId)->where('location_id', $locationId)->get();
 
         // Get the dynamic table name from the event
@@ -152,24 +155,17 @@ class PickaWinnerController extends Controller
         return redirect()->route('pickawinner.hostguide', ['event_uuid' => $event_uuid]);
     }
 
+    /**
+     * The National Tour Wide draw — one draw across every location of an event.
+     *
+     * Unlike a location draw, this is not password-gated for the public: the
+     * route sits behind auth + the admin/host role, so only someone with an
+     * account can open it (reached from the Locations page).
+     */
     public function allLocation($eventId) {
-        // Same gate as a single-location draw: the tour-wide page is only
-        // reachable once its password has been verified in this session (an
-        // authenticated admin/host can always open it).
-        if (! auth()->check() && (int) Session::get('verified_all_locations_event_id') !== (int) $eventId) {
-            return redirect()->route('pickawinner.index');
-        }
-
-        $event = Events::findOrFail($eventId);
+        $event = Events::findOrFail($eventId)->makeHidden(['instructions_password', 'national_password']);
         $signUpForm = SignUpForm::where('event_id', $eventId)->first();
         if (!$signUpForm) {
-            // Hosts have no access to the admin sign-up form screen, so send
-            // them back with an explanation instead of into a login redirect.
-            if (! auth()->check()) {
-                return redirect()->route('pickawinner.index')
-                    ->withErrors(['password' => 'Signup form not created yet. Please contact the admin.']);
-            }
-
             return redirect()->route('signup.index', ['eventId' => $event]);
         }
         $tableName = $signUpForm->table_name;
@@ -217,56 +213,9 @@ class PickaWinnerController extends Controller
     {   
         $validated = $request->validate([
             'event_id' => 'required|exists:events,id',
-            'location_id' => 'nullable|required_unless:is_all_locations,true|exists:locations,id',
+            'location_id' => 'required|exists:locations,id',
             'password' => 'required|string',
-            'is_all_locations' => 'boolean'
         ]);
-
-        if ($validated['is_all_locations'] ?? false) {
-            $event = Events::findOrFail($validated['event_id']);
-
-            // The National Tour Wide draw has its own password, set per
-            // event in the admin — never a location password.
-            if (empty($event->national_password)) {
-                ExportLog::recordDrawAccess($request, 'failed', 'event', (string) $event->id, [
-                    'event_id' => $event->id,
-                    'event_name' => $event->event_name ?? null,
-                    'is_all_locations' => true,
-                    'reason' => 'no_password_set',
-                ]);
-
-                return back()->withErrors([
-                    'password' => 'No National Tour Wide password has been set for this event. Please contact the admin.',
-                ]);
-            }
-
-            if (strtoupper(trim($validated['password'])) !== strtoupper($event->national_password)) {
-                ExportLog::recordDrawAccess($request, 'failed', 'event', (string) $event->id, [
-                    'event_id' => $event->id,
-                    'event_name' => $event->event_name ?? null,
-                    'is_all_locations' => true,
-                    'reason' => 'wrong_password',
-                ]);
-
-                return back()->withErrors([
-                    'password' => 'Invalid password. Please enter the correct National Tour Wide password.'
-                ]);
-            }
-
-            // Mark this event as unlocked for the all-locations draw so the
-            // host can manage prizes without authenticating.
-            Session::put('verified_all_locations_event_id', $event->id);
-
-            ExportLog::recordDrawAccess($request, 'success', 'event', (string) $event->id, [
-                'event_id' => $event->id,
-                'event_name' => $event->name ?? null,
-                'is_all_locations' => true,
-            ]);
-
-            return redirect()->route('pickawinner.alllocation', [
-                'event' => $validated['event_id']
-            ]);
-        }
 
         $location = Location::where('id', $validated['location_id'])
             ->where('event_id', $validated['event_id'])

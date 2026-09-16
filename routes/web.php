@@ -31,7 +31,6 @@ use Inertia\Inertia;
 Route::get('/pickawinner', [PickaWinnerController::class, 'index'])->name('pickawinner.index');
 Route::get('/pickawinner/{eventId}', [PickaWinnerController::class, 'pickawinner'])->name('pickawinner.page');
 Route::get('/pickawinner/show/{location}/{event}', [PickaWinnerController::class, 'pickawinnerlocationpage'])->name('pickawinner.locationpage');
-Route::get('/pickawinner/alllocation/{event}', [PickaWinnerController::class, 'alllocation'])->name('pickawinner.alllocation');
 // Shareable host instruction guide (uuid-gated public link). Shows how to run a
 // draw and lists the per-location passwords for hosts.
 Route::get('/host-guide/{event_uuid}', [PickaWinnerController::class, 'hostGuide'])->name('pickawinner.hostguide');
@@ -116,6 +115,11 @@ Route::middleware(['auth', RoleMiddleware::class.':admin,host'])->group(function
     // LOCATION ROUTES
     Route::get('/location', [LocationController::class, 'index'])->name('location.index');
     Route::get('/location/{eventId}', [LocationController::class, 'locationpage'])->name('location.locationpage');
+
+    // National Tour Wide draw — one draw across every location of an event.
+    // Account-only (opened from the Locations page), unlike a location draw
+    // which any host can unlock with the location password.
+    Route::get('/pickawinner/alllocation/{event}', [PickaWinnerController::class, 'alllocation'])->name('pickawinner.alllocation');
     Route::put('/location/{location}/password', [LocationController::class, 'updatePassword'])->name('location.updatePassword');
     Route::put('/location/update-all-passwords/{event}', [LocationController::class, 'updateAllPasswords'])->name('location.updateAllPasswords');
     Route::put('/event/{event}/password', [EventsController::class, 'updatePassword'])->name('event.updatePassword');

@@ -452,6 +452,11 @@ const copyEventPassword = () => {
     });
 };
 
+const allLocationsPage = () => {
+    const url = route('pickawinner.alllocation', { event: props.event.id });
+    window.open(url, '_blank', 'noopener');
+};
+
 const goToAttendeesPage = () => {
     router.get(route('attendees.index', { eventId: props.event.id }));
 };
@@ -1010,9 +1015,17 @@ watch(
                 <div class="overflow-hidden bg-white shadow-sm sm:rounded-lg">
                     <div class="p-6 text-gray-900 text-center">
                         <div class="flex flex-col sm:flex-row justify-between items-center gap-4 mb-4">
-                            <!-- The National Tour Wide draw now lives on the
-                                 Pick a Winner login screen, behind its own password. -->
-                            <div class="text-center sm:text-left flex items-center gap-2"></div>
+                            <div class="text-center sm:text-left flex items-center gap-2">
+                                <!-- National Tour Wide draw — account-only, so it
+                                     lives here rather than on the public login. -->
+                                <button
+                                    @click="allLocationsPage"
+                                    style="background-color: #16C3D9; color: white; border-radius: 5px; padding: 10px 20px; cursor: pointer;"
+                                    title="Draw a winner from every location on the tour"
+                                >
+                                    National Tour Wide
+                                </button>
+                            </div>
 
                             <h3 class="text-lg font-semibold">{{ event.event_name }}</h3>
                             <div class="flex gap-2">

@@ -35,7 +35,6 @@ class EnsurePickAWinnerAccess
 
         $verifiedEventIds = array_filter([
             $request->session()->get('verified_event_id'),
-            $request->session()->get('verified_all_locations_event_id'),
         ]);
 
         if (empty($verifiedEventIds)) {

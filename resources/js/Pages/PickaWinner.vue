@@ -17,8 +17,7 @@ const locations = ref([]);
 const form = useForm({
     event_id: '',
     location_id: '',
-    password: '',
-    is_all_locations: false
+    password: ''
 });
 
 // Sort key: raw date + time string (no timezone – use values as stored for the location)
@@ -121,15 +120,6 @@ function formatTime(timeString) {
 // The event currently chosen in the dropdown
 const selectedEvent = computed(() => props.events.find(e => e.id === form.event_id));
 
-// Toggle the National Tour Wide draw (one draw across every location).
-const toggleAllLocations = () => {
-    form.is_all_locations = !form.is_all_locations;
-    form.location_id = '';
-    form.password = '';
-    form.clearErrors();
-    loadLocations();
-};
-
 // "How to Pick a Winner" — opens the host instruction guide for the chosen
 // event. The guide itself asks for its own password before showing anything.
 const openInstructions = () => {
@@ -156,12 +146,6 @@ const loadLocations = async () => {
         return;
     }
     
-    if (form.is_all_locations) {
-        locations.value = [];
-        form.location_id = '';
-        return;
-    }
-    
     try {
         const response = await axios.get(`/api/events/${form.event_id}/locations`);
         locations.value = response.data;
@@ -171,15 +155,9 @@ const loadLocations = async () => {
     }
 };
 
-// Both the single-location and the tour-wide draw are verified server-side —
-// passwords are never sent to this page.
+// The password is verified server-side — it is never sent to this page.
 const handleSubmit = () => {
-    // A tour-wide draw has no location — send null, not '', or the exists rule
-    // rejects it before the password is ever checked.
-    form.transform((data) => ({
-        ...data,
-        location_id: data.is_all_locations ? null : data.location_id,
-    })).post(route('picka-winner.verify'), {
+    form.post(route('picka-winner.verify'), {
         preserveScroll: true,
         onError: (errors) => {
             Swal.fire({
@@ -204,27 +182,7 @@ watch(() => form.event_id, () => {
 
     <PickaWinnerLayout>
         <!-- Selection Modal with Black Background -->
-        <div class="relative flex flex-col items-center justify-center min-h-screen p-3" style="background-color: #151515;">
-            <!-- National Tour Wide — draws one winner from every location
-                 of the event instead of a single screening. Sits outside the
-                 login box, top-left, and becomes "Back" once the tour-wide draw
-                 is selected so the host can return to the normal login. -->
-            <button
-                type="button"
-                @click="toggleAllLocations"
-                class="absolute top-4 left-4 flex items-center gap-2 px-4 py-2 rounded-md text-sm font-bold shadow transition-opacity hover:opacity-90"
-                :style="form.is_all_locations
-                    ? 'background-color: #ffffff; color: #151515;'
-                    : 'background-color: #16C3D9; color: #ffffff;'"
-                :aria-pressed="form.is_all_locations"
-                :title="form.is_all_locations
-                    ? 'Back to the location login'
-                    : 'Draw a winner from every location on the tour'"
-            >
-                <i :class="form.is_all_locations ? 'fa-solid fa-arrow-left' : 'fa-solid fa-earth-americas'"></i>
-                {{ form.is_all_locations ? 'Back' : 'National Tour Wide' }}
-            </button>
-
+        <div class="flex flex-col items-center justify-center min-h-screen p-3" style="background-color: #151515;">
             <!-- Logo outside the box -->
             <div class="flex justify-center mb-10">
                 <img
@@ -239,16 +197,6 @@ watch(() => form.event_id, () => {
             
             <!-- White Form Box -->
             <div class="bg-white p-8 shadow-lg w-full max-w-md">
-                <!-- Tour-wide draws have no location to choose, so the box says
-                     which draw the host is unlocking. -->
-                <p
-                    v-if="form.is_all_locations"
-                    class="mb-5 text-center text-sm font-bold uppercase tracking-wide"
-                    style="color: #16C3D9;"
-                >
-                    National Tour Wide — all locations
-                </p>
-
                 <form @submit.prevent="handleSubmit">
                     <div class="mb-4">
                         <label class="block text-gray-700 text-sm font-bold mb-2" for="event">
@@ -270,7 +218,7 @@ watch(() => form.event_id, () => {
                         </div>
                     </div>
 
-                    <div v-if="!form.is_all_locations" class="mb-4">
+                    <div class="mb-4">
                         <label class="block text-gray-700 text-sm font-bold mb-2" for="location">
                             Select Location
                         </label>
@@ -279,7 +227,7 @@ watch(() => form.event_id, () => {
                             v-model="form.location_id"
                             class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
                             :disabled="!form.event_id"
-                            :required="!form.is_all_locations"
+                            required
                         >
                             <option value="">Select a location</option>
                             <template v-for="(group, dateKey) in groupedLocations" :key="dateKey">
@@ -297,14 +245,14 @@ watch(() => form.event_id, () => {
 
                     <div class="mb-6">
                         <label class="block text-gray-700 text-sm font-bold mb-2" for="password">
-                            {{ form.is_all_locations ? 'National Tour Wide Password' : 'Password' }}
+                            Password
                         </label>
                         <input
                             id="password"
                             type="password"
                             v-model="form.password"
                             class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                            :placeholder="form.is_all_locations ? 'Enter national tour wide password' : 'Enter location password'"
+                            placeholder="Enter location password"
                             @input="form.password = form.password.toUpperCase()"
                             required
                         />
@@ -316,7 +264,7 @@ watch(() => form.event_id, () => {
                     <button
                         type="submit"
                         class="w-full bg-cyan-500 text-white py-2 px-4 hover:bg-cyan-600 focus:outline-none focus:ring-2 focus:ring-cyan-500 focus:ring-offset-2"
-                        :disabled="form.processing || (!form.is_all_locations && !form.location_id) || !form.event_id || !form.password"
+                        :disabled="form.processing || !form.location_id || !form.event_id || !form.password"
                     >
                         {{ form.processing ? 'Verifying...' : 'Enter' }}
                     </button>

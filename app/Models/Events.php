@@ -30,7 +30,6 @@ class Events extends Model
         'event_country',
         'event_uuid',
         'instructions_password',
-        'national_password',
         'film_id',
     ];
 
@@ -68,11 +67,6 @@ class Events extends Model
             }
             if (empty($event->instructions_password)) {
                 $event->instructions_password = strtoupper(Str::random(6));
-            }
-            // Tour-wide draw password — generated so the National Tour Wide
-            // Prize draw is never left unprotected; admins can change it.
-            if (empty($event->national_password)) {
-                $event->national_password = strtoupper(Str::random(6));
             }
         });
     }
