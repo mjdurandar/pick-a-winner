@@ -4,6 +4,7 @@ use App\Http\Controllers\AttendeesController;
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\EventsController;
 use App\Http\Controllers\ExportLogsController;
+use App\Http\Controllers\FilmSiteCheckController;
 use App\Http\Controllers\FilmsController;
 use App\Http\Controllers\GoogleIntegrationController;
 use App\Http\Controllers\LaravelLogsController;
@@ -178,6 +179,16 @@ Route::middleware(['auth', RoleMiddleware::class.':admin'])->group(function () {
         Route::delete('/master-sheet/sync/sources/{sheetSource}/missing/{sheetSourceChange}', [SheetSyncController::class, 'removeLocation'])->name('sheetSync.removeLocation');
         Route::post('/master-sheet/sync/sources/{sheetSource}/missing/{sheetSourceChange}/keep', [SheetSyncController::class, 'keepLocation'])->name('sheetSync.keepLocation');
     });
+
+    // FILM SITE CHECK (read-only: compares a film site's published shows with an
+    // event's locations and logs every run)
+    Route::get('/film-site-checks', [FilmSiteCheckController::class, 'index'])->name('filmSiteChecks.index');
+    Route::post('/film-site-checks/taxonomies', [FilmSiteCheckController::class, 'taxonomies'])->name('filmSiteChecks.taxonomies');
+    Route::post('/film-site-checks', [FilmSiteCheckController::class, 'store'])->name('filmSiteChecks.store');
+    Route::patch('/film-site-checks/{filmSiteCheck}', [FilmSiteCheckController::class, 'update'])->name('filmSiteChecks.update');
+    Route::delete('/film-site-checks/{filmSiteCheck}', [FilmSiteCheckController::class, 'destroy'])->name('filmSiteChecks.destroy');
+    Route::post('/film-site-checks/{filmSiteCheck}/run', [FilmSiteCheckController::class, 'run'])->name('filmSiteChecks.run');
+    Route::get('/film-site-checks/runs/{filmSiteCheckRun}', [FilmSiteCheckController::class, 'showRun'])->name('filmSiteChecks.showRun');
 
     // EXPORT AUDIT LOGS
     Route::get('/admin/export-logs', [ExportLogsController::class, 'index'])->name('admin.exportLogs.index');

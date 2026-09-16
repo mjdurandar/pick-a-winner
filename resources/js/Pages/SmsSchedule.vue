@@ -402,10 +402,6 @@ const issueTitle = row => [...errorsFor(row), ...warningsFor(row)].join('\n');
                 <div v-if="!configured" class="rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
                     Mailchimp ANZ isn't configured for SMS: set <code>MAILCHIMP_API_KEY</code>, <code>MAILCHIMP_SERVER_PREFIX</code> and <code>MAILCHIMP_SMS_LIST_ID</code>.
                 </div>
-                <div v-if="/localhost|127\.0\.0\.1|\[::1\]/.test(defaults.short_link_base || '')" class="rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
-                    <span class="font-semibold">Short links currently point at {{ defaults.short_link_base }}</span> — a phone can't open that.
-                    Don't schedule from here: set <code>SHORT_LINK_BASE_URL</code> (or <code>APP_URL</code>) to the public domain of the server that holds this database, or run the scheduler on that server.
-                </div>
                 <div v-if="flash.error" class="rounded-md border border-red-200 bg-red-50 px-4 py-2 text-sm text-red-800">{{ flash.error }}</div>
                 <div v-if="flash.warning" class="rounded-md border border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-800">{{ flash.warning }}</div>
                 <div v-if="flash.success" class="rounded-md border border-green-200 bg-green-50 px-4 py-2 text-sm text-green-800">{{ flash.success }}</div>

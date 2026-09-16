@@ -20,7 +20,11 @@ class PickaWinnerController extends Controller
     // Pick A Winner Index Page
     public function index() {
         return Inertia::render('PickaWinner', [
-            'events' => Events::where('is_enabled', true)->latest()->get(),
+            // Only the fields the login screen needs — passwords are verified
+            // server-side and must never reach this public page.
+            'events' => Events::where('is_enabled', true)
+                ->latest()
+                ->get(['id', 'event_name', 'event_uuid']),
         ]);
     }
 
@@ -149,9 +153,23 @@ class PickaWinnerController extends Controller
     }
 
     public function allLocation($eventId) {
+        // Same gate as a single-location draw: the tour-wide page is only
+        // reachable once its password has been verified in this session (an
+        // authenticated admin/host can always open it).
+        if (! auth()->check() && (int) Session::get('verified_all_locations_event_id') !== (int) $eventId) {
+            return redirect()->route('pickawinner.index');
+        }
+
         $event = Events::findOrFail($eventId);
         $signUpForm = SignUpForm::where('event_id', $eventId)->first();
         if (!$signUpForm) {
+            // Hosts have no access to the admin sign-up form screen, so send
+            // them back with an explanation instead of into a login redirect.
+            if (! auth()->check()) {
+                return redirect()->route('pickawinner.index')
+                    ->withErrors(['password' => 'Signup form not created yet. Please contact the admin.']);
+            }
+
             return redirect()->route('signup.index', ['eventId' => $event]);
         }
         $tableName = $signUpForm->table_name;
@@ -160,23 +178,8 @@ class PickaWinnerController extends Controller
         ->select("$tableName.*", 'locations.name as location_name') // Select all event columns + location name
         ->get();
      
-        // ✅ Check if prizes already exist for this event & location
-        $existingPrizesCount = Prize::where('event_id', $eventId)
-            ->whereNull('location_id') 
-            ->count();
-    
-        // ✅ Only create prizes if none exist (Executes ONCE)
-        if ($existingPrizesCount === 0) {
-            for ($i = 1; $i <= 5; $i++) {
-                Prize::create([
-                    'event_id' => $eventId,
-                    'location_id' => null,
-                    'prize_name' => "Prize $i",
-                    'winner' => "No Winner Yet",
-                ]);
-            }
-        }
-
+        // Winners are drawn first and the prize named afterwards (same flow as a
+        // location draw), so no placeholder prize rows are seeded here.
         $prizes = Prize::where('event_id', $eventId)
                ->whereNull('location_id') // ✅ Ensure location_id is NULL
                ->get();
@@ -214,7 +217,7 @@ class PickaWinnerController extends Controller
     {   
         $validated = $request->validate([
             'event_id' => 'required|exists:events,id',
-            'location_id' => 'required_unless:is_all_locations,true|exists:locations,id',
+            'location_id' => 'nullable|required_unless:is_all_locations,true|exists:locations,id',
             'password' => 'required|string',
             'is_all_locations' => 'boolean'
         ]);
@@ -222,17 +225,31 @@ class PickaWinnerController extends Controller
         if ($validated['is_all_locations'] ?? false) {
             $event = Events::findOrFail($validated['event_id']);
 
-            // For all locations, password should match event's stored password
-            if (strtoupper($validated['password']) !== strtoupper($event->password)) {
+            // The National Tour Wide draw has its own password, set per
+            // event in the admin — never a location password.
+            if (empty($event->national_password)) {
                 ExportLog::recordDrawAccess($request, 'failed', 'event', (string) $event->id, [
                     'event_id' => $event->id,
-                    'event_name' => $event->name ?? null,
+                    'event_name' => $event->event_name ?? null,
+                    'is_all_locations' => true,
+                    'reason' => 'no_password_set',
+                ]);
+
+                return back()->withErrors([
+                    'password' => 'No National Tour Wide password has been set for this event. Please contact the admin.',
+                ]);
+            }
+
+            if (strtoupper(trim($validated['password'])) !== strtoupper($event->national_password)) {
+                ExportLog::recordDrawAccess($request, 'failed', 'event', (string) $event->id, [
+                    'event_id' => $event->id,
+                    'event_name' => $event->event_name ?? null,
                     'is_all_locations' => true,
                     'reason' => 'wrong_password',
                 ]);
 
                 return back()->withErrors([
-                    'password' => 'Invalid password. Please enter the correct event password.'
+                    'password' => 'Invalid password. Please enter the correct National Tour Wide password.'
                 ]);
             }
 

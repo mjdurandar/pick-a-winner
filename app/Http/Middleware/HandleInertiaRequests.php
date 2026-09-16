@@ -46,6 +46,11 @@ class HandleInertiaRequests extends Middleware
             'sheetReview' => $this->sheetReview($request),
             'canManageMasterSheet' => (bool) $request->user()?->canManageMasterSheet(),
             'canManageSms' => (bool) $request->user()?->canManageSms(),
+            // Film site checks whose last run failed or found errors, for the nav
+            // badge. Admin-only, like the screen it points at.
+            'filmSiteAlerts' => $request->user()?->role === 'admin'
+                ? \App\Models\FilmSiteCheck::needingAttention()->count()
+                : null,
         ];
     }
 

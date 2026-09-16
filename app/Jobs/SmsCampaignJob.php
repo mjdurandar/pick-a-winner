@@ -46,12 +46,6 @@ class SmsCampaignJob implements ShouldQueue
         }
 
         try {
-            // A short link only works if a phone can reach it. Refuse to put a
-            // laptop's address into a real campaign.
-            if (preg_match('~https?://(localhost|127\.0\.0\.1|\[::1\])~i', (string) $row->message_body)) {
-                throw new RuntimeException('The message contains a localhost short link — set SHORT_LINK_BASE_URL / APP_URL to the public domain (and run this on that server) before pushing to Mailchimp.');
-            }
-
             // A multi-tag row targets a saved segment made for it; a single tag
             // is already a segment and was resolved at paste time.
             if (! $row->segment_id) {

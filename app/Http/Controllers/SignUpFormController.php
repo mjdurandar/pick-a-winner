@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Jobs\ResubscribeSignupContactJob;
+use App\Jobs\SyncSignupToMailchimpJob;
 use App\Models\Events;
 use App\Models\Location;
 use App\Models\NewsletterResubscribeAttempt;
@@ -805,14 +806,17 @@ class SignUpFormController extends Controller
         // Get the record for Mailchimp sync
         $subscriber = DB::table($tableName)->where('id', $id)->first();
 
-        // Try to auto-sync the new subscriber
+        // Put them on the event's audience — on the queue, not here. This was the
+        // last Mailchimp round trip a person at the venue still waited on; the entry
+        // is already stored above, so a slow Mailchimp costs them nothing and a
+        // failure retries instead of being logged and lost with the response.
         if (isset($insertData['location_id'])) {
-            \Illuminate\Support\Facades\Log::info('New subscriber added, attempting auto-sync', [
-                'email' => $subscriber->email_address ?? 'no email',
+            SyncSignupToMailchimpJob::dispatch($event->id, (int) $id, (int) $insertData['location_id']);
+
+            \Illuminate\Support\Facades\Log::info('Queued Mailchimp auto-sync for sign-up', [
+                'event_id' => $event->id,
                 'location_id' => $insertData['location_id'],
             ]);
-
-            $this->autoMailchimpService->syncSubscriber($subscriber, $insertData['location_id']);
         }
 
         // Bring the contact back onto the newsletter audience if they have lapsed —

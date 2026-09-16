@@ -50,6 +50,18 @@ class MailchimpImportRunner
      */
     private const THROTTLES_BEFORE_STOPPING = 3;
 
+    /**
+     * Elapsed seconds after which the run stops taking new rows.
+     *
+     * Compliance-blocked contacts cost three seconds each by design, so a file with
+     * enough of them can outlast RunMailchimpImportJob's one-hour timeout — and a
+     * job killed on timeout leaves no note, just a run that stopped. This stops on
+     * our own terms instead: the batch in hand is flushed, the counters are written,
+     * and the untouched rows keep their actionable classification so the next run
+     * carries on. Five minutes short of the timeout leaves room for that tidy-up.
+     */
+    private const MAX_RUN_SECONDS = 3300;
+
     /** Throttles in a row, reset by any submission the form actually answers. */
     protected int $consecutiveThrottles = 0;
 
@@ -84,12 +96,23 @@ class MailchimpImportRunner
         $emailColumn = (string) array_search('EMAIL', $map, true);
         $batch = [];
         $resubscribed = 0;
+        $startedAt = microtime(true);
 
         foreach ($this->parser->rows($path) as [$rowNumber, $values]) {
             $outcome = $outcomes[$rowNumber] ?? null;
 
             if ($outcome === null) {
                 continue;
+            }
+
+            // Out of time. Everything already sent is recorded row by row, and
+            // everything not yet touched is still actionable, so stopping here is
+            // the same as never having reached it.
+            if (microtime(true) - $startedAt >= self::MAX_RUN_SECONDS) {
+                $this->note($import, 'This run reached its time limit before finishing. '
+                    .'The contacts it did not reach are left as they were — send again to carry on.');
+
+                break;
             }
 
             $email = trim((string) ($values[$emailColumn] ?? ''));

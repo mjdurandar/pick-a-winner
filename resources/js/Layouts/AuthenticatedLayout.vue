@@ -23,6 +23,9 @@ const userRole = computed(() => user.value?.role);
 const canManageMasterSheet = computed(() => page.props.canManageMasterSheet === true);
 const canManageSms = computed(() => page.props.canManageSms === true);
 
+// Film site checks whose last run failed or found errors (admins only).
+const filmSiteAlerts = computed(() => page.props.filmSiteAlerts ?? 0);
+
 const sheetReview = computed(() => page.props.sheetReview ?? null);
 const reviewCount = computed(() => sheetReview.value?.count ?? 0);
 
@@ -192,6 +195,18 @@ const reviewSummary = computed(() => {
                                                 class="ms-1 inline-flex items-center rounded-full bg-amber-100 px-1.5 text-xs font-medium text-amber-800"
                                             >
                                                 {{ reviewCount }}
+                                            </span>
+                                        </DropdownLink>
+                                        <DropdownLink
+                                            v-if="userRole === 'admin'"
+                                            :href="route('filmSiteChecks.index')"
+                                        >
+                                            Film Site Check
+                                            <span
+                                                v-if="filmSiteAlerts > 0"
+                                                class="ms-1 inline-flex items-center rounded-full bg-red-100 px-1.5 text-xs font-medium text-red-800"
+                                            >
+                                                {{ filmSiteAlerts }}
                                             </span>
                                         </DropdownLink>
                                         <DropdownLink
@@ -370,6 +385,18 @@ const reviewSummary = computed(() => {
                                     class="ms-1 inline-flex items-center rounded-full bg-amber-100 px-1.5 text-xs font-medium text-amber-800"
                                 >
                                     {{ reviewCount }}
+                                </span>
+                            </ResponsiveNavLink>
+                            <ResponsiveNavLink
+                                v-if="userRole === 'admin'"
+                                :href="route('filmSiteChecks.index')"
+                            >
+                                Film Site Check
+                                <span
+                                    v-if="filmSiteAlerts > 0"
+                                    class="ms-1 inline-flex items-center rounded-full bg-red-100 px-1.5 text-xs font-medium text-red-800"
+                                >
+                                    {{ filmSiteAlerts }}
                                 </span>
                             </ResponsiveNavLink>
                             <ResponsiveNavLink

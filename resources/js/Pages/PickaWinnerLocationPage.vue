@@ -1070,20 +1070,22 @@ input:-webkit-autofill:active {
                                         class="form-control bg-gray-600 text-white border-gray-500"
                                         list="values-list"
                                     />
-                                    <datalist id="values-list" v-if="filter.questionColumn && !questionHasOptions(filter.questionColumn) && !isDateOfBirthQuestion(filter.questionColumn)">
-                                        <option 
-                                            v-for="value in getUniqueValuesForQuestion(filter.questionColumn)" 
-                                            :key="value" 
-                                            :value="value"
-                                        />
-                                    </datalist>
-                                    <input 
+                                    <input
                                         v-else
                                         type="text"
                                         placeholder="Select a question first..."
                                         class="form-control bg-gray-600 text-white border-gray-500"
                                         disabled
                                     />
+                                    <!-- Kept after the v-if/v-else chain above: an element in
+                                         the middle of it breaks the final v-else. -->
+                                    <datalist id="values-list" v-if="filter.questionColumn && !questionHasOptions(filter.questionColumn) && !isDateOfBirthQuestion(filter.questionColumn)">
+                                        <option
+                                            v-for="value in getUniqueValuesForQuestion(filter.questionColumn)"
+                                            :key="value"
+                                            :value="value"
+                                        />
+                                    </datalist>
                                 </div>
                                 
                                 <!-- Remove Button -->

@@ -5,13 +5,13 @@ namespace App\Services;
 use App\Models\Location;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
-use App\Services\MailchimpService;
-use App\Services\MailchimpLogService;
 
 class AutoMailchimpService
 {
     protected $mailchimpService;
+
     protected $logService;
+
     protected $settingsKey = 'mailchimp_autosync_settings_';
 
     public function __construct(MailchimpService $mailchimpService, MailchimpLogService $logService)
@@ -22,7 +22,7 @@ class AutoMailchimpService
 
     public function getSettings($eventId)
     {
-        $settings = Cache::get($this->settingsKey . $eventId, [
+        $settings = Cache::get($this->settingsKey.$eventId, [
             'auto_sync' => false,
             'default_list_id' => '',
             'default_tags' => [],
@@ -30,10 +30,10 @@ class AutoMailchimpService
             'film_tour' => 'WM',
             'mailchimp_account' => 'anz', // Default to ANZ
             'interest_tag_map' => [],
-            'event_id' => $eventId
+            'event_id' => $eventId,
         ]);
 
-        if (!array_key_exists('interest_tag_map', $settings) || !is_array($settings['interest_tag_map'])) {
+        if (! array_key_exists('interest_tag_map', $settings) || ! is_array($settings['interest_tag_map'])) {
             $settings['interest_tag_map'] = [];
         }
 
@@ -43,7 +43,8 @@ class AutoMailchimpService
     public function updateSettings($settings)
     {
         $eventId = $settings['event_id'];
-        Cache::put($this->settingsKey . $eventId, $settings);
+        Cache::put($this->settingsKey.$eventId, $settings);
+
         return $settings;
     }
 
@@ -73,13 +74,13 @@ class AutoMailchimpService
         $sourceLoc = $this->locationTagForSource($location->name, $state);
 
         $tags = [
-            'SHOW - ' . $showLoc,
-            'SOURCE - ' . strtoupper($filmTour) . ' ' . $sourceLoc . ' ' . $sourceSuffix . ' ' . $year,
+            'SHOW - '.$showLoc,
+            'SOURCE - '.strtoupper($filmTour).' '.$sourceLoc.' '.$sourceSuffix.' '.$year,
         ];
 
         $countryTag = trim((string) ($location->country ?? ''));
         if ($countryTag !== '') {
-            $tags[] = 'COUNTRY - ' . strtoupper($countryTag);
+            $tags[] = 'COUNTRY - '.strtoupper($countryTag);
         }
 
         return array_values(array_filter(array_merge($tags, $defaultTags), fn ($t) => is_string($t) && trim($t) !== ''));
@@ -97,7 +98,7 @@ class AutoMailchimpService
             return 'LOC';
         }
         if ($state !== '') {
-            $out = preg_replace('/,?\s*' . preg_quote($state, '/') . '$/i', '', $part);
+            $out = preg_replace('/,?\s*'.preg_quote($state, '/').'$/i', '', $part);
         } else {
             $out = preg_replace('/,?\s+[A-Z]{2,3}$/i', '', $part);
         }
@@ -124,7 +125,7 @@ class AutoMailchimpService
             $base = preg_replace('/,?\s+[A-Z]{2,3}$/i', '', $part);
             $base = $base === null ? $part : trim($base);
 
-            return strtoupper($base . ', ' . $state);
+            return strtoupper($base.', '.$state);
         }
         if ($isUSA) {
             return strtoupper($part);
@@ -134,7 +135,7 @@ class AutoMailchimpService
         $out = preg_replace('/,?\s+[A-Z]{2,3}$/i', '', $part);
         $out = $out === null || trim($out) === '' ? $part : trim($out);
         if ($state !== '') {
-            $stripped = preg_replace('/,?\s*' . preg_quote($state, '/') . '$/i', '', $out);
+            $stripped = preg_replace('/,?\s*'.preg_quote($state, '/').'$/i', '', $out);
             if ($stripped !== null && trim($stripped) !== '') {
                 $out = trim($stripped);
             }
@@ -143,36 +144,42 @@ class AutoMailchimpService
         return strtoupper($out !== '' ? $out : $part);
     }
 
-    public function syncSubscriber($subscriber, $locationId)
+    /**
+     * @param  bool  $rethrow  Re-throw after logging, so a queued caller can retry.
+     *                         Left false for syncSubscribers(), where one bad row
+     *                         must not stop the rest of the batch.
+     */
+    public function syncSubscriber($subscriber, $locationId, bool $rethrow = false)
     {
         try {
             $location = Location::with('event')->find($locationId);
-            if (!$location) {
+            if (! $location) {
                 Log::error('Location not found', ['location_id' => $locationId]);
+
                 return;
             }
 
             $settings = $this->getSettings($location->event_id);
-            
+
             // Generate location-specific tags regardless of auto-sync status
             $locationName = $location->name;
             $filmTour = $settings['film_tour'];
             $year = date('Y');
-            
+
             // Extract everything before hyphen for both SHOW and SOURCE tags
             $locationTag = explode(' - ', $locationName)[0];
             $locationTagUpper = strtoupper($locationTag);
-            
+
             // Process location tags for USA/CANADA events
             $event = $location->event;
             $eventCountry = strtoupper($event->event_country ?? '');
             $isUsaOrCanada = in_array($eventCountry, ['USA', 'CANADA', 'USA & CANADA']);
-            
+
             // Extract state from location tag (last 2-3 letter word) for USA/CANADA
             $locationParts = explode(' ', trim($locationTagUpper));
             $state = '';
             $locationWithoutState = $locationTagUpper;
-            
+
             if ($isUsaOrCanada && count($locationParts) > 1) {
                 $lastPart = end($locationParts);
                 // Check if last part is a state code (2-3 uppercase letters)
@@ -181,17 +188,17 @@ class AutoMailchimpService
                     $locationWithoutState = trim(str_replace($state, '', $locationTagUpper));
                 }
             }
-            
+
             // Format tags
-            $showTagLocation = $isUsaOrCanada && $state 
-                ? trim($locationWithoutState) . ', ' . $state 
+            $showTagLocation = $isUsaOrCanada && $state
+                ? trim($locationWithoutState).', '.$state
                 : $locationTagUpper;
-            $sourceTagLocation = $isUsaOrCanada && $state 
-                ? trim($locationWithoutState) 
+            $sourceTagLocation = $isUsaOrCanada && $state
+                ? trim($locationWithoutState)
                 : $locationTagUpper;
-            
-            $sourceTag = "SOURCE - " . strtoupper($filmTour) . " " . $sourceTagLocation . " COMP " . $year;
-            $showTag = "SHOW - " . $showTagLocation;
+
+            $sourceTag = 'SOURCE - '.strtoupper($filmTour).' '.$sourceTagLocation.' COMP '.$year;
+            $showTag = 'SHOW - '.$showTagLocation;
 
             // Combine with default tags
             $tags = array_merge(
@@ -203,26 +210,26 @@ class AutoMailchimpService
                 $subscriber->fave_sport ?? null,
                 $settings['interest_tag_map'] ?? []
             );
-            if (!empty($interestTags)) {
+            if (! empty($interestTags)) {
                 $tags = array_merge($tags, $interestTags);
             }
 
             // Check if auto-sync is enabled and has default list
-            if (!$settings['auto_sync'] || !$settings['default_list_id']) {
+            if (! $settings['auto_sync'] || ! $settings['default_list_id']) {
                 Log::info('Auto-sync disabled or no default list configured', [
                     'event_id' => $location->event_id,
                     'auto_sync' => $settings['auto_sync'],
-                    'default_list_id' => $settings['default_list_id']
+                    'default_list_id' => $settings['default_list_id'],
                 ]);
-                
+
                 // Still log the attempt even if auto-sync is disabled
                 $this->logService->logImport($locationId, $locationName, [
                     'success' => false,
                     'email' => $subscriber->email_address ?? 'no email',
                     'error' => 'Auto-sync is disabled or no default list configured',
-                    'tags' => $tags
+                    'tags' => $tags,
                 ]);
-                
+
                 return;
             }
 
@@ -270,7 +277,7 @@ class AutoMailchimpService
                     'zip_code' => $subscriber->zip_code ?? '',
                     'country' => $subscriber->country ?? '',
                     'gender' => $subscriber->gender ?? '',
-                    'age' => $subscriber->age ?? ''
+                    'age' => $subscriber->age ?? '',
                 ],
                 $tags
             );
@@ -280,19 +287,19 @@ class AutoMailchimpService
                 'locationId' => $locationId,
                 'locationName' => $locationName,
                 'email' => $subscriber->email_address ?? 'no email',
-                'tags' => $tags
+                'tags' => $tags,
             ]);
 
             $this->logService->logImport($locationId, $locationName, [
                 'success' => true,
                 'email' => $subscriber->email_address ?? 'no email',
-                'tags' => $tags
+                'tags' => $tags,
             ]);
 
             Log::info('Subscriber auto-synced to Mailchimp', [
                 'email' => $subscriber->email_address,
                 'location' => $locationName,
-                'tags' => $tags
+                'tags' => $tags,
             ]);
 
         } catch (\Exception $e) {
@@ -300,21 +307,25 @@ class AutoMailchimpService
             Log::error('About to log failed import', [
                 'locationId' => $locationId,
                 'locationName' => $locationName ?? 'unknown',
-                'error' => $e->getMessage()
+                'error' => $e->getMessage(),
             ]);
 
             $this->logService->logImport($locationId, $locationName ?? 'unknown', [
                 'success' => false,
                 'email' => $subscriber->email_address ?? 'no email',
                 'error' => $e->getMessage(),
-                'tags' => $tags ?? []
+                'tags' => $tags ?? [],
             ]);
 
             Log::error('Failed to auto-sync subscriber', [
                 'error' => $e->getMessage(),
                 'location_id' => $locationId,
-                'subscriber' => $subscriber->email_address ?? 'unknown'
+                'subscriber' => $subscriber->email_address ?? 'unknown',
             ]);
+
+            if ($rethrow) {
+                throw $e;
+            }
         }
     }
 
@@ -324,4 +335,4 @@ class AutoMailchimpService
             $this->syncSubscriber($subscriber, $locationId);
         }
     }
-} 
+}

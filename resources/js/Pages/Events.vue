@@ -86,6 +86,7 @@ const form = useForm({
     event_country: '',
     film_id: null,
     instructions_password: '',
+    national_password: '',
     is_enabled: false,
     show_all_locations: false,
     show_all_locations_draw: false
@@ -147,6 +148,7 @@ const openEditModal = (event) => {
     form.event_country = event.event_country;
     form.film_id = event.film_id ? parseInt(event.film_id) : null;
     form.instructions_password = event.instructions_password || '';
+    form.national_password = event.national_password || '';
     form.is_enabled = event.is_enabled ? true : false;
     form.show_all_locations = event.show_all_locations ? true : false;
     form.show_all_locations_draw = event.show_all_locations_draw ? true : false;
@@ -195,6 +197,9 @@ const saveEvent = () => {
     data.append('film_id', parseInt(form.film_id));
     if (form.instructions_password) {
         data.append('instructions_password', form.instructions_password);
+    }
+    if (form.national_password) {
+        data.append('national_password', form.national_password);
     }
     // Append is_enabled as 1 or 0
     data.append('is_enabled', form.is_enabled ? '1' : '0');
@@ -879,10 +884,18 @@ const closeSheetsModal = () => {
                                         <option value="Germany">Germany</option>
                                     </select>
                                 </div>
-                                <div class="col-12 col-md-4">
+                                <!-- The two passwords share a row of their own, so the
+                                     coordinator fields and the logo/banner pair each keep
+                                     a clean row of three below. -->
+                                <div class="col-12 col-md-6">
                                     <label class="form-label">Host Guide Password</label>
                                     <input v-model="form.instructions_password" type="text" class="form-control" maxlength="255" placeholder="Auto-generated if left blank" />
                                     <small class="text-muted">Password hosts enter to open the shared instruction guide.</small>
+                                </div>
+                                <div class="col-12 col-md-6">
+                                    <label class="form-label">National Tour Wide Password</label>
+                                    <input v-model="form.national_password" type="text" class="form-control" maxlength="255" placeholder="Auto-generated if left blank" />
+                                    <small class="text-muted">Unlocks the National Tour Wide draw on Pick a Winner.</small>
                                 </div>
 
                                 <div class="col-12 col-md-4">

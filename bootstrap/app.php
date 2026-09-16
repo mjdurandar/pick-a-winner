@@ -39,6 +39,11 @@ return Application::configure(basePath: dirname(__DIR__))
         // normal run, short enough that a crashed one is not still blocking an
         // hour later.
         $schedule->command('sheets:sync --queue')->everyFiveMinutes()->withoutOverlapping(10);
+
+        // Compare each film site's published shows with the Win App locations and
+        // log the differences. Read-only on both sides. Hourly: a site edit is not
+        // urgent, and the dashboard has Run now for when it is.
+        $schedule->command('film-sites:check --queue')->hourlyAt(15)->withoutOverlapping(30);
     })
     ->withMiddleware(function (Middleware $middleware) {
         $middleware->web(append: [

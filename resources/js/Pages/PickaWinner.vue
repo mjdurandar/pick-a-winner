@@ -1,7 +1,7 @@
 <script setup>
 import Swal from 'sweetalert2';
-import { ref, onMounted, computed, watch } from 'vue';
-import { useForm, router } from '@inertiajs/vue3';
+import { ref, computed, watch } from 'vue';
+import { useForm } from '@inertiajs/vue3';
 import PickaWinnerLayout from '@/Layouts/PickaWinnerLayout.vue';
 import { Head } from '@inertiajs/vue3';
 
@@ -19,11 +19,6 @@ const form = useForm({
     location_id: '',
     password: '',
     is_all_locations: false
-});
-
-// Get the selected location object
-const selectedLocation = computed(() => {
-    return locations.value.find(loc => loc.id === form.location_id);
 });
 
 // Sort key: raw date + time string (no timezone – use values as stored for the location)
@@ -123,16 +118,36 @@ function formatTime(timeString) {
     }
 }
 
-// Get the password hint based on selection
-const getPasswordHint = computed(() => {
-    if (form.is_all_locations) {
-        const selectedEvent = props.events.find(e => e.id === form.event_id);
-        return selectedEvent ? selectedEvent.event_name.toUpperCase() : '';
+// The event currently chosen in the dropdown
+const selectedEvent = computed(() => props.events.find(e => e.id === form.event_id));
+
+// Toggle the National Tour Wide draw (one draw across every location).
+const toggleAllLocations = () => {
+    form.is_all_locations = !form.is_all_locations;
+    form.location_id = '';
+    form.password = '';
+    form.clearErrors();
+    loadLocations();
+};
+
+// "How to Pick a Winner" — opens the host instruction guide for the chosen
+// event. The guide itself asks for its own password before showing anything.
+const openInstructions = () => {
+    if (!selectedEvent.value) {
+        Swal.fire({
+            icon: 'info',
+            title: 'Select an event first',
+            text: 'Choose your event above, then open the instructions.',
+        });
+        return;
     }
-    if (!selectedLocation.value) return '';
-    const firstWord = selectedLocation.value.name.split('-')[0];
-    return firstWord.trim().toUpperCase();
-});
+
+    window.open(
+        route('pickawinner.hostguide', { event_uuid: selectedEvent.value.event_uuid }),
+        '_blank',
+        'noopener'
+    );
+};
 
 const loadLocations = async () => {
     if (!form.event_id) {
@@ -156,36 +171,21 @@ const loadLocations = async () => {
     }
 };
 
+// Both the single-location and the tour-wide draw are verified server-side —
+// passwords are never sent to this page.
 const handleSubmit = () => {
-    // Handle all locations case
-    if (form.is_all_locations) {
-        const selectedEvent = props.events.find(e => e.id === form.event_id);
-        if (!selectedEvent) return;
-
-        // Check if password matches event's stored password
-        if (form.password.toUpperCase() === selectedEvent.password.toUpperCase()) {
-            // Redirect to all locations page for the selected event
-            router.visit(route('pickawinner.alllocation', selectedEvent.id));
-            return;
-        }
-
-        // Show error if password doesn't match
-        Swal.fire({
-            icon: 'error',
-            title: 'Invalid Password',
-            text: 'The password you entered is incorrect.'
-        });
-        return;
-    }
-
-    // Handle single location case
-    form.post(route('picka-winner.verify'), {
+    // A tour-wide draw has no location — send null, not '', or the exists rule
+    // rejects it before the password is ever checked.
+    form.transform((data) => ({
+        ...data,
+        location_id: data.is_all_locations ? null : data.location_id,
+    })).post(route('picka-winner.verify'), {
         preserveScroll: true,
-        onError: () => {
+        onError: (errors) => {
             Swal.fire({
                 icon: 'error',
                 title: 'Invalid Password',
-                text: 'The password you entered is incorrect.',
+                text: errors.password || 'The password you entered is incorrect.',
             });
         }
     });
@@ -193,7 +193,6 @@ const handleSubmit = () => {
 
 // Watch for event changes
 watch(() => form.event_id, () => {
-    form.is_all_locations = false;
     form.location_id = '';
     form.password = '';
     loadLocations();
@@ -205,7 +204,27 @@ watch(() => form.event_id, () => {
 
     <PickaWinnerLayout>
         <!-- Selection Modal with Black Background -->
-        <div class="flex flex-col items-center justify-center min-h-screen p-3" style="background-color: #151515;">
+        <div class="relative flex flex-col items-center justify-center min-h-screen p-3" style="background-color: #151515;">
+            <!-- National Tour Wide — draws one winner from every location
+                 of the event instead of a single screening. Sits outside the
+                 login box, top-left, and becomes "Back" once the tour-wide draw
+                 is selected so the host can return to the normal login. -->
+            <button
+                type="button"
+                @click="toggleAllLocations"
+                class="absolute top-4 left-4 flex items-center gap-2 px-4 py-2 rounded-md text-sm font-bold shadow transition-opacity hover:opacity-90"
+                :style="form.is_all_locations
+                    ? 'background-color: #ffffff; color: #151515;'
+                    : 'background-color: #16C3D9; color: #ffffff;'"
+                :aria-pressed="form.is_all_locations"
+                :title="form.is_all_locations
+                    ? 'Back to the location login'
+                    : 'Draw a winner from every location on the tour'"
+            >
+                <i :class="form.is_all_locations ? 'fa-solid fa-arrow-left' : 'fa-solid fa-earth-americas'"></i>
+                {{ form.is_all_locations ? 'Back' : 'National Tour Wide' }}
+            </button>
+
             <!-- Logo outside the box -->
             <div class="flex justify-center mb-10">
                 <img
@@ -220,6 +239,16 @@ watch(() => form.event_id, () => {
             
             <!-- White Form Box -->
             <div class="bg-white p-8 shadow-lg w-full max-w-md">
+                <!-- Tour-wide draws have no location to choose, so the box says
+                     which draw the host is unlocking. -->
+                <p
+                    v-if="form.is_all_locations"
+                    class="mb-5 text-center text-sm font-bold uppercase tracking-wide"
+                    style="color: #16C3D9;"
+                >
+                    National Tour Wide — all locations
+                </p>
+
                 <form @submit.prevent="handleSubmit">
                     <div class="mb-4">
                         <label class="block text-gray-700 text-sm font-bold mb-2" for="event">
@@ -268,14 +297,14 @@ watch(() => form.event_id, () => {
 
                     <div class="mb-6">
                         <label class="block text-gray-700 text-sm font-bold mb-2" for="password">
-                            Password
+                            {{ form.is_all_locations ? 'National Tour Wide Password' : 'Password' }}
                         </label>
                         <input
                             id="password"
                             type="password"
                             v-model="form.password"
                             class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                            :placeholder="form.is_all_locations ? 'Enter event name as password' : 'Enter location password'"
+                            :placeholder="form.is_all_locations ? 'Enter national tour wide password' : 'Enter location password'"
                             @input="form.password = form.password.toUpperCase()"
                             required
                         />
@@ -292,6 +321,21 @@ watch(() => form.event_id, () => {
                         {{ form.processing ? 'Verifying...' : 'Enter' }}
                     </button>
                 </form>
+
+                <!-- Instructions — the guide asks for its own password. -->
+                <div class="mt-6 pt-4 border-t border-gray-200 text-center">
+                    <button
+                        type="button"
+                        @click="openInstructions"
+                        class="text-sm font-bold text-cyan-600 hover:text-cyan-700 underline underline-offset-2"
+                    >
+                        <i class="fa-solid fa-circle-question mr-1"></i>
+                        How to Pick a Winner
+                    </button>
+                    <!-- <p class="text-xs text-gray-500 mt-1">
+                        Password required — ask your event coordinator.
+                    </p> -->
+                </div>
             </div>
         </div>
     </PickaWinnerLayout>

@@ -540,6 +540,15 @@ const emailQuestionText = computed(() => {
     return emailQuestion ? emailQuestion.text : 'Email Address';
 });
 
+// How long the pre-submit check may hold the Submit button.
+//
+// The check is a convenience: it spots a compliance-blocked address early so the
+// form can offer them the opt-in link. It is not required for a correct entry —
+// the queued job after submit does the same detection and relays to the hosted
+// form regardless. So it is never worth making someone at a venue wait on
+// Mailchimp for it; past this, the form carries on as if they were fine.
+const SUBSCRIPTION_CHECK_TIMEOUT_MS = 2500;
+
 // Check email subscription status with Mailchimp
 const checkEmailSubscription = async () => {
     const email = formValues.value[emailQuestionText.value];
@@ -552,6 +561,11 @@ const checkEmailSubscription = async () => {
 
     subscriptionStatus.value = 'checking';
 
+    // Abort rather than block: a slow or rate-limiting Mailchimp must never be
+    // the reason someone cannot press Submit.
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), SUBSCRIPTION_CHECK_TIMEOUT_MS);
+
     try {
         const response = await fetch(route('signup.checkSubscription', { event_uuid: props.event.event_uuid }), {
             method: 'POST',
@@ -561,6 +575,7 @@ const checkEmailSubscription = async () => {
                 'Accept': 'application/json',
             },
             body: JSON.stringify({ email }),
+            signal: controller.signal,
         });
 
         const data = await response.json();
@@ -591,14 +606,17 @@ const checkEmailSubscription = async () => {
             }
         }
     } catch (error) {
-        console.error('Subscription check failed:', error);
-        // On error, allow entry
+        // Timed out or failed — either way the person is let through. Their entry
+        // is what matters, and the newsletter side is handled after submit.
+        console.error('Subscription check skipped:', error);
         subscriptionStatus.value = 'subscribed';
         isSubscriptionChecked.value = true;
         showResubscribePrompt.value = false;
         isComplianceState.value = false;
         complianceSignupUrl.value = null;
         mailchimpAccount.value = null;
+    } finally {
+        clearTimeout(timeout);
     }
 };
 
