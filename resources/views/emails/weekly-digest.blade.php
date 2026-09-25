@@ -71,31 +71,16 @@ Nothing parked. Every tab is accepted and up to date.
 **{{ $t['creates'] }} new, {{ $t['updates'] }} changed, {{ $t['missing'] }} gone from the sheet** across {{ count($d['sheetSources']) }} tab{{ count($d['sheetSources']) === 1 ? '' : 's' }}{{ $t['dates'] > 0 ? ", including {$t['dates']} with a moved date or time" : '' }}.
 
 Nothing has been written to the locations table — the sync only ever reads the
-spreadsheet. These land when someone accepts them on the review screen.
+spreadsheet. These land only once they are accepted.
 
 @foreach($d['sheetSources'] as $source)
 <table cellpadding="0" cellspacing="0" style="width: 100%; border-collapse: collapse; margin: 0 0 8px;">
 <tr>
-<td colspan="3" style="{{ $groupRow }}">{{ $source['tab'] }}@if($source['event'])<span style="{{ $muted }}"> — {{ $source['event'] }}</span>@endif</td>
+<td style="{{ $groupRow }} border-bottom: 2px solid #edeff2;">{{ $source['tab'] }}@if($source['event'])<span style="{{ $muted }}"> — {{ $source['event'] }}</span>@endif</td>
 </tr>
-@foreach($source['samples'] as $row)
-<tr>
-<td width="110" style="{{ $cell }} white-space: nowrap; color: #606f7b; font-size: 13px;">{{ $row['action'] }}</td>
-<td style="{{ $cell }}">{{ $row['label'] }}</td>
-<td style="{{ $cell }} color: #606f7b; font-size: 13px;">{{ $row['detail'] ?: '—' }}</td>
-</tr>
-@endforeach
-@if($source['overflow'] > 0)
-<tr>
-<td colspan="3" style="{{ $totalRow }}">…and {{ $source['overflow'] }} more on the review screen.</td>
-</tr>
-@endif
+@include('emails.partials.sheet-rows', ['rows' => $source['rows']])
 </table>
 @endforeach
-
-<x-mail::button :url="$sheetUrl">
-Review and accept
-</x-mail::button>
 @endif
 
 ## Website sync
@@ -112,38 +97,27 @@ Every site matches the Win App.
 @continue($check['errors'] === 0 && $check['warnings'] === 0 && ! $check['stale'])
 <table cellpadding="0" cellspacing="0" style="width: 100%; border-collapse: collapse; margin: 0 0 8px;">
 <tr>
-<td colspan="2" style="{{ $groupRow }}">{{ $check['site'] }}<span style="{{ $muted }}">{{ $check['season'] ? ' · '.$check['season'] : '' }}{{ $check['event'] ? ' — '.$check['event'] : '' }}</span></td>
+<td style="{{ $groupRow }} border-bottom: 2px solid #edeff2;">{{ $check['site'] }}<span style="{{ $muted }}">{{ $check['season'] ? ' · '.$check['season'] : '' }}{{ $check['event'] ? ' — '.$check['event'] : '' }}</span></td>
 </tr>
 @if($check['stale'])
 <tr>
-<td colspan="2" style="{{ $cell }} color: #c26401; font-size: 13px;">Last checked {{ $check['checked_at']?->diffForHumans() ?? 'never' }}.{{ $check['error'] ? ' Last error: '.$check['error'] : '' }}</td>
+<td style="{{ $cell }} color: #c26401; font-size: 13px;">Last checked {{ $check['checked_at']?->diffForHumans() ?? 'never' }}.{{ $check['error'] ? ' Last error: '.$check['error'] : '' }}</td>
 </tr>
 @endif
-@foreach($check['samples'] as $row)
+@include('emails.partials.site-rows', ['rows' => $check['rows']])
+@if(count($check['notices']))
 <tr>
-<td width="150" style="{{ $cell }}">{{ $row['place'] }}</td>
-<td style="{{ $cell }} color: #606f7b; font-size: 13px;">{{ $row['message'] }}</td>
+<td style="{{ $totalRow }} padding-top: 14px;">Past screenings — no action needed ({{ count($check['notices']) }})</td>
 </tr>
-@endforeach
-@if($check['overflow'] > 0)
-<tr>
-<td colspan="2" style="{{ $totalRow }}">…and {{ $check['overflow'] }} more on the dashboard.</td>
-</tr>
+@include('emails.partials.site-notices', ['rows' => $check['notices']])
 @endif
 @if($check['new_issues'] > 0 || $check['resolved_issues'] > 0)
 <tr>
-<td colspan="2" style="{{ $totalRow }}">{{ $check['new_issues'] }} new since the previous run, {{ $check['resolved_issues'] }} resolved.</td>
+<td style="{{ $totalRow }}">{{ $check['new_issues'] }} new since the previous run, {{ $check['resolved_issues'] }} resolved.</td>
 </tr>
 @endif
 </table>
 @endforeach
-
-<x-mail::button :url="$siteUrl">
-Open the site checks
-</x-mail::button>
 @endif
 
-<x-mail::subcopy>
-[Open the full weekly report]({{ $reportUrl }}) for demographics, exports and any week you like.
-</x-mail::subcopy>
 </x-mail::message>

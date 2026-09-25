@@ -14,9 +14,9 @@ use Illuminate\Queue\SerializesModels;
  * The Monday digest: last week's screenings and what they collected, plus
  * anything the master sheet sync and the film site checks are still waiting on.
  *
- * Carries no approve or fix links. Both syncs are read-only and both sets of
- * decisions write to live locations, so they happen on their own screens behind
- * auth — the mail's job is to make sure nobody has to remember to look.
+ * Everything is written out in full — every parked sheet row with its values,
+ * every site difference with both sides — so it reads on its own. It carries no
+ * approve or fix links: both sets of decisions write to live locations.
  */
 class WeeklyDigest extends Mailable
 {
@@ -73,9 +73,6 @@ class WeeklyDigest extends Mailable
                 'end' => $this->window('end'),
                 'headline' => $this->headline(),
                 'attention' => $this->attention(),
-                'sheetUrl' => route('sheetSync.index'),
-                'siteUrl' => route('filmSiteChecks.index'),
-                'reportUrl' => route('weekly-report'),
             ],
         );
     }

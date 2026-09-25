@@ -7,6 +7,7 @@ use App\Models\FilmSiteCheck;
 use App\Models\Location;
 use App\Models\SheetSource;
 use App\Models\SheetSourceChange;
+use App\Support\EmailDetails;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -21,9 +22,6 @@ use Illuminate\Support\Facades\Schema;
  */
 class WeeklyDigestService
 {
-    /** How many sheet rows and site differences the mail spells out per source. */
-    public const SAMPLE_SIZE = 8;
-
     /**
      * Everything the digest needs for the week ending at $end.
      *
@@ -201,8 +199,7 @@ class WeeklyDigestService
                 'event' => $source->event?->event_name,
                 'counts' => $counts,
                 'date_changes' => $this->dateChangeCount($source),
-                'samples' => $this->sheetSamples($source),
-                'overflow' => max(0, array_sum($counts) - self::SAMPLE_SIZE),
+                'rows' => EmailDetails::sheetChanges($source->id),
                 'last_synced_at' => $source->last_synced_at ?? null,
             ];
         })->all();
@@ -233,93 +230,6 @@ class WeeklyDigestService
     }
 
     /**
-     * A handful of parked rows, date moves first.
-     *
-     * @return list<array{action: string, label: string, detail: string}>
-     */
-    protected function sheetSamples(SheetSource $source): array
-    {
-        return SheetSourceChange::where('sheet_source_id', $source->id)
-            ->whereIn('action', SheetSourceChange::NEEDS_REVIEW)
-            ->orderByRaw("CASE action WHEN 'update' THEN 0 WHEN 'create' THEN 1 ELSE 2 END")
-            ->orderBy('sheet_row')
-            ->get()
-            // Date moves to the top of the updates: within the batch they are what
-            // the digest exists to surface.
-            ->sortByDesc(fn (SheetSourceChange $c) => $this->touchesDate($c) ? 1 : 0)
-            ->take(self::SAMPLE_SIZE)
-            ->map(fn (SheetSourceChange $c) => [
-                'action' => match ($c->action) {
-                    SheetSourceChange::ACTION_CREATE => 'New',
-                    SheetSourceChange::ACTION_UPDATE => $this->touchesDate($c) ? 'Date moved' : 'Changed',
-                    default => 'Gone from sheet',
-                },
-                'label' => $c->label ?: 'Row '.$c->sheet_row,
-                'detail' => $this->describeDiff($c),
-            ])
-            ->values()
-            ->all();
-    }
-
-    /**
-     * What a parked update would change. Dates are quoted with their values —
-     * "12 Aug → 19 Aug" is the whole point of the line — while everything else is
-     * named only, because a digest is not the review screen.
-     */
-    protected function describeDiff(SheetSourceChange $change): string
-    {
-        if ($change->action !== SheetSourceChange::ACTION_UPDATE) {
-            return '';
-        }
-
-        $diff = $change->diff ?? [];
-
-        if ($diff === []) {
-            return '';
-        }
-
-        $parts = [];
-
-        foreach (['date', 'time'] as $field) {
-            if (! array_key_exists($field, $diff)) {
-                continue;
-            }
-
-            $parts[] = sprintf(
-                '%s %s → %s',
-                $field,
-                $this->diffSide($diff[$field], 0) ?: '—',
-                $this->diffSide($diff[$field], 1) ?: '—'
-            );
-        }
-
-        $others = array_diff(array_keys($diff), ['date', 'time']);
-
-        if ($others !== []) {
-            $named = array_map(fn ($f) => str_replace('_', ' ', (string) $f), $others);
-            $parts[] = count($named) > 3
-                ? implode(', ', array_slice($named, 0, 3)).' and '.(count($named) - 3).' more'
-                : implode(', ', $named);
-        }
-
-        return implode('; ', $parts);
-    }
-
-    /**
-     * One side of a diff entry. SheetSyncService::diff() writes each field as a
-     * positional [old, new] pair; a bare scalar is read as the new value so an
-     * unexpected shape degrades to "— → value" rather than throwing.
-     */
-    protected function diffSide(mixed $entry, int $side): string
-    {
-        if (is_array($entry)) {
-            return trim((string) ($entry[$side] ?? ''));
-        }
-
-        return $side === 1 ? trim((string) $entry) : '';
-    }
-
-    /**
      * Every enabled film site check with its latest run.
      *
      * @return list<array<string, mixed>>
@@ -332,16 +242,7 @@ class WeeklyDigestService
 
         return $checks->map(function (FilmSiteCheck $check) {
             $run = $check->latestRun;
-            $items = collect($run->items ?? []);
-
-            $problems = $items
-                ->whereIn('severity', [
-                    FilmSiteComparisonService::SEVERITY_ERROR,
-                    FilmSiteComparisonService::SEVERITY_WARNING,
-                ])
-                // Errors before warnings; a date mismatch outranks a missing listing.
-                ->sortBy(fn ($i) => ($i['severity'] ?? '') === FilmSiteComparisonService::SEVERITY_ERROR ? 0 : 1)
-                ->values();
+            $items = EmailDetails::siteItems($run->items ?? []);
 
             return [
                 'event' => $check->event?->event_name,
@@ -359,14 +260,8 @@ class WeeklyDigestService
                 'warnings' => (int) $check->last_warnings,
                 'new_issues' => (int) ($run->new_issues ?? 0),
                 'resolved_issues' => (int) ($run->resolved_issues ?? 0),
-                'samples' => $problems->take(self::SAMPLE_SIZE)->map(fn ($i) => [
-                    // The comparison lowercases place names to match on them; the
-                    // dashboard can live with that, an email reads better without it.
-                    'place' => ucwords((string) ($i['place'] ?? '')) ?: '—',
-                    'message' => $i['message'] ?? '',
-                    'severity' => $i['severity'] ?? '',
-                ])->all(),
-                'overflow' => max(0, $problems->count() - self::SAMPLE_SIZE),
+                'rows' => $items['problems'],
+                'notices' => $items['notices'],
             ];
         })->all();
     }

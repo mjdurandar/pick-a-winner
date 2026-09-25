@@ -4,7 +4,7 @@ namespace App\Mail;
 
 use App\Mail\Concerns\ResolvesRecipients;
 use App\Models\SheetSource;
-use App\Models\SheetSourceChange;
+use App\Support\EmailDetails;
 use Illuminate\Bus\Queueable;
 use Illuminate\Mail\Mailable;
 use Illuminate\Mail\Mailables\Content;
@@ -16,16 +16,14 @@ use Illuminate\Queue\SerializesModels;
  *
  * Sent from the sync job, not from a request: the batch that matters is the one
  * that appears at 3am from the scheduled run, when nobody is looking at the
- * screen. The mail deliberately carries no approve link — accepting a batch
- * writes to live locations, so it happens on the review screen behind auth,
- * never from a URL in an inbox.
+ * screen. Every waiting row is listed with the values it would write, so the
+ * mail can be read on its own. It deliberately carries no approve link —
+ * accepting a batch writes to live locations, so it never happens from a URL in
+ * an inbox.
  */
 class SheetChangesAwaitingApproval extends Mailable
 {
     use Queueable, ResolvesRecipients, SerializesModels;
-
-    /** How many rows the mail spells out before it stops listing them. */
-    public const SAMPLE_SIZE = 12;
 
     public function __construct(
         public SheetSource $source,
@@ -81,10 +79,7 @@ class SheetChangesAwaitingApproval extends Mailable
                 'headline' => $this->headline(),
                 'event' => $this->source->event?->event_name,
                 'film' => $this->film(),
-                'samples' => $this->samples(),
-                'sampleOverflow' => max(0, array_sum($this->counts) - self::SAMPLE_SIZE),
-                'reviewUrl' => route('sheetSync.index'),
-                'sheetUrl' => $this->source->url(),
+                'rows' => EmailDetails::sheetChanges($this->source->id),
             ],
         );
     }
@@ -113,53 +108,5 @@ class SheetChangesAwaitingApproval extends Mailable
         $last = array_pop($parts);
 
         return $parts === [] ? $last : implode(', ', $parts).' and '.$last;
-    }
-
-    /**
-     * The first handful of rows, so the mail says what changed and not only how
-     * much. Anything past that is a job for the review screen.
-     *
-     * @return list<array{action: string, label: string, detail: string}>
-     */
-    protected function samples(): array
-    {
-        return SheetSourceChange::where('sheet_source_id', $this->source->id)
-            ->whereIn('action', SheetSourceChange::NEEDS_REVIEW)
-            // Creates first: a brand new screening is the thing most worth
-            // reading, and an update to a date the thing least worth it.
-            ->orderByRaw("CASE action WHEN 'create' THEN 0 WHEN 'update' THEN 1 ELSE 2 END")
-            ->orderBy('sheet_row')
-            ->limit(self::SAMPLE_SIZE)
-            ->get()
-            ->map(fn (SheetSourceChange $c) => [
-                'action' => match ($c->action) {
-                    SheetSourceChange::ACTION_CREATE => 'New',
-                    SheetSourceChange::ACTION_UPDATE => 'Changed',
-                    default => 'Gone from sheet',
-                },
-                'label' => $c->label ?: 'Row '.$c->sheet_row,
-                'detail' => $this->describe($c),
-            ])
-            ->all();
-    }
-
-    /** Which fields moved, named rather than valued — values belong on screen. */
-    protected function describe(SheetSourceChange $change): string
-    {
-        if ($change->action !== SheetSourceChange::ACTION_UPDATE) {
-            return '';
-        }
-
-        $fields = array_keys($change->diff ?? []);
-
-        if ($fields === []) {
-            return '';
-        }
-
-        $fields = array_map(fn ($f) => str_replace('_', ' ', (string) $f), $fields);
-
-        return count($fields) > 4
-            ? implode(', ', array_slice($fields, 0, 4)).' and '.(count($fields) - 4).' more'
-            : implode(', ', $fields);
     }
 }

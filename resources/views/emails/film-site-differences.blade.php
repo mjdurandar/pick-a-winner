@@ -4,49 +4,43 @@
     block and dump the markup into the email as text.
 --}}
 @php
-    $cell = 'padding: 10px 8px; border-bottom: 1px solid #edeff2; font-size: 15px; line-height: 1.4;';
-    $totalRow = 'padding: 8px; font-size: 13px; color: #606f7b; border-bottom: 2px solid #edeff2;';
+    $groupRow = 'padding: 18px 8px 6px; font-size: 15px; font-weight: 700; color: #3d4852; border-bottom: 2px solid #edeff2;';
 @endphp
 <x-mail::message>
 @if($everything)
-# {{ $film ?? $event ?? 'Film site' }}: {{ count($samples) === 1 && $sampleOverflow === 0 ? 'a current difference' : 'current differences' }}
+# {{ $film ?? $event ?? 'Film site' }}: {{ count($problems) === 1 ? 'a current difference' : 'current differences' }}
 
 **{{ $site }}** and the Win App disagree about {{ $event ? $event : 'this tour' }}.
-This is everything the check found when it was run just now, not only what is new.
+This is everything the check found when it was run just now.
 @else
-# {{ $film ?? $event ?? 'Film site' }}: {{ count($samples) === 1 && $sampleOverflow === 0 ? 'a new difference' : 'new differences' }}
+# {{ $film ?? $event ?? 'Film site' }}: {{ $newCount === 1 ? 'a new difference' : 'new differences' }}
 
 **{{ $site }}** and the Win App have stopped agreeing about
-{{ $event ? $event : 'this tour' }}.
+{{ $event ? $event : 'this tour' }}. {{ $newCount }} {{ $newCount === 1 ? 'difference is' : 'differences are' }} new since the last check (tagged NEW); every standing difference is listed below.
 @endif
 
 Nothing has been changed on either side — the check only reads the website and
 the locations. Fix whichever side is wrong.
 
-@if(count($samples))
+**{{ $errors }} error{{ $errors === 1 ? '' : 's' }}, {{ $warnings }} warning{{ $warnings === 1 ? '' : 's' }}, {{ $matched }} matched**{{ $resolved > 0 ? ", {$resolved} cleared since the last run" : '' }}.
+
+@if(count($problems))
 <table cellpadding="0" cellspacing="0" style="width: 100%; border-collapse: collapse; margin: 0 0 8px;">
-@foreach($samples as $row)
 <tr>
-<td width="150" style="{{ $cell }}{{ $row['severity'] === 'error' ? ' color: #cc1f1a; font-weight: 600;' : '' }}">{{ $row['place'] }}</td>
-<td style="{{ $cell }} color: #606f7b; font-size: 13px;">{{ $row['message'] }}</td>
+<td style="{{ $groupRow }}">Needs fixing ({{ count($problems) }})</td>
 </tr>
-@endforeach
-@if($sampleOverflow > 0)
-<tr>
-<td colspan="2" style="{{ $totalRow }}">…and {{ $sampleOverflow }} more on the dashboard.</td>
-</tr>
-@endif
+@include('emails.partials.site-rows', ['rows' => $problems, 'showNew' => ! $everything])
 </table>
 @endif
 
-Standing totals for this check: {{ $errors }} error{{ $errors === 1 ? '' : 's' }},
-{{ $warnings }} warning{{ $warnings === 1 ? '' : 's' }}{{ $resolved > 0 ? ", and {$resolved} cleared since the last run" : '' }}.
-
-<x-mail::button :url="$dashboardUrl">
-Open the site checks
-</x-mail::button>
-
-[Open {{ $site }}]({{ $siteUrl }})
+@if(count($notices))
+<table cellpadding="0" cellspacing="0" style="width: 100%; border-collapse: collapse; margin: 0 0 8px;">
+<tr>
+<td style="{{ $groupRow }}">Past screenings — no action needed ({{ count($notices) }})</td>
+</tr>
+@include('emails.partials.site-notices', ['rows' => $notices])
+</table>
+@endif
 
 Thanks,<br>
 {{ config('mail.brand') }}

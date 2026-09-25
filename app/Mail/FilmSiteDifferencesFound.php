@@ -6,6 +6,7 @@ use App\Mail\Concerns\ResolvesRecipients;
 use App\Models\FilmSiteCheck;
 use App\Models\FilmSiteCheckRun;
 use App\Services\FilmSiteComparisonService;
+use App\Support\EmailDetails;
 use Illuminate\Bus\Queueable;
 use Illuminate\Mail\Mailable;
 use Illuminate\Mail\Mailables\Content;
@@ -19,15 +20,13 @@ use Illuminate\Queue\SerializesModels;
  * comparison already works out which are new, so the daily re-run of the same
  * twenty-five known warnings sends nothing.
  *
- * Read-only on both sides, so the mail carries no fix button: whichever side is
- * wrong is a person's judgement, made on the dashboard or on the website.
+ * The mail lists every standing difference in full — both sides of each one —
+ * so it can be acted on without opening the app. The ones new this run are
+ * tagged, which is what triggered the send.
  */
 class FilmSiteDifferencesFound extends Mailable
 {
     use Queueable, ResolvesRecipients, SerializesModels;
-
-    /** How many differences the mail spells out before it stops listing them. */
-    public const SAMPLE_SIZE = 12;
 
     /**
      * @param  bool  $everything  List every standing difference, not only the new
@@ -84,6 +83,8 @@ class FilmSiteDifferencesFound extends Mailable
 
     public function content(): Content
     {
+        $items = EmailDetails::siteItems($this->run->items ?? []);
+
         return new Content(
             markdown: 'emails.film-site-differences',
             with: [
@@ -92,13 +93,13 @@ class FilmSiteDifferencesFound extends Mailable
                 'event' => $this->check->event?->event_name,
                 'site' => preg_replace('#^https?://(www\.)?#', '', rtrim($this->check->site_url, '/')),
                 'label' => $this->check->label(),
-                'samples' => $this->samples(),
-                'sampleOverflow' => max(0, $this->newCount() - self::SAMPLE_SIZE),
+                'problems' => $items['problems'],
+                'notices' => $items['notices'],
+                'newCount' => self::actionable($this->run)->count(),
                 'errors' => (int) $this->run->errors,
                 'warnings' => (int) $this->run->warnings,
+                'matched' => (int) $this->run->matched,
                 'resolved' => (int) $this->run->resolved_issues,
-                'dashboardUrl' => route('filmSiteChecks.index'),
-                'siteUrl' => $this->check->site_url,
             ],
         );
     }
@@ -131,22 +132,5 @@ class FilmSiteDifferencesFound extends Mailable
     public function newCount(): int
     {
         return self::actionable($this->run, $this->everything)->count();
-    }
-
-    /**
-     * @return list<array{place: string, message: string, severity: string}>
-     */
-    protected function samples(): array
-    {
-        return self::actionable($this->run, $this->everything)
-            ->take(self::SAMPLE_SIZE)
-            ->map(fn ($i) => [
-                // The comparison lowercases place names so it can match on them.
-                'place' => ucwords((string) ($i['place'] ?? '')) ?: '—',
-                'message' => (string) ($i['message'] ?? ''),
-                'severity' => (string) ($i['severity'] ?? ''),
-            ])
-            ->values()
-            ->all();
     }
 }
