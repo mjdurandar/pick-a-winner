@@ -4,6 +4,7 @@ namespace App\Jobs;
 
 use App\Exceptions\GoogleOAuthException;
 use App\Exceptions\GoogleSheetsException;
+use App\Mail\SheetChangesAwaitingApproval;
 use App\Models\SheetSource;
 use App\Services\SheetSyncService;
 use Illuminate\Bus\Queueable;
@@ -12,6 +13,7 @@ use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Mail;
 
 /**
  * Re-reads one configured tab, off the request cycle.
@@ -38,7 +40,13 @@ class SyncSheetSourceJob implements ShouldQueue
      */
     public int $tries = 1;
 
-    public function __construct(public int $sourceId) {}
+    /**
+     * @param  bool  $notify  Whether a batch nobody has seen should be emailed.
+     *                        False for a run someone kicked off from the review
+     *                        screen — they are already looking at the answer, and
+     *                        an alert about what is on their monitor is noise.
+     */
+    public function __construct(public int $sourceId, public bool $notify = true) {}
 
     public function handle(SheetSyncService $sync): void
     {
@@ -99,5 +107,75 @@ class SyncSheetSourceJob implements ShouldQueue
                 'updates' => $result['updated'],
             ]);
         }
+
+        $this->alert($source);
+    }
+
+    /**
+     * Email the owner once per distinct batch.
+     *
+     * The scheduler re-reads every tab every five minutes and re-parks the same
+     * plan each time, so "something is waiting" stays true until it is approved.
+     * Mailing on that condition would send the same thing all day; mailing on a
+     * change to the batch's digest sends it once, and again only if the sheet
+     * moves to something genuinely different.
+     */
+    protected function alert(SheetSource $source): void
+    {
+        $digest = $source->reviewDigest();
+
+        if ($digest === $source->review_notified_digest) {
+            return;
+        }
+
+        // Nothing waiting any more, or a run the admin is watching: record where
+        // the batch got to and stay quiet. Recording a null clears the marker, so
+        // the same change coming back after an approval alerts again.
+        if ($digest === null || ! $this->notify) {
+            $source->markReviewNotified($digest);
+
+            return;
+        }
+
+        if ($this->mail($source)) {
+            $source->markReviewNotified($digest);
+        }
+    }
+
+    /**
+     * @return bool whether the alert actually went out — a send that failed is
+     *              left unmarked so the next run tries again rather than
+     *              swallowing the only notice this batch would ever get
+     */
+    protected function mail(SheetSource $source): bool
+    {
+        $recipients = SheetChangesAwaitingApproval::recipients();
+
+        if ($recipients === []) {
+            Log::warning('Master sheet changes waiting, but no approval recipient is configured', [
+                'sheet_source_id' => $source->id,
+                'tab' => $source->tab_name,
+            ]);
+
+            return false;
+        }
+
+        try {
+            Mail::to($recipients)->send(
+                new SheetChangesAwaitingApproval($source, $source->reviewCounts())
+            );
+        } catch (\Throwable $e) {
+            // A broken mailbox must never take the sync down with it: the batch is
+            // parked and visible on the review screen either way.
+            Log::error('Master sheet approval alert failed to send', [
+                'sheet_source_id' => $source->id,
+                'tab' => $source->tab_name,
+                'message' => $e->getMessage(),
+            ]);
+
+            return false;
+        }
+
+        return true;
     }
 }

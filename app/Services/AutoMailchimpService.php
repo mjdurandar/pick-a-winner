@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Models\Events;
 use App\Models\Location;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
@@ -20,15 +21,77 @@ class AutoMailchimpService
         $this->logService = $logService;
     }
 
+    /**
+     * The WIN APP audience for a Mailchimp account. Auto-sync always writes to this
+     * audience, so it is read from config rather than chosen per event.
+     */
+    public static function winAppListId(?string $account): string
+    {
+        $account = in_array($account, ['anz', 'usa'], true) ? $account : 'anz';
+
+        return (string) config("services.mailchimp.win_app_list.{$account}", '');
+    }
+
+    /**
+     * Which of the two Mailchimp accounts a country belongs to. North America is the
+     * USA account, everything else (Australia, New Zealand) is ANZ. Matches the
+     * country strings both events ("USA & CANADA") and locations ("USA", "Canada")
+     * are stored with.
+     */
+    public static function accountForCountry(?string $country): string
+    {
+        $c = strtoupper(trim((string) $country));
+
+        return (str_contains($c, 'USA') || str_contains($c, 'CANADA')) ? 'usa' : 'anz';
+    }
+
+    /**
+     * The account an event syncs through, taken from the event's own country and
+     * falling back to its locations' when the event has none. Never a stored choice:
+     * a USA event must not post its contacts into the ANZ audience.
+     */
+    public static function accountForEvent($eventId): string
+    {
+        $event = Events::find($eventId);
+        $country = $event->event_country ?? null;
+
+        if (trim((string) $country) === '') {
+            $country = Location::where('event_id', $eventId)
+                ->whereNotNull('country')
+                ->value('country');
+        }
+
+        return self::accountForCountry($country);
+    }
+
+    /**
+     * Auto-sync is compulsory: every event syncs, always through the account its
+     * country belongs to, and always to that account's WIN APP audience. Nobody
+     * configures any of the three, so all are forced here — on read as well as on
+     * write, so events whose settings were saved before this (auto-sync off, wrong
+     * account, or another audience) are corrected too.
+     *
+     * @param  array<string, mixed>  $settings
+     * @return array<string, mixed>
+     */
+    protected function applyForcedSettings(array $settings): array
+    {
+        $settings['mailchimp_account'] = self::accountForEvent($settings['event_id'] ?? null);
+        $settings['auto_sync'] = true;
+        $settings['default_list_id'] = self::winAppListId($settings['mailchimp_account']);
+
+        return $settings;
+    }
+
     public function getSettings($eventId)
     {
         $settings = Cache::get($this->settingsKey.$eventId, [
-            'auto_sync' => false,
+            'auto_sync' => true,
             'default_list_id' => '',
             'default_tags' => [],
             'enabled_locations' => [],
             'film_tour' => 'WM',
-            'mailchimp_account' => 'anz', // Default to ANZ
+            'mailchimp_account' => 'anz',
             'interest_tag_map' => [],
             'event_id' => $eventId,
         ]);
@@ -37,12 +100,15 @@ class AutoMailchimpService
             $settings['interest_tag_map'] = [];
         }
 
-        return $settings;
+        $settings['event_id'] = $eventId;
+
+        return $this->applyForcedSettings($settings);
     }
 
     public function updateSettings($settings)
     {
         $eventId = $settings['event_id'];
+        $settings = $this->applyForcedSettings($settings);
         Cache::put($this->settingsKey.$eventId, $settings);
 
         return $settings;

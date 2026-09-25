@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Services\AutoMailchimpService;
 use App\Services\MailchimpService;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Log;
 
 class MailchimpAutoSyncController extends Controller
 {
@@ -29,27 +30,22 @@ class MailchimpAutoSyncController extends Controller
             $settings = $this->autoMailchimpService->getSettings($eventId);
             $availableAccounts = \App\Services\MailchimpService::getAvailableAccounts();
 
-            // Get lists for the selected account or default to ANZ
-            $selectedAccount = $settings['mailchimp_account'] ?? 'anz';
+            // The account follows the event's country, so there is no falling back to
+            // another one: a USA event's contacts belong in the USA account or
+            // nowhere. If it is not configured the audience simply cannot be read,
+            // and the screen says so rather than quietly retargeting the sync.
+            $selectedAccount = $settings['mailchimp_account'];
             $lists = [];
 
             try {
                 $mailchimpService = new \App\Services\MailchimpService($selectedAccount);
                 $lists = $mailchimpService->getLists();
             } catch (\Exception $e) {
-                // If the selected account is not configured, try to get lists from any configured account
-                foreach ($availableAccounts as $accountKey => $account) {
-                    if ($account['enabled']) {
-                        try {
-                            $mailchimpService = new \App\Services\MailchimpService($accountKey);
-                            $lists = $mailchimpService->getLists();
-                            $settings['mailchimp_account'] = $accountKey; // Update to a working account
-                            break;
-                        } catch (\Exception $ex) {
-                            continue;
-                        }
-                    }
-                }
+                Log::warning('Could not read audiences for the auto-sync account', [
+                    'event_id' => $eventId,
+                    'account' => $selectedAccount,
+                    'error' => $e->getMessage(),
+                ]);
             }
 
             return response()->json([
@@ -65,12 +61,15 @@ class MailchimpAutoSyncController extends Controller
     public function updateSettings(Request $request)
     {
         $request->validate([
-            'auto_sync' => 'required|boolean',
-            'default_list_id' => 'required_if:auto_sync,true|string',
+            // Auto-sync and the audience are forced by AutoMailchimpService — always
+            // on, always the account's WIN APP list — so whatever arrives is ignored.
+            'auto_sync' => 'sometimes|boolean',
+            'default_list_id' => 'sometimes|nullable|string',
             'default_tags' => 'array',
             'enabled_locations' => 'array',
             'film_tour' => 'required|string',
-            'mailchimp_account' => 'required|string|in:anz,usa',
+            // The account follows the event's country, so this too is ignored.
+            'mailchimp_account' => 'sometimes|string|in:anz,usa',
             'event_id' => 'required|integer',
             'interest_tag_map' => 'nullable|array',
             'interest_tag_map.*' => 'nullable|string',

@@ -34,7 +34,7 @@ const allLocationsNewPassword = ref('');
 const allLocationsConfirmPassword = ref('');
 const showMailchimpSettingsModal = ref(false);
 const mailchimpSettings = ref({
-    auto_sync: false,
+    auto_sync: true, // Compulsory — the backend forces it on, it is never a choice
     default_list_id: '',
     default_tags: '',
     enabled_locations: [],
@@ -44,6 +44,20 @@ const mailchimpSettings = ref({
     event_id: props.event.id  // Add event_id
 });
 const availableLists = ref([]);
+// Auto-sync always writes to the account's WIN APP audience, so the audience is
+// never picked. Matched by name here only to label it and to follow an account
+// change; the backend forces the id from config on both read and save.
+const findWinAppList = (lists) => (lists || []).find(l => (l.name || '').trim().toUpperCase() === 'WIN APP') || null;
+const winAppList = computed(() => {
+    const byId = availableLists.value.find(l => l.id === mailchimpSettings.value.default_list_id);
+    return byId || findWinAppList(availableLists.value);
+});
+// The account is decided by the event's country on the server, never chosen here.
+const currentAccount = computed(() => availableAccounts.value?.[mailchimpSettings.value.mailchimp_account] || null);
+const accountLabel = computed(() => {
+    const key = mailchimpSettings.value.mailchimp_account;
+    return currentAccount.value?.name || (key === 'usa' ? 'USA' : 'ANZ');
+});
 const availableAccounts = ref([]);
 const isSettingsLoading = ref(false);
 const selectedCountry = ref(null);
@@ -822,22 +836,6 @@ const openMailchimpSettingsModal = async () => {
     }
 };
 
-const loadListsForAccount = async (account) => {
-    try {
-        const response = await axios.get(route('mailchimp.autosync.lists'), {
-            params: { account }
-        });
-        availableLists.value = response.data.lists;
-        // Reset selected list when account changes
-        mailchimpSettings.value.default_list_id = '';
-    } catch (error) {
-        console.error('Failed to load lists for account:', error);
-        // Don't show error modal for account changes, just log it
-        console.warn('Account not configured or API error:', error.message);
-        availableLists.value = [];
-    }
-};
-
 const saveMailchimpSettings = async () => {
     try {
         const rawMap = mailchimpSettings.value.interest_tag_map || {};
@@ -994,15 +992,6 @@ watch(
     { immediate: true, deep: true }
 );
 
-// Watch for account changes to load lists
-watch(
-    () => mailchimpSettings.value.mailchimp_account,
-    (newAccount) => {
-        if (newAccount && showMailchimpSettingsModal.value) {
-            loadListsForAccount(newAccount);
-        }
-    }
-);
 
 </script>
 
@@ -1518,60 +1507,48 @@ watch(
                     <div class="modal-body">
                         <div class="mb-4">
                             <label class="form-label">Mailchimp Account</label>
-                            <select 
-                                v-model="mailchimpSettings.mailchimp_account"
-                                class="form-select"
-                                @change="loadListsForAccount(mailchimpSettings.mailchimp_account)"
+                            <input
+                                type="text"
+                                class="form-control"
+                                readonly
+                                disabled
+                                :value="accountLabel"
                             >
-                                <option 
-                                    v-for="(account, key) in availableAccounts" 
-                                    :key="key" 
-                                    :value="key"
-                                    :disabled="!account.enabled"
-                                >
-                                    {{ account.name }} {{ !account.enabled ? '(Not Configured)' : '' }}
-                                </option>
-                            </select>
                             <div class="form-text">
-                                Select which Mailchimp account to use for auto-sync.
+                                Set by this event's country ({{ event.event_country || 'not set' }}) — USA and Canada sync
+                                through the USA account, everywhere else through ANZ.
+                            </div>
+                            <div v-if="currentAccount && !currentAccount.enabled" class="form-text text-warning">
+                                <i class="fa-solid fa-exclamation-triangle me-1"></i>
+                                This account is not configured, so auto-sync cannot reach it.
                             </div>
                         </div>
 
                         <div class="mb-4">
                             <label class="form-label">Auto-Sync</label>
-                            <div class="form-check">
-                                <input 
-                                    type="checkbox" 
-                                    v-model="mailchimpSettings.auto_sync"
-                                    class="form-check-input"
-                                    id="autoSyncCheck"
-                                >
-                                <label class="form-check-label" for="autoSyncCheck">Enable automatic synchronization</label>
+                            <div class="d-flex align-items-center gap-2">
+                                <span class="badge bg-success">
+                                    <i class="fa-solid fa-check me-1"></i> Always on
+                                </span>
+                                <span class="text-muted small">Every location in this event syncs automatically.</span>
                             </div>
                         </div>
 
-                        <div class="mb-4" v-if="mailchimpSettings.auto_sync">
-                            <label class="form-label">Default Mailchimp Audience</label>
-                            <select 
-                                v-model="mailchimpSettings.default_list_id"
-                                class="form-select"
-                                :class="{ 'is-invalid': !mailchimpSettings.default_list_id && mailchimpSettings.auto_sync }"
+                        <div class="mb-4">
+                            <label class="form-label">Mailchimp Audience</label>
+                            <input
+                                type="text"
+                                class="form-control"
+                                readonly
+                                disabled
+                                :value="winAppList ? (winAppList.name + ' (' + winAppList.stats.member_count + ' members)') : 'WIN APP'"
                             >
-                                <option value="">Select an audience...</option>
-                                <option 
-                                    v-for="list in availableLists" 
-                                    :key="list.id" 
-                                    :value="list.id"
-                                >
-                                    {{ list.name }} ({{ list.stats.member_count }} members)
-                                </option>
-                            </select>
-                            <div v-if="availableLists.length === 0" class="form-text text-warning">
-                                <i class="fa-solid fa-exclamation-triangle me-1"></i>
-                                No audiences found for this account. Please check your API configuration or select a different account.
+                            <div class="form-text">
+                                Auto-sync always writes to this account's WIN APP audience — nothing to set up.
                             </div>
-                            <div v-if="!mailchimpSettings.default_list_id && mailchimpSettings.auto_sync" class="invalid-feedback">
-                                Please select a Mailchimp audience when auto-sync is enabled.
+                            <div v-if="!winAppList" class="form-text text-warning">
+                                <i class="fa-solid fa-exclamation-triangle me-1"></i>
+                                No WIN APP audience was found on this account. Check the API configuration or pick a different account.
                             </div>
                         </div>
 

@@ -4,6 +4,7 @@ import { Head, Link, router, usePage } from '@inertiajs/vue3';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout.vue';
 import Swal from 'sweetalert2';
 import axios from 'axios';
+import SendEmailsModal from '@/Components/SendEmailsModal.vue';
 
 const props = defineProps({
     configured: { type: Boolean, default: false },
@@ -88,6 +89,18 @@ function runNow(source) {
             if (openSource.value === source.id) loadChanges(source.id);
         },
     });
+}
+
+const emailModal = ref({ show: false, preselect: {} });
+
+function openEmails(preselect = {}) {
+    emailModal.value = { show: true, preselect };
+}
+
+function afterEmails() {
+    // The send re-reads the tabs it mails, so their pending counts can move.
+    router.reload({ preserveScroll: true });
+    if (openSource.value) loadChanges(openSource.value);
 }
 
 async function toggleReview(source) {
@@ -669,6 +682,10 @@ const flash = computed(() => page.props.flash ?? {});
                                             class="rounded-md border border-gray-300 px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-40">
                                         {{ busy[source.id] ? 'Running…' : 'Run now' }}
                                     </button>
+                                    <button @click="openEmails({ sheet: source.id })"
+                                            class="rounded-md border border-gray-300 px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50">
+                                        Send email now
+                                    </button>
                                     <button v-if="source.pending > 0" @click="approve(source)"
                                             class="rounded-md bg-teal-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-teal-700">
                                         Approve &amp; apply
@@ -815,5 +832,7 @@ const flash = computed(() => page.props.flash ?? {});
 
             </div>
         </div>
+        <SendEmailsModal :show="emailModal.show" :preselect="emailModal.preselect"
+                         @close="emailModal.show = false" @sent="afterEmails" />
     </AuthenticatedLayout>
 </template>

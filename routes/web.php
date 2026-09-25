@@ -191,8 +191,15 @@ Route::middleware(['auth', RoleMiddleware::class.':admin'])->group(function () {
     Route::post('/film-site-checks', [FilmSiteCheckController::class, 'store'])->name('filmSiteChecks.store');
     Route::patch('/film-site-checks/{filmSiteCheck}', [FilmSiteCheckController::class, 'update'])->name('filmSiteChecks.update');
     Route::delete('/film-site-checks/{filmSiteCheck}', [FilmSiteCheckController::class, 'destroy'])->name('filmSiteChecks.destroy');
+    Route::post('/film-site-checks/run-all', [FilmSiteCheckController::class, 'runAll'])->name('filmSiteChecks.runAll');
     Route::post('/film-site-checks/{filmSiteCheck}/run', [FilmSiteCheckController::class, 'run'])->name('filmSiteChecks.run');
     Route::get('/film-site-checks/runs/{filmSiteCheckRun}', [FilmSiteCheckController::class, 'showRun'])->name('filmSiteChecks.showRun');
+
+    // SEND EMAILS NOW (film site check, master sheet sync, weekly digest — any
+    // mix, each its own email). Admin only: the digest carries both sync
+    // sections, and the master sheet option is further limited to its owner.
+    Route::get('/emails/send-now', [\App\Http\Controllers\SendEmailsController::class, 'options'])->name('sendEmails.options');
+    Route::post('/emails/send-now', [\App\Http\Controllers\SendEmailsController::class, 'send'])->name('sendEmails.send');
 
     // EXPORT AUDIT LOGS
     Route::get('/admin/export-logs', [ExportLogsController::class, 'index'])->name('admin.exportLogs.index');

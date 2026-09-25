@@ -41,9 +41,18 @@ return Application::configure(basePath: dirname(__DIR__))
         $schedule->command('sheets:sync --queue')->everyFiveMinutes()->withoutOverlapping(10);
 
         // Compare each film site's published shows with the Win App locations and
-        // log the differences. Read-only on both sides. Hourly: a site edit is not
-        // urgent, and the dashboard has Run now for when it is.
-        $schedule->command('film-sites:check --queue')->hourlyAt(15)->withoutOverlapping(30);
+        // log the differences. Read-only on both sides. Daily, before the AU
+        // workday starts: a site edit is not urgent, and the dashboard has Run now
+        // and Check all now for when it is.
+        $schedule->command('film-sites:check --queue')
+            ->dailyAt('06:15')
+            ->timezone('Australia/Sydney')
+            ->withoutOverlapping(30);
+
+        // Last week's screenings and what they collected, plus anything either
+        // sync is still holding. Monday 8am, so the week it reports on is the one
+        // that has just finished and the inbox it lands in is Monday's.
+        $schedule->command('reports:weekly')->weeklyOn(1, '08:00');
     })
     ->withMiddleware(function (Middleware $middleware) {
         $middleware->web(append: [

@@ -3,6 +3,7 @@
 namespace App\Jobs;
 
 use App\Exceptions\FilmSiteException;
+use App\Mail\FilmSiteDifferencesFound;
 use App\Models\FilmSiteCheck;
 use App\Models\FilmSiteCheckRun;
 use App\Services\FilmSiteComparisonService;
@@ -12,6 +13,7 @@ use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Mail;
 
 /**
  * Compares one film site with its event and logs the result as a run.
@@ -95,7 +97,7 @@ class RunFilmSiteCheckJob implements ShouldQueue
             ? FilmSiteCheck::STATUS_ERRORS
             : ($warnings > 0 ? FilmSiteCheck::STATUS_WARNINGS : FilmSiteCheck::STATUS_CLEAN);
 
-        $check->runs()->create([
+        $run = $check->runs()->create([
             'status' => $status,
             'trigger' => $this->trigger,
             'triggered_by_user_id' => $this->userId,
@@ -126,9 +128,61 @@ class RunFilmSiteCheckJob implements ShouldQueue
                 'errors' => $errors,
                 'warnings' => $warnings,
             ]);
+
+            $this->alert($check, $run);
         }
 
         $this->prune($check);
+    }
+
+    /**
+     * Email when a scheduled run turns up a difference nobody has seen.
+     *
+     * Keyed on new_issues rather than on "are there any differences": the check
+     * runs daily and the same twenty-five standing warnings are still true every
+     * time, so alerting on the condition would send the same mail every morning. A
+     * difference that is genuinely new mails once, when it appears.
+     *
+     * Manual and CLI runs stay silent — whoever pressed Run now is looking at the
+     * result already, and Monday's digest carries the standing totals regardless.
+     */
+    protected function alert(FilmSiteCheck $check, FilmSiteCheckRun $run): void
+    {
+        if ($this->trigger !== FilmSiteCheckRun::TRIGGER_SCHEDULE) {
+            return;
+        }
+
+        // new_issues counts notices too — a screening ageing past its date shows
+        // up as one every season, and nobody can act on it. Only errors and
+        // warnings are worth an email of their own.
+        if (FilmSiteDifferencesFound::actionable($run)->isEmpty()) {
+            return;
+        }
+
+        $recipients = FilmSiteDifferencesFound::recipients();
+
+        if ($recipients === []) {
+            Log::warning('Film site differences found, but no alert recipient is configured', [
+                'film_site_check_id' => $check->id,
+                'site' => $check->label(),
+            ]);
+
+            return;
+        }
+
+        try {
+            Mail::to($recipients)->send(
+                new FilmSiteDifferencesFound($check->loadMissing('event.film'), $run)
+            );
+        } catch (\Throwable $e) {
+            // A broken mailbox must never fail the check: the run is logged and
+            // the differences are on the dashboard either way.
+            Log::error('Film site difference alert failed to send', [
+                'film_site_check_id' => $check->id,
+                'site' => $check->label(),
+                'message' => $e->getMessage(),
+            ]);
+        }
     }
 
     protected function recordFailure(FilmSiteCheck $check, string $message, float $started): void

@@ -1,9 +1,10 @@
 <script setup>
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout.vue';
-import { Head, router } from '@inertiajs/vue3';
+import { Head, router, usePage } from '@inertiajs/vue3';
 import { ref, computed, onMounted, nextTick, watch } from 'vue';
 import Swal from 'sweetalert2';
 import axios from 'axios';
+import SendEmailsModal from '@/Components/SendEmailsModal.vue';
 
 // Lazy load Chart.js to avoid build issues
 let Chart = null;
@@ -30,6 +31,10 @@ const props = defineProps({
     allEventsSummary: { type: Array, default: () => [] },
     allEventsTotals: { type: Object, default: () => ({}) }
 });
+
+// Sending emails is admin only: the digest carries both sync sections.
+const isAdmin = computed(() => usePage().props.auth?.user?.role === 'admin');
+const emailModal = ref({ show: false, preselect: {} });
 
 const startDate = ref(props.dateRange.start_date || '');
 const endDate = ref(props.dateRange.end_date || '');
@@ -840,6 +845,13 @@ watch(() => eventBreakdown.value, async () => {
                                 >
                                     Export PDF
                                 </button>
+                                <button
+                                    v-if="isAdmin"
+                                    @click="emailModal = { show: true, preselect: { weekly: 'this_week' } }"
+                                    class="px-4 py-2 bg-gray-800 text-white rounded-md hover:bg-gray-900"
+                                >
+                                    Send emails
+                                </button>
                             </div>
                         </div>
                     </div>
@@ -1256,5 +1268,7 @@ watch(() => eventBreakdown.value, async () => {
                 </div>
             </div>
         </div>
+        <SendEmailsModal v-if="isAdmin" :show="emailModal.show" :preselect="emailModal.preselect"
+                         @close="emailModal.show = false" />
     </AuthenticatedLayout>
 </template>

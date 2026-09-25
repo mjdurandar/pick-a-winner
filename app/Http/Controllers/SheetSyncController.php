@@ -142,8 +142,10 @@ class SheetSyncController extends Controller
         ]);
 
         // Preview straight away. A tab is only worth keeping if its header was
-        // found, and the admin is right here to see it if it was not.
-        SyncSheetSourceJob::dispatchSync($source->id);
+        // found, and the admin is right here to see it if it was not. No alert
+        // for the same reason — a first preview is always a full batch, and
+        // mailing it to the person who just asked for it says nothing.
+        SyncSheetSourceJob::dispatchSync($source->id, notify: false);
 
         return back()->with('success', "Connected '{$source->tab_name}'. Review what it would do, then approve to apply it.");
     }
@@ -192,7 +194,8 @@ class SheetSyncController extends Controller
             return back()->with('error', "'{$sheetSource->tab_name}' is paused. Resume it before running a sync.");
         }
 
-        SyncSheetSourceJob::dispatchSync($sheetSource->id);
+        // No alert: whoever pressed Run is about to read the result on screen.
+        SyncSheetSourceJob::dispatchSync($sheetSource->id, notify: false);
 
         $sheetSource->refresh();
 

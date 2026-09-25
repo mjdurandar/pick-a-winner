@@ -102,6 +102,15 @@ return [
             'key' => env('MAILCHIMP_USA_API_KEY'),
             'server' => env('MAILCHIMP_USA_SERVER_PREFIX'),
         ],
+
+        // The WIN APP audience per account. Auto-sync is always on and always
+        // writes here, so the audience is never picked per event — these ids are
+        // the one place it is set. Ten-character list ids, not numeric web_ids.
+        'win_app_list' => [
+            'anz' => env('MAILCHIMP_WIN_APP_LIST_ID', '6b11c9f72f'),
+            'usa' => env('MAILCHIMP_USA_WIN_APP_LIST_ID', '92853290e1'),
+        ],
+
         // Legacy support
         'key' => env('MAILCHIMP_API_KEY'),
         'server' => env('MAILCHIMP_SERVER_PREFIX'),

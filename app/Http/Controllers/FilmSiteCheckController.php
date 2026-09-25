@@ -163,6 +163,41 @@ class FilmSiteCheckController extends Controller
         ));
     }
 
+    /** Check all now: every enabled check, inline, same as pressing Run now on each. */
+    public function runAll(Request $request): RedirectResponse
+    {
+        $checks = FilmSiteCheck::enabled()->orderBy('id')->get();
+
+        if ($checks->isEmpty()) {
+            return back()->with('error', 'No active checks to run.');
+        }
+
+        foreach ($checks as $check) {
+            RunFilmSiteCheckJob::dispatchSync($check->id, FilmSiteCheckRun::TRIGGER_MANUAL, $request->user()?->id);
+            $check->refresh();
+        }
+
+        $failed = $checks->where('last_status', FilmSiteCheck::STATUS_FAILED);
+        $errors = $checks->sum('last_errors');
+        $warnings = $checks->sum('last_warnings');
+
+        $summary = sprintf(
+            'Checked %d site%s — %d error%s, %d warning%s.',
+            $checks->count(),
+            $checks->count() === 1 ? '' : 's',
+            $errors,
+            $errors === 1 ? '' : 's',
+            $warnings,
+            $warnings === 1 ? '' : 's'
+        );
+
+        if ($failed->isNotEmpty()) {
+            return back()->with('error', $summary.' Failed: '.$failed->map(fn (FilmSiteCheck $c) => $c->label())->implode(', ').'.');
+        }
+
+        return back()->with('success', $summary);
+    }
+
     /** One run's compared screenings, for the detail panel. */
     public function showRun(FilmSiteCheckRun $filmSiteCheckRun): JsonResponse
     {

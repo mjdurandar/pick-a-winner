@@ -43,6 +43,8 @@ class SheetSource extends Model
         'enabled',
         'approved_at',
         'approved_by_user_id',
+        'review_notified_digest',
+        'review_notified_at',
         'last_synced_at',
         'last_status',
         'last_error',
@@ -54,6 +56,7 @@ class SheetSource extends Model
     protected $casts = [
         'enabled' => 'boolean',
         'approved_at' => 'datetime',
+        'review_notified_at' => 'datetime',
         'last_synced_at' => 'datetime',
     ];
 
@@ -192,6 +195,69 @@ class SheetSource extends Model
             'last_synced_at' => now(),
             'last_status' => self::STATUS_FAILED,
             'last_error' => $message,
+        ])->save();
+    }
+
+    /**
+     * What is waiting on this tab, counted the way the alert talks about it.
+     *
+     * @return array{creates: int, updates: int, missing: int}
+     */
+    public function reviewCounts(): array
+    {
+        $counts = SheetSourceChange::where('sheet_source_id', $this->id)
+            ->whereIn('action', SheetSourceChange::NEEDS_REVIEW)
+            ->selectRaw('action, count(*) as total')
+            ->groupBy('action')
+            ->pluck('total', 'action');
+
+        return [
+            'creates' => (int) $counts->get(SheetSourceChange::ACTION_CREATE, 0),
+            'updates' => (int) $counts->get(SheetSourceChange::ACTION_UPDATE, 0),
+            'missing' => (int) $counts->get(SheetSourceChange::ACTION_MISSING, 0),
+        ];
+    }
+
+    /**
+     * A fingerprint of the batch currently waiting, or null when nothing is.
+     *
+     * Covers what each row would do and to what, not just how many rows there
+     * are: a sheet edited from "three updates" to "three different updates"
+     * deserves a fresh alert, and an unchanged batch re-parked by the next
+     * five-minute run deserves silence. Ordered by row so the hash does not
+     * move with the order the database happens to return.
+     */
+    public function reviewDigest(): ?string
+    {
+        $rows = SheetSourceChange::where('sheet_source_id', $this->id)
+            ->whereIn('action', SheetSourceChange::NEEDS_REVIEW)
+            ->orderBy('sheet_row')
+            ->orderBy('id')
+            ->get(['sheet_row', 'action', 'location_id', 'label', 'diff']);
+
+        if ($rows->isEmpty()) {
+            return null;
+        }
+
+        return hash('sha256', $rows->map(fn (SheetSourceChange $c) => implode('|', [
+            $c->sheet_row,
+            $c->action,
+            $c->location_id,
+            $c->label,
+            json_encode($c->diff),
+        ]))->implode("\n"));
+    }
+
+    /**
+     * Remember the batch the owner has now been told about (or has just seen on
+     * screen). A null digest clears it, so the same change reappearing after an
+     * approval is alerted again rather than swallowed as a repeat.
+     */
+    public function markReviewNotified(?string $digest): void
+    {
+        $this->forceFill([
+            'review_notified_digest' => $digest,
+            'review_notified_at' => $digest === null ? null : now(),
         ])->save();
     }
 }

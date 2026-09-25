@@ -4,6 +4,7 @@ import { Head, router, usePage } from '@inertiajs/vue3';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout.vue';
 import Swal from 'sweetalert2';
 import axios from 'axios';
+import SendEmailsModal from '@/Components/SendEmailsModal.vue';
 
 const props = defineProps({
     checks: { type: Array, default: () => [] },
@@ -104,6 +105,29 @@ function runNow(check) {
             }
         },
         onFinish: () => { busy.value = { ...busy.value, [check.id]: false }; },
+    });
+}
+
+const emailModal = ref({ show: false, preselect: {} });
+
+function openEmails(preselect = {}) {
+    emailModal.value = { show: true, preselect };
+}
+
+const runningAll = ref(false);
+
+function runAll() {
+    runningAll.value = true;
+
+    router.post(route('filmSiteChecks.runAll'), {}, {
+        preserveScroll: true,
+        onSuccess: () => {
+            // Follow the open results panel to its check's new run.
+            const checkId = selectedRun.value?.check_id;
+            const latest = checkId && props.checks.find((c) => c.id === checkId)?.latest_run;
+            if (latest) openRun(latest.id, false);
+        },
+        onFinish: () => { runningAll.value = false; },
     });
 }
 
@@ -260,7 +284,17 @@ function triggerText(run) {
         <template #header>
             <div class="flex flex-wrap items-baseline justify-between gap-2">
                 <h2 class="text-xl font-semibold text-gray-800 leading-tight">Film Site Check</h2>
-                <p class="text-sm text-gray-500">Our locations compared with the shows each film website publishes</p>
+                <div class="flex flex-wrap items-center gap-3">
+                    <p class="text-sm text-gray-500">Our locations compared with the shows each film website publishes</p>
+                    <button @click="runAll" :disabled="runningAll || activeChecks.length === 0"
+                            class="rounded-md bg-gray-800 px-3 py-1.5 text-xs font-medium text-white hover:bg-gray-900 disabled:opacity-40">
+                        {{ runningAll ? 'Checking all…' : 'Check all now' }}
+                    </button>
+                    <button @click="openEmails({ film: 'all' })"
+                            class="rounded-md border border-gray-300 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50">
+                        Send emails
+                    </button>
+                </div>
             </div>
         </template>
 
@@ -280,7 +314,7 @@ function triggerText(run) {
                         <p class="text-[11px] font-semibold uppercase tracking-wide text-gray-400">Sites checked</p>
                         <p class="mt-1 text-2xl font-semibold text-gray-900 tabular-nums">{{ activeChecks.length }}</p>
                         <p class="mt-0.5 text-xs text-gray-500">
-                            Every hour &middot; last {{ whenText(lastCheckedAt) }}
+                            Daily at 6:15am (Sydney) &middot; last {{ whenText(lastCheckedAt) }}
                         </p>
                     </div>
                     <div class="bg-white shadow-sm rounded-lg p-4" :class="errorTotal > 0 ? 'ring-1 ring-red-200' : ''">
@@ -368,6 +402,10 @@ function triggerText(run) {
                                     <button @click="runNow(check)" :disabled="busy[check.id]"
                                             class="rounded-md border border-gray-300 px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-40">
                                         {{ busy[check.id] ? 'Checking…' : 'Run now' }}
+                                    </button>
+                                    <button @click="openEmails({ film: check.id })"
+                                            class="rounded-md border border-gray-300 px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50">
+                                        Send email now
                                     </button>
                                     <button @click="toggleEnabled(check)"
                                             class="rounded-md border border-gray-300 px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50">
@@ -606,5 +644,9 @@ function triggerText(run) {
 
             </div>
         </div>
+        <!-- The send re-runs the checks it mails, so the rows' totals move. -->
+        <SendEmailsModal :show="emailModal.show" :preselect="emailModal.preselect"
+                         @close="emailModal.show = false"
+                         @sent="router.reload({ preserveScroll: true })" />
     </AuthenticatedLayout>
 </template>
