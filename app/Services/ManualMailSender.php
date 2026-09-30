@@ -139,6 +139,9 @@ class ManualMailSender
         // by the send listener. Emptying them for this one request is the only way
         // to hold them back; the next request boots with them again.
         config(array_fill_keys(self::CC_KEYS, null));
+        // The digest's CC can also come from the settings table, which emptying
+        // config does not reach.
+        config(['mail.weekly_digest_cc_held' => true]);
 
         Mail::to($to)->cc($cc)->send($mailable);
 

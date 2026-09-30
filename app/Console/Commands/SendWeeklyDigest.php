@@ -47,7 +47,7 @@ class SendWeeklyDigest extends Command
         // The standing CC is applied on the send event, so the only way to hold it
         // back for one send is to empty what that listener reads.
         if ($this->option('no-cc')) {
-            config(['mail.always_cc' => null, 'mail.weekly_digest_cc' => null]);
+            config(['mail.always_cc' => null, 'mail.weekly_digest_cc_held' => true]);
         }
 
         $this->summarise($digest, $to);

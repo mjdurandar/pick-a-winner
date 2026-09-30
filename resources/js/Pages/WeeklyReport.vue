@@ -859,9 +859,9 @@ watch(() => eventBreakdown.value, async () => {
                                     v-if="isAdmin"
                                     @click="scheduleModal = true"
                                     class="px-4 py-2 bg-white text-gray-800 border border-gray-300 rounded-md hover:bg-gray-50"
-                                    title="When the automated weekly digest is sent"
+                                    title="When the automated weekly digest is sent, and who it goes to"
                                 >
-                                    Email schedule
+                                    Email settings
                                 </button>
                             </div>
                         </div>

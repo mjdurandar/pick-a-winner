@@ -4,8 +4,8 @@ import axios from 'axios';
 import Modal from '@/Components/Modal.vue';
 
 /**
- * When the automated weekly digest is sent: a weekday, a time and the timezone
- * that time is in.
+ * When the automated weekly digest is sent — a weekday, a time and the timezone
+ * that time is in — and who it goes to.
  *
  * The default (from .env) is always shown under the form so whoever is changing
  * it can see what they are moving away from, and "Reset to default" goes back
@@ -20,7 +20,7 @@ const emit = defineEmits(['close', 'saved']);
 
 const data = ref(null);
 const loadError = ref('');
-const form = ref({ day: 1, time: '08:00', timezone: 'UTC' });
+const form = ref({ day: 1, time: '08:00', timezone: 'UTC', to: '', cc: '' });
 const saving = ref(false);
 const error = ref('');
 const notice = ref('');
@@ -37,28 +37,44 @@ async function load() {
     loadError.value = '';
     try {
         data.value = (await axios.get(route('weeklyDigest.schedule.show'))).data;
-        fill(data.value.schedule);
+        fill(data.value.schedule, data.value.recipients);
     } catch (e) {
-        loadError.value = e.response?.data?.message ?? 'Could not load the schedule.';
+        loadError.value = e.response?.data?.message ?? 'Could not load the settings.';
     }
 }
 
-function fill(schedule) {
-    form.value = { day: schedule.day, time: schedule.time, timezone: schedule.timezone };
+function fill(schedule, recipients) {
+    form.value = {
+        day: schedule.day,
+        time: schedule.time,
+        timezone: schedule.timezone,
+        to: recipients.to.join(', '),
+        cc: recipients.cc.join(', '),
+    };
 }
 
-const dirty = computed(() => {
-    const s = data.value?.schedule;
-    return !!s && (s.day !== Number(form.value.day) || s.time !== form.value.time || s.timezone !== form.value.timezone);
-});
+// Typed addresses, in a form two lists can be compared in: order, case and
+// the separator used make no difference to who gets the mail.
+function addresses(value) {
+    const list = Array.isArray(value) ? value : String(value ?? '').split(/[\s,;]+/);
+    return list.map(a => a.trim().toLowerCase()).filter(Boolean).sort().join(',');
+}
 
-const isDefault = computed(() => {
-    const d = data.value?.default;
-    return !!d && d.day === Number(form.value.day) && d.time === form.value.time && d.timezone === form.value.timezone;
-});
+function sameAs(schedule, recipients) {
+    return !!schedule && !!recipients
+        && schedule.day === Number(form.value.day)
+        && schedule.time === form.value.time
+        && schedule.timezone === form.value.timezone
+        && addresses(recipients.to) === addresses(form.value.to)
+        && addresses(recipients.cc) === addresses(form.value.cc);
+}
+
+const dirty = computed(() => !!data.value && !sameAs(data.value.schedule, data.value.recipients));
+
+const isDefault = computed(() => sameAs(data.value?.default, data.value?.default_recipients));
 
 function useDefault() {
-    if (data.value?.default) fill(data.value.default);
+    if (data.value?.default) fill(data.value.default, data.value.default_recipients);
 }
 
 async function save() {
@@ -66,17 +82,17 @@ async function save() {
     notice.value = '';
     saving.value = true;
     try {
-        // Picking the default values is the same as resetting: no override row
-        // is left behind, so a later change to .env still takes effect.
-        const { data: fresh } = isDefault.value
-            ? await axios.delete(route('weeklyDigest.schedule.reset'))
-            : await axios.put(route('weeklyDigest.schedule.update'), {
-                day: Number(form.value.day),
-                time: form.value.time,
-                timezone: form.value.timezone,
-            });
+        // Saving the default values is the same as resetting: the server leaves
+        // no override behind, so a later change to .env still takes effect.
+        const { data: fresh } = await axios.put(route('weeklyDigest.schedule.update'), {
+            day: Number(form.value.day),
+            time: form.value.time,
+            timezone: form.value.timezone,
+            to: form.value.to,
+            cc: form.value.cc,
+        });
         data.value = fresh;
-        fill(fresh.schedule);
+        fill(fresh.schedule, fresh.recipients);
         notice.value = `Saved. Next digest: ${fresh.schedule.next_run_label}.`;
         emit('saved', fresh.schedule);
     } catch (e) {
@@ -95,9 +111,9 @@ function close() {
 <template>
     <Modal :show="show" max-width="md" :closeable="!saving" @close="close">
         <div class="p-6">
-            <h2 class="text-lg font-semibold text-gray-900">Weekly digest schedule</h2>
+            <h2 class="text-lg font-semibold text-gray-900">Weekly digest settings</h2>
             <p class="mt-1 text-sm text-gray-500">
-                When the automated weekly report email is sent. Changes apply from the next run — nothing to restart.
+                When the automated weekly report email is sent, and who it goes to. Changes apply from the next run — nothing to restart.
             </p>
 
             <p v-if="loadError" class="mt-4 text-sm text-red-700">{{ loadError }}</p>
@@ -137,6 +153,25 @@ function close() {
                         </select>
                         <p class="mt-1 text-xs text-gray-400">The time above is read in this timezone.</p>
                     </div>
+                    <div class="col-span-2">
+                        <label class="block text-sm font-medium text-gray-700">Send to</label>
+                        <textarea v-model="form.to" rows="2" placeholder="name@example.com, another@example.com"
+                                  class="mt-1 w-full rounded-md border-gray-300 text-sm"></textarea>
+                    </div>
+                    <div class="col-span-2">
+                        <label class="block text-sm font-medium text-gray-700">CC</label>
+                        <textarea v-model="form.cc" rows="2" placeholder="Nobody"
+                                  class="mt-1 w-full rounded-md border-gray-300 text-sm"></textarea>
+                        <p class="mt-1 text-xs text-gray-400">
+                            Separate addresses with commas.
+                            <template v-if="data.always_cc.length">
+                                {{ data.always_cc.join(', ') }} {{ data.always_cc.length === 1 ? 'is' : 'are' }} copied on every email regardless.
+                            </template>
+                        </p>
+                        <p v-if="data.recipients_overridden" class="mt-1 text-xs text-gray-400">
+                            Changed here. Default is {{ data.default_recipients.to.join(', ') || 'nobody' }}<template v-if="data.default_recipients.cc.length">, CC {{ data.default_recipients.cc.join(', ') }}</template>.
+                        </p>
+                    </div>
                 </div>
 
                 <p v-if="error" class="mt-4 text-sm text-red-700">{{ error }}</p>
@@ -145,7 +180,7 @@ function close() {
                 <div class="mt-6 flex items-center justify-between gap-2">
                     <button @click="useDefault" :disabled="saving || isDefault" type="button"
                             class="text-sm text-gray-600 underline-offset-2 hover:underline disabled:opacity-40 disabled:no-underline">
-                        Reset to default ({{ data.default.label }})
+                        Reset to default
                     </button>
                     <div class="flex gap-2">
                         <button @click="close" :disabled="saving"

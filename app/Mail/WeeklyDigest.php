@@ -3,6 +3,7 @@
 namespace App\Mail;
 
 use App\Mail\Concerns\ResolvesRecipients;
+use App\Support\WeeklyDigestRecipients;
 use Carbon\CarbonImmutable;
 use Illuminate\Bus\Queueable;
 use Illuminate\Mail\Mailable;
@@ -27,7 +28,30 @@ class WeeklyDigest extends Mailable
     ) {}
 
     /**
-     * Who gets the digest, in order of preference.
+     * Who gets the digest: whoever an admin chose on the weekly report screen,
+     * otherwise the configured default.
+     *
+     * @return list<string>
+     */
+    public static function recipients(): array
+    {
+        return WeeklyDigestRecipients::current()->to;
+    }
+
+    /** @return list<string> */
+    public static function ccRecipients(): array
+    {
+        // Set for a single send that must go out without the digest's CC — a
+        // test send, or a manual one whose CC was typed in by hand.
+        if (config('mail.weekly_digest_cc_held')) {
+            return [];
+        }
+
+        return WeeklyDigestRecipients::current()->cc;
+    }
+
+    /**
+     * The configured recipients, in order of preference.
      *
      * Falls back to the approval recipients, and then to the master sheet owner:
      * unlike the screening figures, half this mail is work only they can action,
@@ -35,7 +59,7 @@ class WeeklyDigest extends Mailable
      *
      * @return list<string>
      */
-    public static function recipients(): array
+    public static function defaultRecipients(): array
     {
         return self::firstConfigured([
             'mail.weekly_digest_recipients',
@@ -45,7 +69,7 @@ class WeeklyDigest extends Mailable
     }
 
     /** @return list<string> */
-    public static function ccRecipients(): array
+    public static function defaultCcRecipients(): array
     {
         return self::ccFrom('mail.weekly_digest_cc');
     }

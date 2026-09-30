@@ -105,12 +105,6 @@ Every site matches the Win App.
 </tr>
 @endif
 @include('emails.partials.site-rows', ['rows' => $check['rows']])
-@if(count($check['notices']))
-<tr>
-<td style="{{ $totalRow }} padding-top: 14px;">Past screenings — no action needed ({{ count($check['notices']) }})</td>
-</tr>
-@include('emails.partials.site-notices', ['rows' => $check['notices']])
-@endif
 @if($check['new_issues'] > 0 || $check['resolved_issues'] > 0)
 <tr>
 <td style="{{ $totalRow }}">{{ $check['new_issues'] }} new since the previous run, {{ $check['resolved_issues'] }} resolved.</td>
