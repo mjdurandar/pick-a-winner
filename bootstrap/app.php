@@ -2,6 +2,7 @@
 
 use App\Jobs\DripOutstandingOptInsJob;
 use App\Jobs\McSnapshotJob;
+use App\Support\WeeklyDigestSchedule;
 use Illuminate\Console\Scheduling\Schedule;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
@@ -50,9 +51,12 @@ return Application::configure(basePath: dirname(__DIR__))
             ->withoutOverlapping(30);
 
         // Last week's screenings and what they collected, plus anything either
-        // sync is still holding. Monday 8am, so the week it reports on is the one
-        // that has just finished and the inbox it lands in is Monday's.
-        $schedule->command('reports:weekly')->weeklyOn(1, '08:00');
+        // sync is still holding. Monday 8am by default, so the week it reports on
+        // is the one that has just finished and the inbox it lands in is Monday's.
+        // The day, time and timezone come from config (WEEKLY_DIGEST_* in .env)
+        // unless an admin has changed them on the weekly report screen; this
+        // closure runs on every schedule:run, so a change applies at once.
+        WeeklyDigestSchedule::current()->apply($schedule->command('reports:weekly'));
     })
     ->withMiddleware(function (Middleware $middleware) {
         $middleware->web(append: [

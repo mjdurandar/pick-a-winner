@@ -182,6 +182,16 @@ return [
     // Copied on the weekly digest only. Comma-separated.
     'weekly_digest_cc' => env('WEEKLY_DIGEST_CC'),
 
+    // When the digest goes out, by default. Day is 0 (Sunday) to 6 (Saturday),
+    // time is 24-hour HH:MM, in the given timezone. An admin can override this
+    // from the weekly report screen; that override is kept in the settings table
+    // and "Reset to default" comes back here.
+    'weekly_digest_schedule' => [
+        'day' => env('WEEKLY_DIGEST_DAY', 1),
+        'time' => env('WEEKLY_DIGEST_TIME', '08:00'),
+        'timezone' => env('WEEKLY_DIGEST_TIMEZONE', env('APP_TIMEZONE', 'UTC')),
+    ],
+
     /*
     |--------------------------------------------------------------------------
     | Brand

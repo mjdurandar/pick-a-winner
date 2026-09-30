@@ -5,6 +5,7 @@ import { ref, computed, onMounted, nextTick, watch } from 'vue';
 import Swal from 'sweetalert2';
 import axios from 'axios';
 import SendEmailsModal from '@/Components/SendEmailsModal.vue';
+import WeeklyDigestScheduleModal from '@/Components/WeeklyDigestScheduleModal.vue';
 
 // Lazy load Chart.js to avoid build issues
 let Chart = null;
@@ -35,6 +36,8 @@ const props = defineProps({
 // Sending emails is admin only: the digest carries both sync sections.
 const isAdmin = computed(() => usePage().props.auth?.user?.role === 'admin');
 const emailModal = ref({ show: false, preselect: {} });
+// When the automated digest goes out. Admin only, same as sending it.
+const scheduleModal = ref(false);
 
 const startDate = ref(props.dateRange.start_date || '');
 const endDate = ref(props.dateRange.end_date || '');
@@ -852,6 +855,14 @@ watch(() => eventBreakdown.value, async () => {
                                 >
                                     Send emails
                                 </button>
+                                <button
+                                    v-if="isAdmin"
+                                    @click="scheduleModal = true"
+                                    class="px-4 py-2 bg-white text-gray-800 border border-gray-300 rounded-md hover:bg-gray-50"
+                                    title="When the automated weekly digest is sent"
+                                >
+                                    Email schedule
+                                </button>
                             </div>
                         </div>
                     </div>
@@ -1270,5 +1281,6 @@ watch(() => eventBreakdown.value, async () => {
         </div>
         <SendEmailsModal v-if="isAdmin" :show="emailModal.show" :preselect="emailModal.preselect"
                          @close="emailModal.show = false" />
+        <WeeklyDigestScheduleModal v-if="isAdmin" :show="scheduleModal" @close="scheduleModal = false" />
     </AuthenticatedLayout>
 </template>

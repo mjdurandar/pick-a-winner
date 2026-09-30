@@ -201,6 +201,11 @@ Route::middleware(['auth', RoleMiddleware::class.':admin'])->group(function () {
     Route::get('/emails/send-now', [\App\Http\Controllers\SendEmailsController::class, 'options'])->name('sendEmails.options');
     Route::post('/emails/send-now', [\App\Http\Controllers\SendEmailsController::class, 'send'])->name('sendEmails.send');
 
+    // WEEKLY DIGEST SCHEDULE (when the automated Monday email goes out)
+    Route::get('/weekly-report/schedule', [\App\Http\Controllers\WeeklyDigestScheduleController::class, 'show'])->name('weeklyDigest.schedule.show');
+    Route::put('/weekly-report/schedule', [\App\Http\Controllers\WeeklyDigestScheduleController::class, 'update'])->name('weeklyDigest.schedule.update');
+    Route::delete('/weekly-report/schedule', [\App\Http\Controllers\WeeklyDigestScheduleController::class, 'reset'])->name('weeklyDigest.schedule.reset');
+
     // EXPORT AUDIT LOGS
     Route::get('/admin/export-logs', [ExportLogsController::class, 'index'])->name('admin.exportLogs.index');
     Route::get('/admin/export-logs/export', [ExportLogsController::class, 'export'])->name('admin.exportLogs.export');
