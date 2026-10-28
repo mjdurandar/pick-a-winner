@@ -92,7 +92,7 @@ const reviewSummary = computed(() => {
                                     :href="route('films.index')"
                                     :active="route().current('films.index')"
                                 >
-                                    Brands
+                                    Websites
                                 </NavLink>
                                 <!-- <NavLink
                                     v-if="userRole === 'admin' || userRole === 'host'"
@@ -304,7 +304,7 @@ const reviewSummary = computed(() => {
                                     :href="route('films.index')"
                                     :active="route().current('films.index')"
                                 >
-                                    Brands
+                                    Websites
                         </ResponsiveNavLink>
                         <!-- <ResponsiveNavLink
                                 v-if="userRole === 'admin' || userRole === 'host'"

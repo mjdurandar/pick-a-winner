@@ -1,7 +1,7 @@
 <script setup>
 import Swal from 'sweetalert2';
 import { ref, computed, watch } from 'vue';
-import { useForm, router, usePage } from '@inertiajs/vue3';
+import { Link, useForm, router, usePage } from '@inertiajs/vue3';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout.vue';
 import ScrollDatePicker from '@/Components/ScrollDatePicker.vue';
 import { Head } from '@inertiajs/vue3';
@@ -130,8 +130,12 @@ const existingBanner = ref(null);
 const existingLogo = ref(null);
 
 // Preview the newly picked file if there is one, otherwise the image already on the event.
-const bannerPreviewSrc = computed(() => bannerPreview.value || (existingBanner.value ? '/storage/' + existingBanner.value : null));
-const logoPreviewSrc = computed(() => logoPreview.value || (existingLogo.value ? '/storage/' + existingLogo.value : null));
+// Resolved by the server, which checks the file is actually on disk and encodes
+// the path. The old version built "/storage/" + path by hand, so a missing file
+// or a space in the name showed a broken-image icon with no explanation.
+const bannerPreviewSrc = computed(() => bannerPreview.value || existingBanner.value);
+const logoPreviewSrc = computed(() => logoPreview.value || existingLogo.value);
+
 
 // Open Modal for Editing an Existing Event
 const openEditModal = (event) => {
@@ -158,8 +162,8 @@ const openEditModal = (event) => {
     document.getElementById('event_logo').value = '';
     setPreview(bannerPreview, null);
     setPreview(logoPreview, null);
-    existingBanner.value = event.event_banner; // Store existing banner path
-    existingLogo.value = event.event_logo; // Store existing logo path
+    existingBanner.value = event.event_banner_url; // Resolved URL, or null when absent
+    existingLogo.value = event.event_logo_url;
 
     let modalElement = new bootstrap.Modal(document.getElementById('createEventModal'));
     modalElement.show();
@@ -760,7 +764,7 @@ const closeSheetsModal = () => {
                 <div class="row">
                     <div v-for="event in paginatedEvents" :key="event.id" class="col-md-4 mb-4">
                         <div class="card">
-                            <img style="height: 200px;" :src="'/storage/' + event.event_banner" class="card-img-top" alt="Event Banner" />
+                            <img style="height: 200px;" :src="event.event_banner_url || ('/storage/' + event.event_banner)" class="card-img-top" alt="Event Banner" />
                             <div class="card-body">
                                 <h5 class="card-title">{{ event.event_name }}</h5>
                                 <p class="card-text mb-1" style="font-size: 14px; font-weight: 500;">{{ event.event_country }}</p>
@@ -786,7 +790,7 @@ const closeSheetsModal = () => {
                                         <button @click="shareHostGuide(event)" class="btn btn-sm" style="background-color: #16C3D9; color: white;" title="Share host instruction guide">
                                             <i class="fa-solid fa-share-nodes"></i>
                                         </button>
-                                        <button @click="openEditModal(event)" class="btn btn-sm" style="background-color: #16C3D9; color: white;" v-if="userRole === 'admin'">
+                                        <button @click="router.get(route('events.show', event.id))" class="btn btn-sm" style="background-color: #16C3D9; color: white;" v-if="userRole === 'admin'" title="Event settings">
                                             <i class="fa-solid fa-pen-to-square"></i>
                                         </button>
                                         <!-- <button @click="deleteEvent(event.id)" class="btn btn-sm" style="background-color: #16C3D9; color: white;" v-if="userRole === 'admin'">
@@ -826,12 +830,18 @@ const closeSheetsModal = () => {
             <div class="modal-dialog modal-xl modal-dialog-centered modal-fullscreen-lg-down">
                 <div class="modal-content">
                     <div class="modal-header">
-                        <h5 class="modal-title" id="createEventModalLabel">{{ isEditing ? 'Edit Event' : 'Create Event' }}</h5>
+                        <h5 class="modal-title" id="createEventModalLabel">Create Event</h5>
                         <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
                     </div>
                     <div class="modal-body">
                         <form @submit.prevent="saveEvent">
                             <div class="row g-3">
+                                <div class="col-12">
+                                    <h6 class="text-uppercase text-muted small fw-semibold mb-0 mt-2">Event details</h6>
+                                    <small class="text-muted">What the event is and when it runs.</small>
+                                    <hr class="mt-1 mb-0" />
+                                </div>
+
                                 <div class="col-12 col-md-4">
                                     <label class="form-label">Event Name</label>
                                     <input v-model="form.event_name" type="text" class="form-control" required maxlength="26" />
@@ -879,6 +889,12 @@ const closeSheetsModal = () => {
                                         <option value="Germany">Germany</option>
                                     </select>
                                 </div>
+                                <div class="col-12">
+                                    <h6 class="text-uppercase text-muted small fw-semibold mb-0 mt-2">Host and coordinator</h6>
+                                    <small class="text-muted">Shown on the shared host guide.</small>
+                                    <hr class="mt-1 mb-0" />
+                                </div>
+
                                 <div class="col-12 col-md-4">
                                     <label class="form-label">Host Guide Password</label>
                                     <input v-model="form.instructions_password" type="text" class="form-control" maxlength="255" placeholder="Auto-generated if left blank" />
@@ -897,6 +913,12 @@ const closeSheetsModal = () => {
                                     <label class="form-label">Coordinator Phone</label>
                                     <input v-model="form.event_coordinator_phone" type="tel" class="form-control" placeholder="0485 952 778" />
                                     <small class="text-muted">Shown on the host guide. Leave blank to use the default number.</small>
+                                </div>
+
+                                <div class="col-12">
+                                    <h6 class="text-uppercase text-muted small fw-semibold mb-0 mt-2">Branding</h6>
+                                    <small class="text-muted">Leave a field empty to keep the current image.</small>
+                                    <hr class="mt-1 mb-0" />
                                 </div>
 
                                 <div class="col-12 col-md-4">
@@ -922,7 +944,11 @@ const closeSheetsModal = () => {
                                     </div>
                                 </div>
 
-                                <div class="col-12"><hr class="my-1" /></div>
+                                <div class="col-12">
+                                    <h6 class="text-uppercase text-muted small fw-semibold mb-0 mt-2">Visibility</h6>
+                                    <small class="text-muted">Where this event and its locations appear.</small>
+                                    <hr class="mt-1 mb-0" />
+                                </div>
 
                                 <div class="col-12 col-md-4">
                                     <div class="form-check">
@@ -966,6 +992,7 @@ const closeSheetsModal = () => {
                                         <small class="d-block text-muted">Includes finished locations. When off, the draw only lists locations from 7 days ago onwards.</small>
                                     </div>
                                 </div>
+
                             </div>
                             <div class="modal-footer px-0 pb-0 mt-3">
                                 <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>

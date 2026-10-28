@@ -40,19 +40,19 @@ function saveBrand() {
         form.patch(route('films.update', form.id), {
             onSuccess: () => {
                 bootstrap.Modal.getInstance(document.getElementById('createBrandModal'))?.hide();
-                Swal.fire('Updated!', 'Brand has been updated.', 'success');
+                Swal.fire('Updated!', 'Website has been updated.', 'success');
                 form.reset();
             },
-            onError: () => Swal.fire('Error!', 'There was an issue updating the brand.', 'error')
+            onError: () => Swal.fire('Error!', 'There was an issue updating the website.', 'error')
         });
     } else {
         form.post(route('films.store'), {
             onSuccess: () => {
                 bootstrap.Modal.getInstance(document.getElementById('createBrandModal'))?.hide();
-                Swal.fire('Created!', 'Brand has been created.', 'success');
+                Swal.fire('Created!', 'Website has been created.', 'success');
                 form.reset();
             },
-            onError: () => Swal.fire('Error!', 'There was an issue creating the brand.', 'error')
+            onError: () => Swal.fire('Error!', 'There was an issue creating the website.', 'error')
         });
     }
 }
@@ -84,19 +84,19 @@ function deleteBrand(brandId) {
 </script>
 
 <template>
-    <Head title="Brands" />
+    <Head title="Websites" />
 
     <AuthenticatedLayout>
         <template #header>
             <div class="flex justify-between items-center">
-                <h2 class="text-xl font-semibold text-gray-800 leading-tight">Brands</h2>
+                <h2 class="text-xl font-semibold text-gray-800 leading-tight">Websites</h2>
                 <button
                     v-if="userRole === 'admin'"
                     type="button"
                     @click="openCreateModal"
                     class="inline-flex items-center gap-2 px-4 py-2 bg-teal-600 text-white rounded-md hover:bg-teal-700 text-sm font-medium"
                 >
-                    <i class="fa-solid fa-plus"></i> Create Brand
+                    <i class="fa-solid fa-plus"></i> Create Website
                 </button>
             </div>
         </template>
@@ -114,7 +114,7 @@ function deleteBrand(brandId) {
                                 @click="openCreateModal"
                                 class="mt-4 inline-flex items-center gap-2 px-4 py-2 bg-teal-600 text-white rounded-md hover:bg-teal-700"
                             >
-                                <i class="fa-solid fa-plus"></i> Create Brand
+                                <i class="fa-solid fa-plus"></i> Create Website
                             </button>
                         </div>
                         <div v-else class="overflow-x-auto">
@@ -161,18 +161,18 @@ function deleteBrand(brandId) {
             </div>
         </div>
 
-        <!-- Create/Edit Brand modal -->
+        <!-- Create/Edit Website modal -->
         <div class="modal fade" id="createBrandModal" tabindex="-1">
             <div class="modal-dialog">
                 <div class="modal-content">
                     <div class="modal-header">
-                        <h5 class="modal-title">{{ isEditing ? 'Edit Brand' : 'Create Brand' }}</h5>
+                        <h5 class="modal-title">{{ isEditing ? 'Edit Website' : 'Create Website' }}</h5>
                         <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
                     </div>
                     <form @submit.prevent="saveBrand">
                         <div class="modal-body">
                             <div class="mb-3">
-                                <label class="form-label">Brand Name</label>
+                                <label class="form-label">Website Name</label>
                                 <input v-model="form.name" type="text" class="form-control" required maxlength="255" :class="{ 'is-invalid': form.errors.name }" />
                                 <div v-if="form.errors.name" class="invalid-feedback">{{ form.errors.name }}</div>
                             </div>

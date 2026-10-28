@@ -4,8 +4,8 @@ use App\Http\Controllers\AttendeesController;
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\EventsController;
 use App\Http\Controllers\ExportLogsController;
-use App\Http\Controllers\FilmSiteCheckController;
 use App\Http\Controllers\FilmsController;
+use App\Http\Controllers\FilmSiteCheckController;
 use App\Http\Controllers\GoogleIntegrationController;
 use App\Http\Controllers\LaravelLogsController;
 use App\Http\Controllers\LocationController;
@@ -216,6 +216,8 @@ Route::middleware(['auth', RoleMiddleware::class.':admin'])->group(function () {
 
     // EVENTS ROUTES
     Route::post('/events', [EventsController::class, 'store'])->name('events.store');
+    // One event's own settings page, replacing the edit pop-up.
+    Route::get('/events/{event}', [EventsController::class, 'show'])->name('events.show');
     Route::patch('/events/{event}', [EventsController::class, 'update'])->name('events.update');
     Route::delete('/events/{event}', [EventsController::class, 'destroy'])->name('events.destroy');
 
