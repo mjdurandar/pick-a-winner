@@ -10,6 +10,7 @@ const props = defineProps({
     counts: { type: Object, default: () => ({}) },
     partners: { type: Array, default: () => [] },
     defaultCoordinatorPhone: { type: String, default: '' },
+    maxImageKb: { type: Number, default: 2048 },
 });
 
 const page = usePage();
@@ -41,10 +42,29 @@ const bannerPreview = ref(null);
 const errors = ref({});
 const saving = ref(false);
 
+// Caught here as well as on the server, so an oversized image is refused the
+// moment it is chosen rather than after a slow upload that then fails.
+const fileErrors = ref({ logo: null, banner: null });
+const maxImageMb = computed(() => (props.maxImageKb / 1024).toFixed(1).replace(/\.0$/, ''));
+const sizeLabel = (bytes) => bytes >= 1048576
+    ? `${(bytes / 1048576).toFixed(1)} MB`
+    : `${Math.max(1, Math.round(bytes / 1024))} KB`;
+
 const dirty = computed(() => JSON.stringify(form.value) !== original || !!newLogo.value || !!newBanner.value);
 
 function pickFile(e, which) {
     const file = e.target.files[0] ?? null;
+    fileErrors.value[which] = null;
+
+    if (file && file.size > props.maxImageKb * 1024) {
+        fileErrors.value[which] = `That image is ${sizeLabel(file.size)}. The limit is ${maxImageMb.value} MB — try resizing or exporting it at a lower quality.`;
+        e.target.value = '';
+        if (which === 'logo') { newLogo.value = null; logoPreview.value = null; }
+        else { newBanner.value = null; bannerPreview.value = null; }
+
+        return;
+    }
+
     const preview = file ? URL.createObjectURL(file) : null;
 
     if (which === 'logo') { newLogo.value = file; logoPreview.value = preview; }
@@ -70,7 +90,13 @@ function save() {
         preserveScroll: true,
         onStart: () => { saving.value = true; },
         onFinish: () => { saving.value = false; },
-        onError: (e) => { errors.value = e; Swal.fire('Not saved', 'Check the highlighted fields.', 'error'); },
+        onError: (e) => {
+            errors.value = e;
+            // Name the first problem: the offending field can be well below the fold
+            // on a page this wide, so "check the highlighted fields" alone is no help.
+            const first = Object.values(e ?? {}).find((m) => typeof m === 'string' && m);
+            Swal.fire('Not saved', first || 'Check the highlighted fields.', 'error');
+        },
         onSuccess: () => Swal.fire({ icon: 'success', title: 'Saved', timer: 1300, showConfirmButton: false }),
     });
 }
@@ -207,7 +233,10 @@ const countries = ['AUSTRALIA & NEW ZEALAND', 'USA & CANADA', 'USA', 'Canada', '
                                     <span v-else class="text-xs text-gray-400">no logo set</span>
                                 </div>
                                 <input type="file" accept="image/*" @change="pickFile($event, 'logo')" class="mt-2 w-full text-xs" />
-                                <span v-if="logoPreview" class="mt-1 block text-[11px] text-amber-700">New logo — not saved until you press Save.</span>
+                                <span v-if="fileErrors.logo" class="mt-1 block text-xs text-red-700">{{ fileErrors.logo }}</span>
+                                <span v-else-if="errors.event_logo" class="mt-1 block text-xs text-red-700">{{ errors.event_logo }}</span>
+                                <span v-else-if="logoPreview" class="mt-1 block text-[11px] text-amber-700">New logo — not saved until you press Save.</span>
+                                <span v-else class="mt-1 block text-[11px] text-gray-400">JPG, PNG or GIF, up to {{ maxImageMb }} MB.</span>
                             </div>
                             <div>
                                 <p class="text-xs text-gray-600">Event banner</p>
@@ -216,7 +245,10 @@ const countries = ['AUSTRALIA & NEW ZEALAND', 'USA & CANADA', 'USA', 'Canada', '
                                     <span v-else class="text-xs text-gray-400">no banner set</span>
                                 </div>
                                 <input type="file" accept="image/*" @change="pickFile($event, 'banner')" class="mt-2 w-full text-xs" />
-                                <span v-if="bannerPreview" class="mt-1 block text-[11px] text-amber-700">New banner — not saved until you press Save.</span>
+                                <span v-if="fileErrors.banner" class="mt-1 block text-xs text-red-700">{{ fileErrors.banner }}</span>
+                                <span v-else-if="errors.event_banner" class="mt-1 block text-xs text-red-700">{{ errors.event_banner }}</span>
+                                <span v-else-if="bannerPreview" class="mt-1 block text-[11px] text-amber-700">New banner — not saved until you press Save.</span>
+                                <span v-else class="mt-1 block text-[11px] text-gray-400">JPG, PNG or GIF, up to {{ maxImageMb }} MB.</span>
                             </div>
                         </div>
                     </section>

@@ -13,6 +13,14 @@ use Inertia\Inertia;
 class EventsController extends Controller
 {
     /**
+     * Largest banner or logo accepted, in kilobytes.
+     *
+     * Shared with the settings page so the message a person sees and the rule
+     * that rejects the file can never disagree.
+     */
+    public const MAX_IMAGE_KB = 2048;
+
+    /**
      * Display a listing of the resource.
      */
     public function index()
@@ -73,6 +81,7 @@ class EventsController extends Controller
                     ->whereNotNull('winner')->where('winner', '!=', '')->count(),
             ],
             'defaultCoordinatorPhone' => Events::DEFAULT_COORDINATOR_PHONE,
+            'maxImageKb' => self::MAX_IMAGE_KB,
             // Partners are deliberately not loaded: the section is commented out in
             // EventSettings.vue until sponsor upload to the film sites ships, and the
             // sponsors table does not exist in every environment yet.
@@ -90,6 +99,26 @@ class EventsController extends Controller
     }
 
     /**
+     * Plain-English reasons an image was refused.
+     *
+     * Laravel's defaults talk in kilobytes and "mimes"; a host uploading a photo
+     * off their phone needs to know what to do about it instead.
+     */
+    private static function imageMessages(): array
+    {
+        $mb = rtrim(rtrim(number_format(self::MAX_IMAGE_KB / 1024, 1), '0'), '.');
+
+        return [
+            'event_banner.max' => "That banner is too large. The limit is {$mb} MB — try resizing it or exporting at a lower quality.",
+            'event_logo.max' => "That logo is too large. The limit is {$mb} MB — try resizing it or exporting at a lower quality.",
+            'event_banner.image' => 'That banner is not an image file. Use a JPG, PNG or GIF.',
+            'event_logo.image' => 'That logo is not an image file. Use a JPG, PNG or GIF.',
+            'event_banner.mimes' => 'That banner must be a JPG, PNG or GIF.',
+            'event_logo.mimes' => 'That logo must be a JPG, PNG or GIF.',
+        ];
+    }
+
+    /**
      * Store a newly created resource in storage.
      */
     public function store(Request $request)
@@ -99,8 +128,8 @@ class EventsController extends Controller
             'event_date' => 'required|date',
             'event_end_date' => 'nullable|date|after_or_equal:event_date',
             'event_year' => 'required|integer',
-            'event_banner' => 'nullable|image|mimes:jpeg,png,jpg,gif|max:2048',
-            'event_logo' => 'nullable|image|mimes:jpeg,png,jpg,gif|max:2048',
+            'event_banner' => 'nullable|image|mimes:jpeg,png,jpg,gif|max:'.self::MAX_IMAGE_KB,
+            'event_logo' => 'nullable|image|mimes:jpeg,png,jpg,gif|max:'.self::MAX_IMAGE_KB,
             'event_coordinator' => 'required|string',
             'event_coordinator_email' => 'required|email',
             'event_coordinator_phone' => 'nullable|string|max:50',
@@ -110,7 +139,7 @@ class EventsController extends Controller
             'is_enabled' => 'nullable|boolean',
             'show_all_locations' => 'nullable|boolean',
             'show_all_locations_draw' => 'nullable|boolean',
-        ]);
+        ], self::imageMessages());
 
         // Store banner file
         $bannerPath = null;
@@ -164,8 +193,8 @@ class EventsController extends Controller
             'event_date' => 'required|date',
             'event_end_date' => 'nullable|date|after_or_equal:event_date',
             'event_year' => 'required|integer',
-            'event_banner' => 'nullable|image|mimes:jpeg,png,jpg,gif|max:2048',
-            'event_logo' => 'nullable|image|mimes:jpeg,png,jpg,gif|max:2048',
+            'event_banner' => 'nullable|image|mimes:jpeg,png,jpg,gif|max:'.self::MAX_IMAGE_KB,
+            'event_logo' => 'nullable|image|mimes:jpeg,png,jpg,gif|max:'.self::MAX_IMAGE_KB,
             'event_coordinator' => 'required|string',
             'event_coordinator_email' => 'required|email',
             'event_coordinator_phone' => 'nullable|string|max:50',
@@ -175,7 +204,7 @@ class EventsController extends Controller
             'is_enabled' => 'nullable|boolean',
             'show_all_locations' => 'nullable|boolean',
             'show_all_locations_draw' => 'nullable|boolean',
-        ]);
+        ], self::imageMessages());
 
         // Prepare update data
         $updateData = $request->except(['event_banner', 'event_logo']);

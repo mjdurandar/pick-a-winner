@@ -101,13 +101,61 @@ const setPreview = (previewRef, file) => {
 };
 
 // File input reference
+// Largest image the server will accept, mirrored from EventsController so an
+// oversized file is refused on selection rather than after a slow upload.
+const MAX_IMAGE_KB = 2048;
+const maxImageMb = (MAX_IMAGE_KB / 1024).toFixed(1).replace(/\.0$/, '');
+const fileErrors = ref({ logo: null, banner: null });
+
+const sizeLabel = (bytes) => bytes >= 1048576
+    ? `${(bytes / 1048576).toFixed(1)} MB`
+    : `${Math.max(1, Math.round(bytes / 1024))} KB`;
+
+// The alert used to show a generic line for anything but a date problem, which
+// hid real reasons like an image being over the size limit. Show what the
+// server actually said.
+const firstError = (errors, fallback) => errors.event_end_date
+    || Object.values(errors ?? {}).find((m) => typeof m === 'string' && m)
+    || fallback;
+
+const tooBig = (file, which, inputEl) => {
+    fileErrors.value[which] = null;
+
+    if (file && file.size > MAX_IMAGE_KB * 1024) {
+        fileErrors.value[which] = `That image is ${sizeLabel(file.size)}. The limit is ${maxImageMb} MB — try resizing or exporting it at a lower quality.`;
+        if (inputEl) inputEl.value = '';
+
+        return true;
+    }
+
+    return false;
+};
+
 const handleFileChange = (event) => {
-    form.event_banner = event.target.files[0] || null; // Assign file to form
+    const file = event.target.files[0] || null;
+
+    if (tooBig(file, 'banner', event.target)) {
+        form.event_banner = null;
+        setPreview(bannerPreview, null);
+
+        return;
+    }
+
+    form.event_banner = file;
     setPreview(bannerPreview, form.event_banner);
 };
 
 const handleLogoChange = (event) => {
-    form.event_logo = event.target.files[0] || null; // Assign file to form
+    const picked = event.target.files[0] || null;
+
+    if (tooBig(picked, 'logo', event.target)) {
+        form.event_logo = null;
+        setPreview(logoPreview, null);
+
+        return;
+    }
+
+    form.event_logo = picked;
     setPreview(logoPreview, form.event_logo);
 };
 
@@ -117,6 +165,7 @@ const openCreateModal = () => {
     form.reset(); // Clear form
     existingBanner.value = null;
     existingLogo.value = null;
+    fileErrors.value = { logo: null, banner: null };
     setPreview(bannerPreview, null);
     setPreview(logoPreview, null);
     document.getElementById('event_banner').value = '';
@@ -217,7 +266,7 @@ const saveEvent = () => {
             setPreview(logoPreview, null);
         },
         onError: (errors) => {
-            Swal.fire('Error!', errors.event_end_date || 'There was an issue updating the event.', 'error');
+            Swal.fire('Error!', firstError(errors, 'There was an issue updating the event.'), 'error');
             console.log(errors);
         }
     });
@@ -232,7 +281,7 @@ const saveEvent = () => {
                 setPreview(logoPreview, null);
             },
             onError: (errors) => {
-                Swal.fire('Error!', errors.event_end_date || 'There was an issue creating the event.', 'error');
+                Swal.fire('Error!', firstError(errors, 'There was an issue creating the event.'), 'error');
                 console.log(errors);
             }
         });
@@ -924,6 +973,9 @@ const closeSheetsModal = () => {
                                 <div class="col-12 col-md-4">
                                     <label class="form-label">Event Logo</label>
                                     <input type="file" accept="image/*" @change="handleLogoChange" id="event_logo" class="form-control" />
+                                    <small v-if="fileErrors.logo" class="d-block text-danger mt-1">{{ fileErrors.logo }}</small>
+                                    <small v-else-if="form.errors.event_logo" class="d-block text-danger mt-1">{{ form.errors.event_logo }}</small>
+                                    <small v-else class="d-block text-muted mt-1">JPG, PNG or GIF, up to {{ maxImageMb }} MB.</small>
                                     <div v-if="logoPreviewSrc" class="mt-2">
                                         <img :src="logoPreviewSrc" alt="Event logo preview" class="border rounded p-1 w-100" style="height: 120px; object-fit: contain; background: #fff;" />
                                         <small class="d-block text-muted mt-1">
@@ -935,6 +987,9 @@ const closeSheetsModal = () => {
                                 <div class="col-12 col-md-4">
                                     <label class="form-label">Event Banner</label>
                                     <input type="file" accept="image/*" @change="handleFileChange" id="event_banner" class="form-control" />
+                                    <small v-if="fileErrors.banner" class="d-block text-danger mt-1">{{ fileErrors.banner }}</small>
+                                    <small v-else-if="form.errors.event_banner" class="d-block text-danger mt-1">{{ form.errors.event_banner }}</small>
+                                    <small v-else class="d-block text-muted mt-1">JPG, PNG or GIF, up to {{ maxImageMb }} MB.</small>
                                     <div v-if="bannerPreviewSrc" class="mt-2">
                                         <img :src="bannerPreviewSrc" alt="Event banner preview" class="border rounded p-1 w-100" style="height: 120px; object-fit: contain; background: #fff;" />
                                         <small class="d-block text-muted mt-1">
