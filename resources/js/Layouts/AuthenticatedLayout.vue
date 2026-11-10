@@ -21,7 +21,6 @@ const userRole = computed(() => user.value?.role);
 // User::canManageMasterSheet) so the address lives in one place and the nav
 // cannot disagree with what the routes actually allow.
 const canManageMasterSheet = computed(() => page.props.canManageMasterSheet === true);
-const canManageSms = computed(() => page.props.canManageSms === true);
 
 // Film site checks whose last run failed or found errors (admins only).
 const filmSiteAlerts = computed(() => page.props.filmSiteAlerts ?? 0);
@@ -94,6 +93,13 @@ const reviewSummary = computed(() => {
                                 >
                                     Websites
                                 </NavLink>
+                                <NavLink
+                                    v-if="userRole === 'admin'"
+                                    :href="route('sponsorDashboard.index')"
+                                    :active="route().current('sponsorDashboard.index')"
+                                >
+                                    Partners
+                                </NavLink>
                                 <!-- <NavLink
                                     v-if="userRole === 'admin' || userRole === 'host'"
                                     :href="route('mastersheet.index')"
@@ -108,13 +114,6 @@ const reviewSummary = computed(() => {
                                     target="_blank"
                                 >
                                     Pick a Winner
-                                </NavLink>
-                                <NavLink
-                                    v-if="canManageSms"
-                                    :href="route('sms.index')"
-                                    :active="route().current('sms.index')"
-                                >
-                                    SMS
                                 </NavLink>
                                 <!-- <NavLink
                                     v-if="userRole === 'admin' || userRole === 'host'"
@@ -306,6 +305,13 @@ const reviewSummary = computed(() => {
                                 >
                                     Websites
                         </ResponsiveNavLink>
+                        <ResponsiveNavLink
+                                v-if="userRole === 'admin'"
+                                    :href="route('sponsorDashboard.index')"
+                                    :active="route().current('sponsorDashboard.index')"
+                                >
+                                    Partners
+                        </ResponsiveNavLink>
                         <!-- <ResponsiveNavLink
                                 v-if="userRole === 'admin' || userRole === 'host'"
                                     :href="route('mastersheet.index')"
@@ -320,13 +326,6 @@ const reviewSummary = computed(() => {
                                     target="_blank"
                                 >
                                     Pick a Winner
-                        </ResponsiveNavLink>
-                        <ResponsiveNavLink
-                            v-if="canManageSms"
-                            :href="route('sms.index')"
-                            :active="route().current('sms.index')"
-                        >
-                            SMS
                         </ResponsiveNavLink>
                         <!-- <ResponsiveNavLink
                                 v-if="userRole === 'admin'"

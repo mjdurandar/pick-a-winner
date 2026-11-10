@@ -8,7 +8,6 @@ const props = defineProps({
     event: { type: Object, required: true },
     films: { type: Array, default: () => [] },
     counts: { type: Object, default: () => ({}) },
-    partners: { type: Array, default: () => [] },
     defaultCoordinatorPhone: { type: String, default: '' },
     maxImageKb: { type: Number, default: 2048 },
 });
@@ -103,12 +102,6 @@ function save() {
 
 const n = (v) => (v ?? 0).toLocaleString();
 
-const partnersByTier = computed(() => {
-    const out = {};
-    for (const p of props.partners) (out[p.tier || 'No tier'] ??= []).push(p);
-    return out;
-});
-
 const countries = ['AUSTRALIA & NEW ZEALAND', 'USA & CANADA', 'USA', 'Canada', 'United Kingdom', 'Europe'];
 </script>
 
@@ -145,9 +138,9 @@ const countries = ['AUSTRALIA & NEW ZEALAND', 'USA & CANADA', 'USA', 'Canada', '
                         { label: 'Screenings', value: counts.locations },
                         { label: 'Prizes', value: counts.prizes },
                         { label: 'Winners drawn', value: counts.winners },
-                    ]" :key="s.label" class="rounded-lg bg-gray-50 p-4">
-                        <p class="text-xs text-gray-500">{{ s.label }}</p>
-                        <p class="mt-0.5 text-2xl font-semibold text-gray-900">{{ n(s.value) }}</p>
+                    ]" :key="s.label" class="rounded-lg border border-gray-200 border-t-2 border-t-teal-600 bg-white p-5 shadow-sm">
+                        <p class="text-xs font-medium uppercase tracking-wide text-gray-500">{{ s.label }}</p>
+                        <p class="mt-1 text-4xl font-semibold tracking-tight text-gray-900">{{ n(s.value) }}</p>
                     </div>
                 </div>
 
@@ -283,42 +276,6 @@ const countries = ['AUSTRALIA & NEW ZEALAND', 'USA & CANADA', 'USA', 'Canada', '
                 </section>
                 </div>
 
-                <!--
-                    Partners: hidden until sponsor upload to the film sites is live.
-                    The data is already supplied by EventsController::show, so this
-                    only needs uncommenting once that ships.
-
-                                <section class="rounded-lg bg-white p-5 shadow-sm">
-                                    <div class="flex flex-wrap items-start justify-between gap-3">
-                                        <div>
-                                            <h3 class="text-base font-semibold text-gray-900">Partners</h3>
-                                            <p class="mt-1 text-sm text-gray-600">Sponsors for this event. Edited on the sponsor dashboard, so there is only one place they change.</p>
-                                        </div>
-                                        <Link :href="route('sponsorDashboard.index')"
-                                              class="shrink-0 rounded-md border border-gray-300 px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50">
-                                            Manage partners
-                                        </Link>
-                                    </div>
-
-                                    <p v-if="!partners.length" class="mt-4 text-sm text-gray-500">No partners recorded for this event.</p>
-
-                                    <div v-for="(group, tier) in partnersByTier" :key="tier" class="mt-4">
-                                        <p class="text-xs font-medium uppercase tracking-wide text-gray-500">{{ tier }}</p>
-                                        <ul class="mt-2 divide-y divide-gray-100">
-                                            <li v-for="p in group" :key="p.id" class="flex flex-wrap items-center gap-3 py-2">
-                                                <img v-if="p.logo_url" :src="p.logo_url" :alt="p.name" class="h-8 w-16 shrink-0 object-contain" />
-                                                <span v-else class="flex h-8 w-16 shrink-0 items-center justify-center rounded border border-dashed border-gray-300 text-[10px] text-gray-400">logo</span>
-                                                <p class="min-w-0 flex-1 truncate text-sm font-medium text-gray-900">{{ p.name }}</p>
-                                                <a v-if="p.website_url" :href="p.website_url" target="_blank" rel="noopener" class="max-w-[180px] truncate text-xs text-teal-700 underline">{{ p.website_url }}</a>
-                                                <span :class="['rounded px-2 py-0.5 text-xs font-medium', p.is_published ? 'bg-green-50 text-green-800' : 'bg-gray-100 text-gray-600']">
-                                                    {{ p.is_published ? 'Published' : 'Hidden' }}
-                                                </span>
-                                            </li>
-                                        </ul>
-                                    </div>
-                                </section>
-                -->
-
                 <section class="rounded-lg bg-white p-5 shadow-sm">
                     <h3 class="text-base font-semibold text-gray-900">Reports and tools</h3>
                     <p class="mt-1 text-sm text-gray-600">Everything for this event, in one place.</p>
@@ -329,7 +286,21 @@ const countries = ['AUSTRALIA & NEW ZEALAND', 'USA & CANADA', 'USA', 'Canada', '
                         <a :href="route('signup.embed', { event_uuid: event.event_uuid })" target="_blank" rel="noopener" class="rounded-md border border-gray-300 px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50">Sign-up form</a>
                         <a :href="route('pickawinner.hostguide', { event_uuid: event.event_uuid })" target="_blank" rel="noopener" class="rounded-md border border-gray-300 px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50">Host guide</a>
                         <Link :href="route('newsletterResubscribes.index', { event: event.id })" class="rounded-md border border-gray-300 px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50">Newsletter report</Link>
+                        <!-- Guarded: the partners screen is admin-only, so a host's
+                             Ziggy route list does not contain it. -->
+                        <Link v-if="route().has('sponsorDashboard.index')"
+                              :href="route('sponsorDashboard.index', { film: event.id })"
+                              class="rounded-md border border-gray-300 px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50">
+                            Partners
+                        </Link>
                     </div>
+
+                    <!-- Partners live on the film site, not here, so this is a way
+                         through rather than a section of this form. Nothing about
+                         creating or editing a film depends on it. -->
+                    <p v-if="route().has('sponsorDashboard.index')" class="mt-3 text-xs text-gray-500">
+                        Partner logos belong to the film site and are managed there — optional, and nothing here needs them.
+                    </p>
                 </section>
 
             </div>

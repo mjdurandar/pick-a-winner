@@ -35,10 +35,22 @@ return [
         ],
     ],
 
-    // The app's own SMS short links (/s/{code}). base_url lets a short domain
-    // pointed at this app be used instead of APP_URL.
-    'short_links' => [
-        'base_url' => env('SHORT_LINK_BASE_URL'),
+    // Film-tour WordPress sites the app writes to (sponsors today, possibly more
+    // later). Credentials are WordPress "application passwords" — generated per
+    // user in wp-admin, revocable on their own, and never the account password.
+    'wordpress' => [
+        'waft' => [
+            'url' => env('WP_WAFT_URL'),
+            'user' => env('WP_WAFT_USER'),
+            'app_password' => env('WP_WAFT_APP_PASSWORD'),
+        ],
+
+        // Which backing the sponsor dashboard talks to: 'wordpress' or 'mock'.
+        //
+        // Set deliberately, and never inferred. A live request that fails must
+        // surface as an error — silently serving invented sponsors instead
+        // would be far worse than a dashboard that says it is broken.
+        'sponsor_driver' => env('SPONSOR_DRIVER', 'wordpress'),
     ],
 
     'mailchimp' => [
@@ -82,21 +94,6 @@ return [
         'anz' => [
             'key' => env('MAILCHIMP_API_KEY'),
             'server' => env('MAILCHIMP_SERVER_PREFIX'),
-            // Audience the SMS scheduler creates campaigns against (the
-            // ten-character list id, not the numeric web_id).
-            'sms_list_id' => env('MAILCHIMP_SMS_LIST_ID'),
-            // Mailchimp SMS credits charged per message segment to this
-            // audience's country. Australia is 4; the grid's credit totals
-            // multiply by this. Overridable on the SMS screen.
-            'sms_credits_per_segment' => (int) env('MAILCHIMP_SMS_CREDITS_PER_SEGMENT', 4),
-            // The one account allowed on the SMS scheduler — it spends real
-            // credits. Set SMS_SCHEDULER_OWNER_EMAIL to hand it to someone else.
-            'sms_owner_email' => env('SMS_SCHEDULER_OWNER_EMAIL', 'mj@adventureentertainment.com'),
-            // Mailchimp prepends the company name and appends an opt-out line to
-            // every SMS — both compulsory in Australia — and they count toward
-            // the 160. Kept here so the grid's counter matches the builder's.
-            'sms_prefix' => env('MAILCHIMP_SMS_PREFIX', 'Adventure Entertainment: '),
-            'sms_suffix' => env('MAILCHIMP_SMS_SUFFIX', "\nText STOP to opt out"),
         ],
         'usa' => [
             'key' => env('MAILCHIMP_USA_API_KEY'),

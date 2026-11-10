@@ -18,9 +18,8 @@ use App\Http\Controllers\PickaWinnerController;
 use App\Http\Controllers\PrizeController;
 use App\Http\Controllers\ProfileController;
 use App\Http\Controllers\SheetSyncController;
-use App\Http\Controllers\ShortLinkController;
 use App\Http\Controllers\SignUpFormController;
-use App\Http\Controllers\SmsScheduleController;
+use App\Http\Controllers\SponsorDashboardController;
 use App\Http\Controllers\UsersController;
 use App\Http\Controllers\WordPressFeedController;
 use App\Http\Middleware\RoleMiddleware;
@@ -62,13 +61,6 @@ Route::get('/', function () {
 Route::get('/form/{event_uuid}', [SignUpFormController::class, 'embed'])->name('signup.embed');
 Route::post('/form/{event_uuid}', [SignUpFormController::class, 'storeEmbeddedData'])->name('signup.storeEmbedded');
 Route::post('/form/{event_uuid}/check-subscription', [SignUpFormController::class, 'checkSubscription'])->name('signup.checkSubscription');
-
-// The app's own SMS short links. Public by nature; throttled since the codes
-// are guessable-ish and each hit is a DB write.
-Route::get('/s/{code}', [ShortLinkController::class, 'redirect'])
-    ->where('code', '[A-Za-z0-9]{4,12}')
-    ->middleware('throttle:120,1')
-    ->name('short.redirect');
 
 // Read-only JSON feed for the WordPress banner plugin. uuid-gated like the
 // routes above; sits under /api/* so Laravel's default CORS paths cover it.
@@ -160,16 +152,29 @@ Route::middleware(['auth', RoleMiddleware::class.':admin'])->group(function () {
         Route::delete('/integrations/google', [GoogleIntegrationController::class, 'destroy'])->name('google.integration.destroy');
 
         // MASTER SHEET SYNC (read-only: which Google tabs feed which events)
-        // SMS scheduler: paste the planning sheet, push rows into Mailchimp as
-        // drafts or scheduled campaigns. Never sends.
-        // Gated to one account on top of admin (sms.access): it spends credits.
-        Route::middleware('sms.access')->group(function () {
-            Route::get('/sms', [SmsScheduleController::class, 'index'])->name('sms.index');
-            Route::post('/sms/paste', [SmsScheduleController::class, 'paste'])->name('sms.paste');
-            Route::post('/sms/rows', [SmsScheduleController::class, 'store'])->name('sms.store');
-            Route::post('/sms/actions', [SmsScheduleController::class, 'actions'])->name('sms.actions');
-            Route::patch('/sms/{smsSchedule}', [SmsScheduleController::class, 'update'])->name('sms.update');
-        });
+        // Sponsor Management dashboard — a proxy onto the film site's own sponsor
+        // records. Admin only; no sponsor data is stored in this app.
+        Route::get('/sponsor-dashboard', [SponsorDashboardController::class, 'index'])->name('sponsorDashboard.index');
+
+        // Groups are the unit the film sites store: one tier, one region, one
+        // season, holding the partner rows below.
+        Route::post('/sponsor-dashboard/groups', [SponsorDashboardController::class, 'storeGroup'])->name('sponsorDashboard.groups.store');
+        Route::post('/sponsor-dashboard/groups/{group}', [SponsorDashboardController::class, 'updateGroup'])->whereNumber('group')->name('sponsorDashboard.groups.update');
+        Route::delete('/sponsor-dashboard/groups/{group}', [SponsorDashboardController::class, 'destroyGroup'])->whereNumber('group')->name('sponsorDashboard.groups.destroy');
+
+        // Whether a partners page shows this group. Publishing a group only
+        // allows it to be shown; this is what puts it on a page.
+        Route::post('/sponsor-dashboard/groups/{group}/place', [SponsorDashboardController::class, 'placeGroup'])->whereNumber('group')->name('sponsorDashboard.groups.place');
+        Route::post('/sponsor-dashboard/pages/{page}/order', [SponsorDashboardController::class, 'reorderPage'])->whereNumber('page')->name('sponsorDashboard.pages.reorder');
+
+        // A partner is a row inside a group, addressed by its position. POST
+        // rather than PATCH because every one of these carries a file upload.
+        Route::post('/sponsor-dashboard/groups/{group}/partners', [SponsorDashboardController::class, 'storePartner'])->whereNumber('group')->name('sponsorDashboard.partners.store');
+        // Before the {index} routes, and {index} is digits-only: otherwise the
+        // literal "order" matches as an index and never reaches this action.
+        Route::post('/sponsor-dashboard/groups/{group}/partners/order', [SponsorDashboardController::class, 'reorderPartners'])->whereNumber('group')->name('sponsorDashboard.partners.reorder');
+        Route::post('/sponsor-dashboard/groups/{group}/partners/{index}', [SponsorDashboardController::class, 'updatePartner'])->whereNumber(['group', 'index'])->name('sponsorDashboard.partners.update');
+        Route::delete('/sponsor-dashboard/groups/{group}/partners/{index}', [SponsorDashboardController::class, 'destroyPartner'])->whereNumber(['group', 'index'])->name('sponsorDashboard.partners.destroy');
 
         Route::get('/master-sheet/sync', [SheetSyncController::class, 'index'])->name('sheetSync.index');
         Route::post('/master-sheet/sync/tabs', [SheetSyncController::class, 'tabs'])->name('sheetSync.tabs');

@@ -82,9 +82,6 @@ class EventsController extends Controller
             ],
             'defaultCoordinatorPhone' => Events::DEFAULT_COORDINATOR_PHONE,
             'maxImageKb' => self::MAX_IMAGE_KB,
-            // Partners are deliberately not loaded: the section is commented out in
-            // EventSettings.vue until sponsor upload to the film sites ships, and the
-            // sponsors table does not exist in every environment yet.
         ]);
     }
 

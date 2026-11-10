@@ -12,6 +12,9 @@ use App\Models\Prize;
 use App\Models\SignUpForm;
 use App\Models\User;
 use App\Observers\ActivityObserver;
+use App\Services\WordPress\MockSponsorService;
+use App\Services\WordPress\SponsorRepository;
+use App\Services\WordPress\WordPressSponsorService;
 use Illuminate\Auth\Events\Failed;
 use Illuminate\Auth\Events\Login;
 use Illuminate\Auth\Events\Logout;
@@ -19,6 +22,7 @@ use Illuminate\Mail\Events\MessageSending;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Vite;
 use Illuminate\Support\ServiceProvider;
+use RuntimeException;
 
 class AppServiceProvider extends ServiceProvider
 {
@@ -38,7 +42,25 @@ class AppServiceProvider extends ServiceProvider
      */
     public function register(): void
     {
-        //
+        // Sponsors live in WordPress, not here. Which WordPress — or the mock
+        // stand-in used while the post type is still unreachable — is chosen
+        // explicitly by SPONSOR_DRIVER and never inferred from a failure.
+        $this->app->bind(SponsorRepository::class, function () {
+            if (config('services.wordpress.sponsor_driver') === 'mock') {
+                return new MockSponsorService;
+            }
+
+            $site = config('services.wordpress.waft');
+
+            if (blank($site['url']) || blank($site['user']) || blank($site['app_password'])) {
+                throw new RuntimeException(
+                    'No WordPress credentials configured for sponsors. Set WP_WAFT_URL, WP_WAFT_USER and '
+                    .'WP_WAFT_APP_PASSWORD, or set SPONSOR_DRIVER=mock for local work.'
+                );
+            }
+
+            return new WordPressSponsorService($site['url'], $site['user'], $site['app_password']);
+        });
     }
 
     /**
