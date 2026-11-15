@@ -2,6 +2,7 @@
 import { ref, computed, onMounted } from 'vue';
 import Swal from 'sweetalert2';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout.vue';
+import { locationTagForSource, locationTagForShow } from '@/locationTag';
 import { Head, router } from '@inertiajs/vue3';
 import { debounce } from 'lodash';
 import axios from 'axios';
@@ -149,31 +150,17 @@ const generateLocationTags = (sourceType = 'signup_form') => {
     const eventCountryUpper = eventCountry.toUpperCase();
     const isUSA = ['USA', 'USA & CANADA', 'USA AND CANADA'].includes(eventCountryUpper);
     
-    // Everything before " - " as the location label (e.g. "Bozeman, MT - ..." -> "BOZEMAN, MT")
-    const fullLocationTag = locationName.split(' - ')[0].trim().toUpperCase();
     const locationState = (props.location.state || '').toString().trim();
 
-    // SOURCE tag: never include state — strip 2–3 letter abbrev (NSW, VIC) and/or location.state (e.g. Victoria, New South Wales)
-    let locationNoState = (fullLocationTag.replace(/,?\s+[A-Z]{2,3}$/i, '').trim()) || fullLocationTag;
-    if (locationState) {
-        const stateEsc = locationState.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-        locationNoState = (locationNoState.replace(new RegExp(`,?\\s*${stateEsc}$`, 'i'), '').trim()) || locationNoState;
-    }
-    const sourceTagLocation = locationNoState || fullLocationTag;
+    // Shared with the server so the preview matches what actually gets written.
+    const sourceTagLocation = locationTagForSource(locationName, locationState);
 
-    // SHOW tag: USA only = include state (e.g. SHOW - DENVER, CO). Australia/NZ/other = location only, no state (e.g. SHOW - SYDNEY, MELBOURNE).
-    let showTagLocation = sourceTagLocation;
-    if (isUSA) {
-        const stateFromLocation = (props.location.state || '').toString().trim().toUpperCase();
-        const matchStateInName = fullLocationTag.match(/,?\s+([A-Z]{2,3})$/i);
-        const stateInName = matchStateInName ? matchStateInName[1].toUpperCase() : '';
-        const state = stateInName || stateFromLocation;
-        if (state) {
-            const base = (fullLocationTag.replace(/,?\s+[A-Z]{2,3}$/i, '').trim()) || fullLocationTag;
-            showTagLocation = `${base}, ${state}`;
-        }
-    }
-    
+    const showTagLocation = locationTagForShow(
+        locationName,
+        locationState,
+        props.event.event_country || props.location.country || '',
+    );
+
     // Add COUNTRY tag (for reporting)
     tags.push(`COUNTRY - ${locationCountryUpper}`);
     

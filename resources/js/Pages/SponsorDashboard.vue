@@ -429,11 +429,19 @@ function deleteGroup(group) {
         <template #header>
             <div class="flex flex-wrap items-center justify-between gap-3">
                 <h2 class="text-xl font-semibold leading-tight text-gray-800">Partners</h2>
+                <!-- Three states, not two: unconfigured is neither live nor mock,
+                     and calling it "mock" would suggest work is being saved. -->
                 <span
-                    :class="isLive ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'"
+                    :class="{
+                        'bg-emerald-100 text-emerald-800': isLive,
+                        'bg-amber-100 text-amber-800': !isLive && driver === 'mock',
+                        'bg-red-100 text-red-800': driver === 'unconfigured',
+                    }"
                     class="rounded-full px-3 py-1 text-xs font-medium"
                 >
-                    {{ isLive ? 'Live — writes go to WordPress' : 'Mock — nothing reaches WordPress' }}
+                    <template v-if="isLive">Live — writes go to WordPress</template>
+                    <template v-else-if="driver === 'mock'">Mock — nothing reaches WordPress</template>
+                    <template v-else>Not connected to a film site</template>
                 </span>
             </div>
         </template>
@@ -448,8 +456,13 @@ function deleteGroup(group) {
                 </div>
 
                 <div v-if="loadError" class="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
-                    <p class="font-medium">Could not read partners from the film site.</p>
+                    <p class="font-medium">
+                        {{ driver === 'unconfigured' ? 'This app is not connected to a film site.' : 'Could not read partners from the film site.' }}
+                    </p>
                     <p class="mt-1">{{ loadError }}</p>
+                    <p v-if="driver === 'unconfigured'" class="mt-2 text-xs">
+                        Partners are stored on the film site, so nothing can be shown or saved until the connection is set up. No partner data is lost.
+                    </p>
                 </div>
 
                 <!-- Arrived from a film. Say so plainly, including that a film is

@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Models\Events;
 use App\Models\Location;
+use App\Support\LocationTag;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
 
@@ -136,8 +137,8 @@ class AutoMailchimpService
         $country = $event && $event->event_country ? $event->event_country : ($location->country ?? '');
         $state = trim((string) ($location->state ?? ''));
 
-        $showLoc = $this->locationTagForShow($location->name, $state, $country);
-        $sourceLoc = $this->locationTagForSource($location->name, $state);
+        $showLoc = LocationTag::show($location->name, $state, $country);
+        $sourceLoc = LocationTag::source($location->name, $state);
 
         $tags = [
             'SHOW - '.$showLoc,
@@ -150,64 +151,6 @@ class AutoMailchimpService
         }
 
         return array_values(array_filter(array_merge($tags, $defaultTags), fn ($t) => is_string($t) && trim($t) !== ''));
-    }
-
-    /**
-     * SOURCE-tag location label. Strips the location's state (or a trailing 2-3 letter
-     * abbreviation like VIC/NSW) so the state is never part of the tag. Mirrors
-     * locationTagForSource() in LocationPage.vue.
-     */
-    private function locationTagForSource(?string $name, string $state): string
-    {
-        $part = trim(explode(' - ', (string) $name)[0]);
-        if ($part === '') {
-            return 'LOC';
-        }
-        if ($state !== '') {
-            $out = preg_replace('/,?\s*'.preg_quote($state, '/').'$/i', '', $part);
-        } else {
-            $out = preg_replace('/,?\s+[A-Z]{2,3}$/i', '', $part);
-        }
-        $out = $out === null ? $part : trim($out);
-
-        return strtoupper($out !== '' ? $out : $part);
-    }
-
-    /**
-     * SHOW-tag location label. USA keeps the state ("DENVER, CO"); Australia/NZ/other
-     * strip the trailing state abbreviation ("FALLS CREEK VIC" -> "FALLS CREEK").
-     * Mirrors locationTagForShow() in LocationPage.vue.
-     */
-    private function locationTagForShow(?string $name, string $state, ?string $country): string
-    {
-        $part = trim(explode(' - ', (string) $name)[0]);
-        if ($part === '') {
-            return 'LOC';
-        }
-        $c = strtoupper(trim((string) $country));
-        $isUSA = in_array($c, ['USA', 'USA & CANADA', 'USA AND CANADA'], true);
-
-        if ($isUSA && $state !== '') {
-            $base = preg_replace('/,?\s+[A-Z]{2,3}$/i', '', $part);
-            $base = $base === null ? $part : trim($base);
-
-            return strtoupper($base.', '.$state);
-        }
-        if ($isUSA) {
-            return strtoupper($part);
-        }
-
-        // Non-USA: strip a trailing 2-3 letter abbreviation, then the full state name if given.
-        $out = preg_replace('/,?\s+[A-Z]{2,3}$/i', '', $part);
-        $out = $out === null || trim($out) === '' ? $part : trim($out);
-        if ($state !== '') {
-            $stripped = preg_replace('/,?\s*'.preg_quote($state, '/').'$/i', '', $out);
-            if ($stripped !== null && trim($stripped) !== '') {
-                $out = trim($stripped);
-            }
-        }
-
-        return strtoupper($out !== '' ? $out : $part);
     }
 
     /**
@@ -230,38 +173,24 @@ class AutoMailchimpService
             // Generate location-specific tags regardless of auto-sync status
             $locationName = $location->name;
             $filmTour = $settings['film_tour'];
-            $year = date('Y');
+            // The event's year, not today's: a 2026 tour synced in January 2027
+            // must still tag 2026. Matches buildLocationTags().
+            $year = $location->event && $location->event->event_year
+                ? $location->event->event_year
+                : date('Y');
 
-            // Extract everything before hyphen for both SHOW and SOURCE tags
-            $locationTag = explode(' - ', $locationName)[0];
-            $locationTagUpper = strtoupper($locationTag);
-
-            // Process location tags for USA/CANADA events
+            // The same helpers buildLocationTags() uses. This used to repeat the
+            // logic inline and got it wrong three ways: the state was only ever
+            // stripped for USA/Canada, so Australian tags kept it ("SAWTELL NSW");
+            // the stripping used str_replace, which ate the abbreviation wherever
+            // it appeared ("INDIANAPOLIS IN" -> "DIANAPOLIS"); and the year came
+            // from the clock rather than the event.
             $event = $location->event;
-            $eventCountry = strtoupper($event->event_country ?? '');
-            $isUsaOrCanada = in_array($eventCountry, ['USA', 'CANADA', 'USA & CANADA']);
+            $country = $event && $event->event_country ? $event->event_country : ($location->country ?? '');
+            $state = trim((string) ($location->state ?? ''));
 
-            // Extract state from location tag (last 2-3 letter word) for USA/CANADA
-            $locationParts = explode(' ', trim($locationTagUpper));
-            $state = '';
-            $locationWithoutState = $locationTagUpper;
-
-            if ($isUsaOrCanada && count($locationParts) > 1) {
-                $lastPart = end($locationParts);
-                // Check if last part is a state code (2-3 uppercase letters)
-                if (preg_match('/^[A-Z]{2,3}$/', $lastPart)) {
-                    $state = $lastPart;
-                    $locationWithoutState = trim(str_replace($state, '', $locationTagUpper));
-                }
-            }
-
-            // Format tags
-            $showTagLocation = $isUsaOrCanada && $state
-                ? trim($locationWithoutState).', '.$state
-                : $locationTagUpper;
-            $sourceTagLocation = $isUsaOrCanada && $state
-                ? trim($locationWithoutState)
-                : $locationTagUpper;
+            $showTagLocation = LocationTag::show($locationName, $state, $country);
+            $sourceTagLocation = LocationTag::source($locationName, $state);
 
             $sourceTag = 'SOURCE - '.strtoupper($filmTour).' '.$sourceTagLocation.' COMP '.$year;
             $showTag = 'SHOW - '.$showTagLocation;

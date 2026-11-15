@@ -9,6 +9,7 @@ use App\Models\Prize;
 use App\Models\SignUpForm;
 use App\Services\AutoMailchimpService;
 use App\Services\MailchimpService;
+use App\Support\LocationTag;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
@@ -514,30 +515,16 @@ class AttendeesController extends Controller
     {
         $manualTagsStr = $manualTagsStr ?? '';
         $locationName = $row['location_name'] ?? '';
-        $extracted = $locationName;
-        if (strpos($locationName, ' - ') !== false) {
-            $extracted = trim(explode(' - ', $locationName, 2)[0] ?? '');
-        }
         $eventYear = $event->event_year ?? date('Y');
-        $eventCountry = strtoupper($event->event_country ?? '');
-        $isUsaOrCanada = in_array($eventCountry, ['USA', 'CANADA', 'USA & CANADA']);
-        // Always split off a trailing 2-3 letter state code (e.g. "MELBOURNE VIC" -> "MELBOURNE").
-        // For USA/Canada the state is re-appended to the SHOW tag; for AU/NZ/other it is dropped entirely.
-        $state = '';
-        $locationWithoutState = strtoupper($extracted);
-        if ($extracted !== '') {
-            $parts = preg_split('/\s+/', strtoupper($extracted), -1, PREG_SPLIT_NO_EMPTY);
-            if (count($parts) > 1 && preg_match('/^[A-Z]{2,3}$/', end($parts))) {
-                $state = end($parts);
-                $locationWithoutState = trim(implode(' ', array_slice($parts, 0, -1)));
-            }
-        }
+
+        // These rows are a pasted spreadsheet, so there is no location record to
+        // read a state from — only whatever is written into the name. SHOW keeps
+        // the state for USA and Canada; SOURCE never carries one.
         $tags = [];
-        if ($extracted !== '') {
-            $showTag = $isUsaOrCanada && $state ? "{$locationWithoutState}, {$state}" : $locationWithoutState;
-            $sourceTag = strtoupper($defaultSourceWord).' '.$locationWithoutState.' COMP '.$eventYear;
-            $tags[] = 'SHOW - '.$showTag;
-            $tags[] = 'SOURCE - '.$sourceTag;
+        if (LocationTag::label($locationName) !== '') {
+            $tags[] = 'SHOW - '.LocationTag::show($locationName, null, $event->event_country ?? '');
+            $tags[] = 'SOURCE - '.strtoupper($defaultSourceWord).' '
+                .LocationTag::source($locationName).' COMP '.$eventYear;
         }
         $manual = array_map('trim', array_filter(explode(',', $manualTagsStr)));
         $manual = array_map('strtoupper', $manual);

@@ -1,6 +1,7 @@
 <script setup>
 import { ref, computed, watch } from 'vue';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout.vue';
+import { locationTagForSource, locationTagForShow, stateInName, stripState } from '@/locationTag';
 import { Head, usePage } from '@inertiajs/vue3';
 import { router } from '@inertiajs/vue3';
 import Swal from 'sweetalert2';
@@ -63,40 +64,6 @@ const isSettingsLoading = ref(false);
 const selectedCountry = ref(null);
 const selectedCategory = ref('');
 
-// Build location tag for SOURCE only: part before " - ", state excluded (SOURCE tag never includes state)
-const locationTagForSource = (name, stateOptional) => {
-    const part = (name || '').split(' - ')[0].trim();
-    if (!part) return 'LOC';
-    let out = part;
-    if (stateOptional && String(stateOptional).trim()) {
-        const state = String(stateOptional).trim();
-        out = part.replace(new RegExp(`,?\\s*${state.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i'), '').trim();
-    } else {
-        out = part.replace(/,?\s+[A-Z]{2,3}$/i, '').trim();
-    }
-    return (out || part).toUpperCase();
-};
-
-// Build location tag for SHOW only: USA = include state (e.g. "DENVER, CO"); Australia/NZ/other = location only, no state (strip state abbrev or full state name)
-const locationTagForShow = (name, stateOptional, countryOptional) => {
-    const part = (name || '').split(' - ')[0].trim();
-    if (!part) return 'LOC';
-    const country = (countryOptional || '').trim().toUpperCase();
-    const isUSA = country === 'USA' || country === 'USA & CANADA' || country === 'USA AND CANADA';
-    const state = (stateOptional || '').trim();
-    if (isUSA && state) {
-        const base = part.replace(/,?\s+[A-Z]{2,3}$/i, '').trim();
-        return (base + ', ' + state).toUpperCase();
-    }
-    if (isUSA) return part.toUpperCase();
-    // Non-USA: strip 2–3 letter abbrev (NSW, VIC) and/or full state name (Victoria, New South Wales) from end
-    let out = part.replace(/,?\s+[A-Z]{2,3}$/i, '').trim() || part;
-    if (state) {
-        const stateEsc = state.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-        out = out.replace(new RegExp(`,?\\s*${stateEsc}$`, 'i'), '').trim() || out;
-    }
-    return (out || part).toUpperCase();
-};
 // Add computed property for tag preview
 const tagPreview = computed(() => {
     if (!mailchimpSettings.value.film_tour) return [];
@@ -497,14 +464,10 @@ const extractStateFromName = (name) => {
         locationPart = parts[0].trim();
     }
     
-    // Check if location part contains state (2-3 letter abbreviation at the end)
-    // Pattern: "Location ST" where ST is 2-3 uppercase letters
-    const stateMatch = locationPart.match(/^(.+?)\s+([A-Z]{2,3})$/);
-    if (stateMatch) {
-        return stateMatch[2].trim();
-    }
-    
-    return '';
+    // Only a real abbreviation counts. Matching any trailing 2-3 letter word
+    // pulled "Bay" out of "Byron Bay" as the state, and saving the form then
+    // wrote the truncated name back to the location.
+    return stateInName(locationPart);
 };
 
 // Function to extract location name without state
@@ -520,11 +483,8 @@ const extractLocationName = (name) => {
         cinema = parts[1]?.trim() || '';
     }
     
-    // Remove state if present (2-3 letter abbreviation at the end)
-    const stateMatch = locationPart.match(/^(.+?)\s+([A-Z]{2,3})$/);
-    if (stateMatch) {
-        locationPart = stateMatch[1].trim();
-    }
+    // Same rule as extractStateFromName: a real abbreviation, not any short word.
+    locationPart = stripState(locationPart);
     
     // Reconstruct name without state
     if (cinema) {

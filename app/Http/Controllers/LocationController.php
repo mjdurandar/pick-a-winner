@@ -10,6 +10,7 @@ use App\Models\TicketAttendee;
 use App\Services\AutoMailchimpService;
 use App\Services\LocationValueParser;
 use App\Services\MailchimpService;
+use App\Support\LocationTag;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -1301,32 +1302,13 @@ class LocationController extends Controller
             $locationTag = explode(' - ', $locationName)[0];
             $locationTagUpper = strtoupper($locationTag);
 
-            // SHOW tag: USA & Canada event only = include state. Australia/NZ/other event = location only, no state. Use event country for this decision.
-            $eventCountryUpper = strtoupper($event->event_country ?? $location->country ?? '');
-            $isUSA = in_array($eventCountryUpper, ['USA', 'USA & CANADA', 'USA AND CANADA']);
+            // SHOW keeps the state for USA and Canada; SOURCE never carries one,
+            // in any country. Both come from LocationTag so this screen, the
+            // sign-up sync and the previews cannot drift apart again.
+            $eventCountry = $event->event_country ?? $location->country ?? '';
             $locationCountry = strtoupper($location->country ?? $event->event_country ?? '');
-            $sourceTagLocation = trim(preg_replace('/,?\s+[A-Z]{2,3}$/i', '', $locationTagUpper));
-            if (! empty($location->state)) {
-                $stateEsc = preg_quote(trim(strtoupper($location->state)), '/');
-                $stripped = trim(preg_replace('/,?\s*'.$stateEsc.'$/i', '', $sourceTagLocation));
-                if ($stripped !== '') {
-                    $sourceTagLocation = $stripped;
-                }
-            }
-            $locationParts = explode(' ', trim($locationTagUpper));
-            $stateFromName = '';
-            $locationWithoutState = $locationTagUpper;
-            if ($isUSA && count($locationParts) > 1) {
-                $lastPart = end($locationParts);
-                if (preg_match('/^[A-Z]{2,3}$/', $lastPart)) {
-                    $stateFromName = $lastPart;
-                    $locationWithoutState = trim(str_replace($lastPart, '', $locationTagUpper));
-                }
-            }
-            $state = $stateFromName ?: trim(strtoupper($location->state ?? ''));
-            $showTagLocation = ($isUSA && $state)
-                ? trim($locationWithoutState).', '.$state
-                : $sourceTagLocation;
+            $sourceTagLocation = LocationTag::source($locationName, $location->state);
+            $showTagLocation = LocationTag::show($locationName, $location->state, $eventCountry);
 
             // Get default tags
             $defaultTags = [];
@@ -1549,32 +1531,13 @@ class LocationController extends Controller
             foreach ($locations as $location) {
                 $locationName = $location->name;
                 $locationCountry = $location->country ?? '';
-                $locationTag = explode(' - ', $locationName)[0];
-                $locationTagUpper = strtoupper($locationTag);
-                $locCountryUpper = strtoupper($locationCountry);
-                $isUSA = in_array($eventCountryUpper ?: $locCountryUpper, ['USA', 'USA & CANADA', 'USA AND CANADA']);
-                $sourceTagLocation = trim(preg_replace('/,?\s+[A-Z]{2,3}$/i', '', $locationTagUpper));
-                if (! empty($location->state)) {
-                    $stateEsc = preg_quote(trim(strtoupper($location->state)), '/');
-                    $stripped = trim(preg_replace('/,?\s*'.$stateEsc.'$/i', '', $sourceTagLocation));
-                    if ($stripped !== '') {
-                        $sourceTagLocation = $stripped;
-                    }
-                }
-                $locationParts = explode(' ', trim($locationTagUpper));
-                $stateFromName = '';
-                $locationWithoutState = $locationTagUpper;
-                if ($isUSA && count($locationParts) > 1) {
-                    $lastPart = end($locationParts);
-                    if (preg_match('/^[A-Z]{2,3}$/', $lastPart)) {
-                        $stateFromName = $lastPart;
-                        $locationWithoutState = trim(str_replace($lastPart, '', $locationTagUpper));
-                    }
-                }
-                $state = $stateFromName ?: trim(strtoupper($location->state ?? ''));
-                $showTagLocation = ($isUSA && $state)
-                    ? trim($locationWithoutState).', '.$state
-                    : $sourceTagLocation;
+                // Same rule as the single-location sync above.
+                $sourceTagLocation = LocationTag::source($locationName, $location->state);
+                $showTagLocation = LocationTag::show(
+                    $locationName,
+                    $location->state,
+                    $eventCountryUpper ?: $locationCountry,
+                );
 
                 // Get ticket attendees for this location
                 $ticketAttendees = TicketAttendee::where('location_id', $location->id)->get();

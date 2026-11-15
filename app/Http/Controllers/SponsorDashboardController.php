@@ -37,7 +37,20 @@ class SponsorDashboardController extends Controller
     /** Region and season terms change about once a year; reading them is slow. */
     private const TAXONOMY_CACHE_MINUTES = 30;
 
-    public function __construct(protected SponsorRepository $partners) {}
+    private ?SponsorRepository $repository = null;
+
+    /**
+     * Resolved on use, not injected.
+     *
+     * The binding throws when no WordPress credentials are set, and a
+     * constructor dependency would turn that into a 500 before any action
+     * runs — from a link in the main nav. Resolving here lets the screen say
+     * what is wrong instead.
+     */
+    private function partners(): SponsorRepository
+    {
+        return $this->repository ??= app(SponsorRepository::class);
+    }
 
     public function index(Request $request): Response
     {
@@ -92,8 +105,8 @@ class SponsorDashboardController extends Controller
         };
 
         return Inertia::render('SponsorDashboard', [
-            'driver' => $this->partners->driver(),
-            'isLive' => $this->partners->isLive(),
+            'driver' => $guard(fn () => $this->partners()->driver(), 'unconfigured'),
+            'isLive' => $guard(fn () => $this->partners()->isLive(), false),
             'sites' => $sites,
             'filters' => $filters,
             // The film that was asked for, so the screen can say whose partners
@@ -108,18 +121,21 @@ class SponsorDashboardController extends Controller
             // year at most, and reading them costs two seconds. Cached, keyed
             // by driver so mock and live never share an entry.
             'taxonomies' => fn () => $guard(fn () => $this->cachedTaxonomies(), ['region' => [], 'season' => []]),
-            'groups' => fn () => $guard(fn () => $this->partners->groups($filters), []),
+            'groups' => fn () => $guard(fn () => $this->partners()->groups($filters), []),
             // Which pages exist and which groups each shows. A group on no page
             // is invisible however it is tagged, so the screen has to say so.
-            'pages' => fn () => $guard(fn () => $this->partners->pages(), []),
+            'pages' => fn () => $guard(fn () => $this->partners()->pages(), []),
             // Declared after the closures above so it sees whether they failed.
             'loadError' => fn () => $failed,
             'maxLogoKb' => self::MAX_LOGO_KB,
             // For deep links into wp-admin. The site address only, never the
             // credentials that go with it.
-            'siteUrl' => $this->partners->isLive()
-                ? rtrim((string) config('services.wordpress.waft.url'), '/')
-                : null,
+            'siteUrl' => $guard(
+                fn () => $this->partners()->isLive()
+                    ? rtrim((string) config('services.wordpress.waft.url'), '/')
+                    : null,
+                null,
+            ),
         ]);
     }
 
@@ -138,7 +154,7 @@ class SponsorDashboardController extends Controller
         ]);
 
         try {
-            $this->partners->createGroup($data);
+            $this->partners()->createGroup($data);
         } catch (Throwable $e) {
             return back()->with('error', $e->getMessage());
         }
@@ -159,7 +175,7 @@ class SponsorDashboardController extends Controller
         ]);
 
         try {
-            $this->partners->updateGroup($group, $data);
+            $this->partners()->updateGroup($group, $data);
         } catch (Throwable $e) {
             return back()->with('error', $e->getMessage());
         }
@@ -170,7 +186,7 @@ class SponsorDashboardController extends Controller
     public function destroyGroup(int $group): RedirectResponse
     {
         try {
-            $this->partners->deleteGroup($group);
+            $this->partners()->deleteGroup($group);
         } catch (Throwable $e) {
             return back()->with('error', $e->getMessage());
         }
@@ -194,8 +210,8 @@ class SponsorDashboardController extends Controller
 
         try {
             $data['show']
-                ? $this->partners->placeGroup($data['page_id'], $group)
-                : $this->partners->unplaceGroup($data['page_id'], $group);
+                ? $this->partners()->placeGroup($data['page_id'], $group)
+                : $this->partners()->unplaceGroup($data['page_id'], $group);
         } catch (Throwable $e) {
             return back()->with('error', $e->getMessage());
         }
@@ -214,13 +230,13 @@ class SponsorDashboardController extends Controller
         try {
             // Before the logo: an upload that lands while the group cannot be
             // written would orphan an image in the media library.
-            $this->partners->assertWritable();
+            $this->partners()->assertWritable();
 
             if ($logo = $this->uploadLogo($request)) {
                 $data = array_merge($data, $logo);
             }
 
-            $this->partners->addPartner($group, $data);
+            $this->partners()->addPartner($group, $data);
         } catch (Throwable $e) {
             return back()->with('error', $e->getMessage());
         }
@@ -233,13 +249,13 @@ class SponsorDashboardController extends Controller
         $data = $this->validatedPartner($request);
 
         try {
-            $this->partners->assertWritable();
+            $this->partners()->assertWritable();
 
             if ($logo = $this->uploadLogo($request)) {
                 $data = array_merge($data, $logo);
             }
 
-            $this->partners->updatePartner($group, $index, $data);
+            $this->partners()->updatePartner($group, $index, $data);
         } catch (Throwable $e) {
             return back()->with('error', $e->getMessage());
         }
@@ -256,7 +272,7 @@ class SponsorDashboardController extends Controller
         ]);
 
         try {
-            $this->partners->reorderPartners($group, array_map('intval', $data['order']));
+            $this->partners()->reorderPartners($group, array_map('intval', $data['order']));
         } catch (Throwable $e) {
             return back()->with('error', $e->getMessage());
         }
@@ -273,7 +289,7 @@ class SponsorDashboardController extends Controller
         ]);
 
         try {
-            $this->partners->reorderPage($page, array_map('intval', $data['order']));
+            $this->partners()->reorderPage($page, array_map('intval', $data['order']));
         } catch (Throwable $e) {
             return back()->with('error', $e->getMessage());
         }
@@ -284,7 +300,7 @@ class SponsorDashboardController extends Controller
     public function destroyPartner(int $group, int $index): RedirectResponse
     {
         try {
-            $this->partners->removePartner($group, $index);
+            $this->partners()->removePartner($group, $index);
         } catch (Throwable $e) {
             return back()->with('error', $e->getMessage());
         }
@@ -321,7 +337,7 @@ class SponsorDashboardController extends Controller
             return null;
         }
 
-        $uploaded = $this->partners->uploadLogo($request->file('logo'));
+        $uploaded = $this->partners()->uploadLogo($request->file('logo'));
 
         return ['logo_id' => $uploaded['id'], 'logo_url' => $uploaded['url']];
     }
@@ -338,9 +354,9 @@ class SponsorDashboardController extends Controller
     private function cachedTaxonomies(): array
     {
         return Cache::remember(
-            'sponsor_taxonomies:'.$this->partners->driver(),
+            'sponsor_taxonomies:'.$this->partners()->driver(),
             now()->addMinutes(self::TAXONOMY_CACHE_MINUTES),
-            fn () => $this->partners->taxonomies(),
+            fn () => $this->partners()->taxonomies(),
         );
     }
 
@@ -368,6 +384,6 @@ class SponsorDashboardController extends Controller
 
     private function where(): string
     {
-        return $this->partners->isLive() ? 'WordPress' : 'the mock store (nothing was sent to WordPress)';
+        return $this->partners()->isLive() ? 'WordPress' : 'the mock store (nothing was sent to WordPress)';
     }
 }
