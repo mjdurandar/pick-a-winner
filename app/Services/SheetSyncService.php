@@ -531,6 +531,20 @@ class SheetSyncService
      * @param  array<string, mixed>  $attributes
      * @return array<string, array{0: mixed, 1: mixed}>
      */
+    /**
+     * What a sheet row would change about a location.
+     *
+     * Public so the review screen can rebind a row to a location an admin has
+     * recognised as the same screening, and show what that would change.
+     *
+     * @param  array<string, mixed>  $attributes
+     * @return array<string, array{0: mixed, 1: mixed}>
+     */
+    public function diffFor(Location $location, array $attributes): array
+    {
+        return $this->diff($location, $attributes);
+    }
+
     protected function diff(Location $location, array $attributes): array
     {
         $diff = [];

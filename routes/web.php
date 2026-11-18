@@ -187,6 +187,8 @@ Route::middleware(['auth', RoleMiddleware::class.':admin'])->group(function () {
         Route::post('/master-sheet/sync/sources/{sheetSource}/discard', [SheetSyncController::class, 'discard'])->name('sheetSync.discard');
         Route::delete('/master-sheet/sync/sources/{sheetSource}/missing/{sheetSourceChange}', [SheetSyncController::class, 'removeLocation'])->name('sheetSync.removeLocation');
         Route::post('/master-sheet/sync/sources/{sheetSource}/missing/{sheetSourceChange}/keep', [SheetSyncController::class, 'keepLocation'])->name('sheetSync.keepLocation');
+        // Rebind a proposed new screening to the location it turned out to be.
+        Route::post('/master-sheet/sync/sources/{sheetSource}/changes/{sheetSourceChange}/link', [SheetSyncController::class, 'linkToExisting'])->name('sheetSync.linkToExisting');
     });
 
     // FILM SITE CHECK (read-only: compares a film site's published shows with an

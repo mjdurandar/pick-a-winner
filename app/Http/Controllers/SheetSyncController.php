@@ -322,6 +322,71 @@ class SheetSyncController extends Controller
      * and prizes, so the count is re-read here and a location carrying either has
      * to be confirmed by typing DELETE. The sync itself never calls this.
      */
+    /**
+     * Point a new-screening row at the existing location it resembles.
+     *
+     * The sync cannot tell a rename from a genuinely new screening, so it
+     * proposes a create and says what it looks like. This is the admin
+     * answering that: the row becomes an ordinary update, and approving it
+     * renames the location in place instead of building an empty copy beside
+     * it and leaving the attendees on the one nobody is looking at.
+     *
+     * The location is taken from the server's own hint, never from the request:
+     * a row may only be bound to the screening the sync itself matched.
+     */
+    public function linkToExisting(SheetSource $sheetSource, SheetSourceChange $sheetSourceChange): RedirectResponse
+    {
+        if ($sheetSourceChange->sheet_source_id !== $sheetSource->id
+            || $sheetSourceChange->action !== SheetSourceChange::ACTION_CREATE) {
+            return back()->with('error', 'That row is not a new screening waiting to be approved.');
+        }
+
+        $hint = $this->duplicateHints($sheetSource, collect([$sheetSourceChange]))[$sheetSourceChange->id] ?? null;
+
+        if (! $hint) {
+            return back()->with('error', 'That row no longer looks like an existing location. Re-run the tab and check it again.');
+        }
+
+        $location = Location::find($hint['id']);
+
+        if (! $location) {
+            return back()->with('error', 'That location has since been removed.');
+        }
+
+        // Another row of this run may already be updating it, and two rows
+        // writing to one location would have the second quietly win.
+        $taken = SheetSourceChange::where('sheet_source_id', $sheetSource->id)
+            ->where('id', '!=', $sheetSourceChange->id)
+            ->where('location_id', $location->id)
+            ->whereIn('action', [SheetSourceChange::ACTION_UPDATE, SheetSourceChange::ACTION_UNCHANGED])
+            ->exists();
+
+        if ($taken) {
+            return back()->with('error', 'Another row of this tab is already updating that location.');
+        }
+
+        $diff = $this->sync->diffFor($location, $sheetSourceChange->payload ?? []);
+
+        $sheetSourceChange->update([
+            'action' => $diff === []
+                ? SheetSourceChange::ACTION_UNCHANGED
+                : SheetSourceChange::ACTION_UPDATE,
+            'location_id' => $location->id,
+            'diff' => $diff === [] ? null : $diff,
+        ]);
+
+        // The location is no longer absent from the sheet, so its own row stops
+        // offering to delete it.
+        SheetSourceChange::where('sheet_source_id', $sheetSource->id)
+            ->where('action', SheetSourceChange::ACTION_MISSING)
+            ->where('location_id', $location->id)
+            ->delete();
+
+        return back()->with('success', $diff === []
+            ? 'That row now matches the existing location, and nothing needs changing.'
+            : 'That row will now update the existing location instead of creating a copy.');
+    }
+
     public function removeLocation(Request $request, SheetSource $sheetSource, SheetSourceChange $sheetSourceChange): RedirectResponse
     {
         if ($sheetSourceChange->sheet_source_id !== $sheetSource->id

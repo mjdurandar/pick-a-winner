@@ -222,6 +222,39 @@ async function removeMissing(source, change) {
 }
 
 /**
+ * Say that a proposed new screening is in fact the location it resembles.
+ *
+ * The row becomes an ordinary update, so approving renames that location in
+ * place and everything attached to it stays attached. The alternative is to
+ * approve the row as it stands, which is what builds the second copy.
+ */
+async function linkToExisting(source, change) {
+    const d = change.duplicate_of;
+    const holds = [];
+    if (d.attendees) holds.push(`${d.attendees} attendee${d.attendees === 1 ? '' : 's'}`);
+    if (d.prizes) holds.push(`${d.prizes} prize${d.prizes === 1 ? '' : 's'}`);
+
+    const result = await Swal.fire({
+        icon: 'question',
+        title: 'Update the existing location?',
+        html: `This row will update <b>${d.name}</b> instead of creating a copy.<br><br>`
+            + `It becomes <b>${change.payload?.name ?? change.label}</b>`
+            + (holds.length ? `, keeping its ${holds.join(' and ')}` : '')
+            + '.<br><br>Nothing is written until you approve the batch.',
+        showCancelButton: true,
+        confirmButtonText: 'Update that one',
+        confirmButtonColor: '#0d9488',
+    });
+
+    if (!result.isConfirmed) return;
+
+    router.post(route('sheetSync.linkToExisting', { sheetSource: source.id, sheetSourceChange: change.id }), {}, {
+        preserveScroll: true,
+        onSuccess: () => { if (openSource.value === source.id) loadChanges(source.id); },
+    });
+}
+
+/**
  * Keep a location the sheet has stopped mentioning. It stops being managed by
  * the tab, so no future run asks about it again.
  */
@@ -860,10 +893,15 @@ const flash = computed(() => page.props.flash ?? {});
                                                 A new location starts empty.
                                             </p>
 
-                                            <p class="mt-1.5">
-                                                Approving creates a second copy. Make the two names identical &mdash; in the
-                                                sheet or on the locations screen &mdash; and it will update that one instead.
-                                            </p>
+                                            <div class="mt-2 flex flex-wrap items-center gap-2">
+                                                <button type="button" @click="linkToExisting(source, change)"
+                                                        class="rounded border border-teal-300 bg-white px-2 py-1 text-[11px] font-medium text-teal-800 hover:bg-teal-50">
+                                                    Update that location instead
+                                                </button>
+                                                <span class="text-[11px] text-orange-800/80">
+                                                    or leave it and approve, to create a second copy
+                                                </span>
+                                            </div>
                                         </div>
 
                                         <!-- A screening the sheet has stopped listing: what deleting it would cost,
