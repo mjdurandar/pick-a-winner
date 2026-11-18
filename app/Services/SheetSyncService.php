@@ -490,6 +490,21 @@ class SheetSyncService
         return $pairings;
     }
 
+    /**
+     * Whether a time actually names a session.
+     *
+     * The Time column is often left blank, and locations.time is NOT NULL, so a
+     * screening whose row had no time is stored as 'TBA'. Both mean the same
+     * thing — nobody has said when — and neither can tell two sessions of one
+     * night apart.
+     */
+    public static function hasTime(?string $time): bool
+    {
+        $time = trim((string) $time);
+
+        return $time !== '' && strcasecmp($time, 'TBA') !== 0;
+    }
+
     protected function matchLocation($existing, ?string $name, array $attributes, array $claimed): ?Location
     {
         if ($name === null) {
@@ -520,11 +535,24 @@ class SheetSyncService
             return $onDate->first();
         }
 
-        // Several that night and none at this time. Which one moved is a guess,
-        // and guessing swaps the times of two live screenings — taking their
-        // attendees and prizes with them. Reported as a new screening instead,
-        // where the duplicate hint puts it in front of an admin.
         if ($onDate->count() > 1) {
+            // A row with no time names no session, so there is nothing here to
+            // guess *between* — and refusing stands up a brand new screening on
+            // every single run, each one reported as dropped the moment the next
+            // run cannot find a row for it. The night's first session is taken
+            // instead; a row carrying no time never writes one, so matching the
+            // wrong session of the night still changes nothing about its time.
+            if (! self::hasTime($time)) {
+                return $onDate
+                    ->sortBy(fn (Location $l) => self::hasTime($l->time) ? '0'.$l->time : '1')
+                    ->first();
+            }
+
+            // Several that night and none at this time. Which one moved is a
+            // guess, and guessing swaps the times of two live screenings —
+            // taking their attendees and prizes with them. Reported as a new
+            // screening instead, where the duplicate hint puts it in front of
+            // an admin.
             return null;
         }
 

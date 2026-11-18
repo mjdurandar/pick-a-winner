@@ -595,9 +595,16 @@ class SheetSyncController extends Controller
                     return false;
                 }
 
-                // Same night, same time: one screening written two ways.
                 if ($candidate['key'] === $key) {
-                    return ($change->payload['time'] ?? null) === ($location->time ?? null);
+                    $rowTime = $change->payload['time'] ?? null;
+
+                    // Same night, same time: one screening written two ways.
+                    // A different time is the ordinary second session of a
+                    // night and worth no warning — unless the row carries no
+                    // time at all, which names no session and so is far more
+                    // likely to be the screening already here than a new one.
+                    return $rowTime === ($location->time ?? null)
+                        || ! SheetSyncService::hasTime($rowTime);
                 }
 
                 // Or spelled almost the same way. Time is deliberately not asked
