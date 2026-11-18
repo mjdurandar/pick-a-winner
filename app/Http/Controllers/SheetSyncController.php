@@ -15,6 +15,7 @@ use App\Models\TicketAttendee;
 use App\Services\GoogleOAuth;
 use App\Services\GoogleSheetsApi;
 use App\Services\SheetSyncService;
+use App\Support\LocationData;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -232,7 +233,7 @@ class SheetSyncController extends Controller
         // rather than stored on the change, because attendees keep signing up
         // after the plan was parked and a stale number is the one number that
         // must not be wrong on a delete confirmation.
-        $cost = $this->deletionCost($changes);
+        $cost = $this->deletionCost($sheetSource, $changes);
 
         // Creates that look like a location the event already has, so a name the
         // sheet spells slightly differently is caught before it becomes a second
@@ -251,6 +252,7 @@ class SheetSyncController extends Controller
                 'skip_reason' => $c->skip_reason,
                 'attendees' => $cost[$c->location_id]['attendees'] ?? 0,
                 'prizes' => $cost[$c->location_id]['prizes'] ?? 0,
+                'signups' => $cost[$c->location_id]['signups'] ?? 0,
                 'duplicate_of' => $hints[$c->id] ?? null,
             ]);
 
@@ -403,23 +405,28 @@ class SheetSyncController extends Controller
             return back()->with('success', 'That location had already been removed.');
         }
 
-        $attendees = TicketAttendee::where('location_id', $location->id)->count();
-        $prizes = Prize::where('location_id', $location->id)->count();
+        // Counted again here, not trusted from the screen: the panel's numbers
+        // were read when it opened, and a sign-up taken since must not be lost
+        // to a decision made before it existed.
+        $held = LocationData::forLocation($location);
 
-        // Counted again on the server: the number the admin saw was read when the
-        // panel opened, and a sign-up in the meantime must not be destroyed by a
-        // confirmation given for a smaller number.
-        if (($attendees > 0 || $prizes > 0) && $request->input('confirmation') !== 'DELETE') {
+        if (! LocationData::isEmpty($held)) {
+            // Refused outright rather than confirmed. Deleting this destroys the
+            // attendees and prizes and detaches the sign-ups from any screening,
+            // and the sheet no longer listing a row is not evidence the night
+            // did not happen. It stays, and the tab stops managing it.
+            $this->releaseLocation($sheetSource, $sheetSourceChange, $location);
+
             return back()->with('error', sprintf(
-                "'%s' has %d attendee%s and %d prize%s. Type DELETE to confirm removing it.",
+                "'%s' holds %s, so it was kept rather than removed. This tab no longer manages it — "
+                .'delete it from the locations screen if you really mean to.',
                 $location->name,
-                $attendees,
-                $attendees === 1 ? '' : 's',
-                $prizes,
-                $prizes === 1 ? '' : 's'
+                LocationData::describe($held),
             ));
         }
 
+        $attendees = $held['attendees'];
+        $prizes = $held['prizes'];
         $name = $location->name;
 
         \Illuminate\Support\Facades\Log::warning('Master sheet location removed', [
@@ -447,6 +454,18 @@ class SheetSyncController extends Controller
      * clearing the provenance says the true thing instead — the sheet no longer
      * speaks for this screening, so no future run should ask about it again.
      */
+    /**
+     * Hand a location back: it stays as it is, and the tab stops managing it.
+     *
+     * The same thing keepLocation() does, used where a removal is refused so the
+     * row does not keep offering a deletion that will never be allowed.
+     */
+    protected function releaseLocation(SheetSource $source, SheetSourceChange $change, Location $location): void
+    {
+        $location->forceFill(['sheet_source_id' => null])->save();
+        $change->delete();
+    }
+
     public function keepLocation(SheetSource $sheetSource, SheetSourceChange $sheetSourceChange): RedirectResponse
     {
         if ($sheetSourceChange->sheet_source_id !== $sheetSource->id
@@ -633,7 +652,18 @@ class SheetSyncController extends Controller
      * @param  \Illuminate\Support\Collection<int, SheetSourceChange>  $changes
      * @return array<int, array{attendees: int, prizes: int}>
      */
-    protected function deletionCost($changes): array
+    /**
+     * What removing each dropped screening would cost.
+     *
+     * Sign-ups are counted alongside attendees and prizes. They were not before,
+     * and since they are detached rather than destroyed a screening with fifty
+     * of them and no tickets read as empty — the exact case where a deletion
+     * looks free and is not.
+     *
+     * @param  \Illuminate\Support\Collection<int, SheetSourceChange>  $changes
+     * @return array<int, array{attendees: int, prizes: int, signups: int}>
+     */
+    protected function deletionCost(SheetSource $source, $changes): array
     {
         $ids = $changes
             ->where('action', SheetSourceChange::ACTION_MISSING)
@@ -641,30 +671,7 @@ class SheetSyncController extends Controller
             ->filter()
             ->all();
 
-        if ($ids === []) {
-            return [];
-        }
-
-        $attendees = TicketAttendee::whereIn('location_id', $ids)
-            ->selectRaw('location_id, COUNT(*) as total')
-            ->groupBy('location_id')
-            ->pluck('total', 'location_id');
-
-        $prizes = Prize::whereIn('location_id', $ids)
-            ->selectRaw('location_id, COUNT(*) as total')
-            ->groupBy('location_id')
-            ->pluck('total', 'location_id');
-
-        $cost = [];
-
-        foreach ($ids as $id) {
-            $cost[$id] = [
-                'attendees' => (int) ($attendees[$id] ?? 0),
-                'prizes' => (int) ($prizes[$id] ?? 0),
-            ];
-        }
-
-        return $cost;
+        return LocationData::forEvent($source->event, $ids);
     }
 
     /**

@@ -340,6 +340,27 @@ function fieldLabel(key) {
     return FIELD_LABELS[key] ?? key;
 }
 
+// -- screenings the sheet has stopped listing --------------------------------
+// Deleting one destroys its ticket attendees and prizes and detaches its
+// sign-ups from any screening. A row vanishing from a shared spreadsheet is as
+// often a mid-edit paste as a cancellation, so anything holding data is never
+// offered for removal — the server refuses it either way.
+
+const holdsData = (change) => (change.signups ?? 0) > 0 || (change.attendees ?? 0) > 0 || (change.prizes ?? 0) > 0;
+
+function heldText(change) {
+    const parts = [];
+    const add = (n, noun) => { if (n > 0) parts.push(`${n} ${noun}${n === 1 ? '' : 's'}`); };
+
+    add(change.signups ?? 0, 'sign-up');
+    add(change.attendees ?? 0, 'ticket attendee');
+    add(change.prizes ?? 0, 'prize');
+
+    if (parts.length <= 1) return parts[0] ?? 'nothing';
+
+    return `${parts.slice(0, -1).join(', ')} and ${parts[parts.length - 1]}`;
+}
+
 // -- the near-duplicate warning ---------------------------------------------
 // The warning used to assert a resemblance without showing it. Put the two side
 // by side instead: whether to approve turns entirely on which fields differ,
@@ -834,7 +855,8 @@ const flash = computed(() => page.props.flash ?? {});
                                     <template v-else>
                                         Locations this tab created that the sheet no longer lists. Nothing is deleted
                                         automatically — a row can vanish because a screening was cancelled, or because
-                                        someone is mid-edit in the spreadsheet. You decide each one.
+                                        someone is mid-edit in the spreadsheet. You decide each one. Anything holding
+                                        sign-ups, attendees or prizes is not listed here at all: it is kept.
                                     </template>
                                 </p>
 
@@ -907,12 +929,17 @@ const flash = computed(() => page.props.flash ?? {});
                                         <!-- A screening the sheet has stopped listing: what deleting it would cost,
                                              and the two ways out. -->
                                         <div v-if="change.action === 'missing'" class="mt-1 flex flex-wrap items-center gap-2">
-                                            <span :class="change.attendees > 0 || change.prizes > 0 ? 'text-rose-700 font-medium' : 'text-gray-500'">
+                                            <span :class="holdsData(change) ? 'text-rose-700 font-medium' : 'text-gray-500'">
+                                                {{ change.signups }} sign-up{{ change.signups === 1 ? '' : 's' }}
+                                                &middot;
                                                 {{ change.attendees }} attendee{{ change.attendees === 1 ? '' : 's' }}
                                                 &middot;
                                                 {{ change.prizes }} prize{{ change.prizes === 1 ? '' : 's' }}
                                             </span>
-                                            <button @click="removeMissing(source, change)"
+
+                                            <!-- A screening holding anything is never offered for removal:
+                                                 the server refuses it, so a button here would only mislead. -->
+                                            <button v-if="!holdsData(change)" @click="removeMissing(source, change)"
                                                     class="rounded border border-red-300 px-2 py-0.5 text-[11px] font-medium text-red-700 hover:bg-red-50">
                                                 Remove location
                                             </button>
@@ -920,8 +947,9 @@ const flash = computed(() => page.props.flash ?? {});
                                                     class="rounded border border-gray-300 px-2 py-0.5 text-[11px] font-medium text-gray-700 hover:bg-gray-50">
                                                 Keep
                                             </button>
-                                            <span v-if="change.attendees > 0" class="text-[11px] text-rose-600">
-                                                Removing destroys those attendee records permanently.
+
+                                            <span v-if="holdsData(change)" class="text-[11px] text-rose-700">
+                                                Kept — it holds {{ heldText(change) }}. Delete it from the locations screen if you really mean to.
                                             </span>
                                         </div>
 

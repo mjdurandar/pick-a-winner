@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Models\Location;
 use App\Models\SheetSource;
 use App\Models\SheetSourceChange;
+use App\Support\LocationData;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 
@@ -335,8 +336,24 @@ class SheetSyncService
      */
     protected function missing(SheetSource $source, $locations, array $claimed): array
     {
-        return $locations
+        $dropped = $locations
             ->filter(fn (Location $l) => $l->sheet_source_id === $source->id && ! isset($claimed[$l->id]))
+            ->values();
+
+        if ($dropped->isEmpty()) {
+            return [];
+        }
+
+        // A screening that holds sign-ups, attendees or prizes is never offered
+        // for removal, however long the sheet has stopped naming it. Deleting it
+        // destroys the attendees and prizes outright and detaches the sign-ups
+        // from any screening, and a row disappearing from a hand-edited shared
+        // spreadsheet is as often a cut-and-paste mid-edit as a cancellation.
+        // It simply stays, and the tab leaves it alone.
+        $held = LocationData::forEvent($source->event, $dropped->pluck('id')->all());
+
+        return $dropped
+            ->filter(fn (Location $l) => LocationData::isEmpty($held[$l->id] ?? []))
             ->map(fn (Location $l) => [
                 // No row number: the row is precisely what no longer exists.
                 'sheet_row' => null,
