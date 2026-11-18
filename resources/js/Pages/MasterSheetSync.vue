@@ -348,17 +348,28 @@ function fieldLabel(key) {
 
 const holdsData = (change) => (change.signups ?? 0) > 0 || (change.attendees ?? 0) > 0 || (change.prizes ?? 0) > 0;
 
+/**
+ * What a location is holding.
+ *
+ * Sign-ups are the number that matters: everyone who went through the form at
+ * that screening. Imported ticket rows are counted for the protection but not
+ * shown — they are a separate upload, empty for nearly every screening, and
+ * printing "0 attendees" beside 82 sign-ups only asked how a screening with
+ * 82 people had none.
+ */
 function heldText(change) {
     const parts = [];
     const add = (n, noun) => { if (n > 0) parts.push(`${n} ${noun}${n === 1 ? '' : 's'}`); };
 
     add(change.signups ?? 0, 'sign-up');
-    add(change.attendees ?? 0, 'ticket attendee');
     add(change.prizes ?? 0, 'prize');
 
-    if (parts.length <= 1) return parts[0] ?? 'nothing';
+    if (parts.length === 0) {
+        // Kept on the strength of something not listed above.
+        return holdsData(change) ? 'imported ticket data' : 'nothing attached';
+    }
 
-    return `${parts.slice(0, -1).join(', ')} and ${parts[parts.length - 1]}`;
+    return parts.length === 1 ? parts[0] : parts.join(' and ');
 }
 
 // -- the near-duplicate warning ---------------------------------------------
@@ -929,12 +940,9 @@ const flash = computed(() => page.props.flash ?? {});
                                         <!-- A screening the sheet has stopped listing: what deleting it would cost,
                                              and the two ways out. -->
                                         <div v-if="change.action === 'missing'" class="mt-1 flex flex-wrap items-center gap-2">
-                                            <span :class="holdsData(change) ? 'text-rose-700 font-medium' : 'text-gray-500'">
-                                                {{ change.signups }} sign-up{{ change.signups === 1 ? '' : 's' }}
-                                                &middot;
-                                                {{ change.attendees }} attendee{{ change.attendees === 1 ? '' : 's' }}
-                                                &middot;
-                                                {{ change.prizes }} prize{{ change.prizes === 1 ? '' : 's' }}
+                                            <span :class="holdsData(change) ? 'text-rose-700 font-medium' : 'text-gray-500'"
+                                                  title="Everyone who went through the sign-up form at this screening, plus any prizes drawn for it.">
+                                                {{ heldText(change) }}
                                             </span>
 
                                             <!-- A screening holding anything is never offered for removal:
@@ -949,7 +957,7 @@ const flash = computed(() => page.props.flash ?? {});
                                             </button>
 
                                             <span v-if="holdsData(change)" class="text-[11px] text-rose-700">
-                                                Kept — it holds {{ heldText(change) }}. Delete it from the locations screen if you really mean to.
+                                                Kept, because it holds that. Delete it from the locations screen if you really mean to.
                                             </span>
                                         </div>
 

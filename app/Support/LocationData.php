@@ -17,11 +17,14 @@ use Throwable;
  * Three things hang off a screening, and they do not behave the same way when
  * it is deleted:
  *
- *   ticket attendees - cascade: destroyed with it
- *   prizes           - cascade: destroyed with it
  *   sign-ups         - set null: kept, but detached from any screening, which
  *                      is how a form entry stops being attributable to the
- *                      night it was taken at
+ *                      night it was taken at. These are the people who filled
+ *                      in the form at the screening.
+ *   imported tickets  - cascade: destroyed with it. A separate thing from the
+ *                      sign-ups: rows from a ticket list imported for this
+ *                      screening, held in ticket_attendees.
+ *   prizes           - cascade: destroyed with it
  *
  * Sign-ups live in the event's own table, named by its sign-up form, so they
  * take a different query from the other two — which is why they were not being
@@ -89,10 +92,14 @@ class LocationData
     {
         $parts = [];
 
+        // Sign-ups first: they are what "attached to a screening" means to
+        // anyone reading this. Imported tickets still count towards keeping a
+        // location, but are named only when they are the reason — they are a
+        // separate upload and empty for nearly every screening.
         foreach ([
             'signups' => 'sign-up',
-            'attendees' => 'ticket attendee',
             'prizes' => 'prize',
+            'attendees' => 'imported ticket record',
         ] as $key => $noun) {
             $n = (int) ($counts[$key] ?? 0);
 
