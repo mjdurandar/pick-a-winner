@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Services\WordPress\FilmSites;
 use App\Services\WordPress\SponsorRepository;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -39,24 +40,115 @@ class SponsorDashboardController extends Controller
 
     private ?SponsorRepository $repository = null;
 
+    /** Which film site this request is for. Set by useSite() before anything else. */
+    private ?string $siteKey = null;
+
+    public function __construct(private readonly FilmSites $sites) {}
+
+    /**
+     * Settle which film site this request is for.
+     *
+     * There is one WordPress per tour, and nothing about one may be assumed of
+     * another — "Australia" is a different term id on each. Writing a partner
+     * onto the wrong tour's public site is much worse than a request that
+     * refuses to run, so an unknown or missing site is an error for every write
+     * and only the dashboard itself may fall back to a default.
+     *
+     * @return bool whether a site was settled on
+     */
+    private function useSite(Request $request, bool $orDefault = false): bool
+    {
+        // Cleared before anything is read. A controller instance can outlive the
+        // request that made it — Laravel memoises the one it resolved onto the
+        // route, and a long-lived worker reuses both — so a site left behind by
+        // the last request is precisely how a write would reach the wrong tour's
+        // public site. Refusing has to mean no site at all, not the previous one.
+        $this->siteKey = null;
+        $this->repository = null;
+
+        $asked = trim((string) $request->input('site', ''));
+
+        if ($asked !== '' && $this->sites->has($asked)) {
+            $this->siteKey = $asked;
+
+            return true;
+        }
+
+        if ($orDefault && $asked === '') {
+            $this->siteKey = $this->sites->default();
+
+            return $this->siteKey !== null;
+        }
+
+        return false;
+    }
+
     /**
      * Resolved on use, not injected.
      *
-     * The binding throws when no WordPress credentials are set, and a
-     * constructor dependency would turn that into a 500 before any action
-     * runs — from a link in the main nav. Resolving here lets the screen say
-     * what is wrong instead.
+     * The repository throws when a site has no credentials, and a constructor
+     * dependency would turn that into a 500 before any action runs — from a
+     * link in the main nav. Resolving here lets the screen say what is wrong
+     * instead.
      */
     private function partners(): SponsorRepository
     {
-        return $this->repository ??= app(SponsorRepository::class);
+        return $this->repository ??= $this->sites->repository((string) $this->siteKey);
+    }
+
+    /**
+     * Run one write against the settled site, turning a failure into a message.
+     *
+     * The callable returns what to tell the admin. Wrapping it here is what
+     * keeps the site check in front of every write: an action cannot forget it
+     * without also losing its error handling.
+     */
+    private function onSite(Request $request, callable $work): RedirectResponse
+    {
+        if (! $this->useSite($request)) {
+            return back()->with('error', $this->siteProblem($request));
+        }
+
+        try {
+            $message = $work();
+        } catch (Throwable $e) {
+            return back()->with('error', $e->getMessage());
+        }
+
+        return back()->with('success', $message);
+    }
+
+    /**
+     * Why a request could not be pointed at a site, in the terms the admin sees.
+     *
+     * Never resolved by quietly using another site: landing on a different
+     * tour's partners without being told is the confusion this screen exists to
+     * prevent.
+     */
+    private function siteProblem(Request $request, string $consequence = 'so nothing was written'): string
+    {
+        $asked = trim((string) $request->input('site', ''));
+
+        if ($asked === '') {
+            return $this->sites->configured() === []
+                ? 'No film site is connected yet, so there is nothing to show or save.'
+                : 'That request did not say which film site it was for, '.$consequence
+                    .'. Reload the page and try again.';
+        }
+
+        if (isset($this->sites->all()[$asked])) {
+            return $this->sites->label($asked).' is not connected yet — its address and application password '
+                .'are not set on the server — '.$consequence.'.';
+        }
+
+        return "'{$asked}' is not a film site this app knows about, ".$consequence.'.';
     }
 
     public function index(Request $request): Response
     {
         // Which film site, region and season an event publishes to is already
         // recorded for the film-site check. Reused rather than duplicated.
-        $sites = DB::table('film_site_checks')
+        $films = DB::table('film_site_checks')
             ->join('events', 'events.id', '=', 'film_site_checks.event_id')
             ->orderBy('events.event_name')
             ->get([
@@ -78,9 +170,19 @@ class SponsorDashboardController extends Controller
         // region and season, never by event, so a film is translated into the
         // region and season already recorded for it rather than filtered on
         // directly. Only used when the request did not name them itself.
-        $film = $sites->firstWhere('event_id', (int) $request->query('film'));
+        $film = $films->firstWhere('event_id', (int) $request->query('film'));
 
-        if ($film && ! $filters['region'] && ! $filters['season']) {
+        // The film also says which site to be on, so arriving from one lands on
+        // its tour rather than on whichever site happens to be listed first.
+        if ($film && ! $request->filled('site')) {
+            $request->merge(['site' => $this->sites->forUrl($film->site_url)]);
+        }
+
+        // The dashboard is the one place allowed to fall back to a default: it
+        // only reads, and it has to render something to pick a site from.
+        $hasSite = $this->useSite($request, orDefault: true);
+
+        if ($film && ! $filters['region'] && ! $filters['season'] && $hasSite) {
             // film_site_checks stores slugs ('au', '2026'); the API filters on
             // term ids, so the site's own terms decide the mapping rather than
             // a table of guesses here.
@@ -93,7 +195,13 @@ class SponsorDashboardController extends Controller
         // the ones it actually asked for. A drag refetches the groups and
         // leaves the pages alone.
         $failed = null;
-        $guard = function (callable $fetch, $fallback) use (&$failed) {
+        $guard = function (callable $fetch, $fallback) use (&$failed, $hasSite) {
+            // No site settled means none is connected. That is a state to
+            // describe, not an error to raise on every prop.
+            if (! $hasSite) {
+                return $fallback;
+            }
+
             try {
                 return $fetch();
             } catch (Throwable $e) {
@@ -107,7 +215,14 @@ class SponsorDashboardController extends Controller
         return Inertia::render('SponsorDashboard', [
             'driver' => $guard(fn () => $this->partners()->driver(), 'unconfigured'),
             'isLive' => $guard(fn () => $this->partners()->isLive(), false),
-            'sites' => $sites,
+            // The tours this app can manage, and which one is being looked at.
+            // Every write names it back, so nothing can land on the wrong site.
+            'connections' => array_values($this->sites->all()),
+            'site' => $this->siteKey,
+            // Asked for a site that cannot be used. Said plainly rather than
+            // resolved by showing a different tour's partners instead.
+            'siteError' => $hasSite ? null : $this->siteProblem($request, 'so there is nothing to show'),
+            'films' => $films,
             'filters' => $filters,
             // The film that was asked for, so the screen can say whose partners
             // these are and offer a way back.
@@ -118,8 +233,8 @@ class SponsorDashboardController extends Controller
                 'season' => $film->season,
             ] : null,
             // Region and season terms are reference data that changes once a
-            // year at most, and reading them costs two seconds. Cached, keyed
-            // by driver so mock and live never share an entry.
+            // year at most, and reading them costs two seconds. Cached per
+            // site — the terms and their ids differ on every one of them.
             'taxonomies' => fn () => $guard(fn () => $this->cachedTaxonomies(), ['region' => [], 'season' => []]),
             'groups' => fn () => $guard(fn () => $this->partners()->groups($filters), []),
             // Which pages exist and which groups each shows. A group on no page
@@ -132,7 +247,7 @@ class SponsorDashboardController extends Controller
             // credentials that go with it.
             'siteUrl' => $guard(
                 fn () => $this->partners()->isLive()
-                    ? rtrim((string) config('services.wordpress.waft.url'), '/')
+                    ? $this->sites->url((string) $this->siteKey)
                     : null,
                 null,
             ),
@@ -153,13 +268,11 @@ class SponsorDashboardController extends Controller
             'seasons.*' => ['integer'],
         ]);
 
-        try {
+        return $this->onSite($request, function () use ($data) {
             $this->partners()->createGroup($data);
-        } catch (Throwable $e) {
-            return back()->with('error', $e->getMessage());
-        }
 
-        return back()->with('success', 'Partner group created in '.$this->where().'.');
+            return 'Partner group created in '.$this->where().'.';
+        });
     }
 
     public function updateGroup(Request $request, int $group): RedirectResponse
@@ -174,24 +287,20 @@ class SponsorDashboardController extends Controller
             'seasons.*' => ['integer'],
         ]);
 
-        try {
+        return $this->onSite($request, function () use ($group, $data) {
             $this->partners()->updateGroup($group, $data);
-        } catch (Throwable $e) {
-            return back()->with('error', $e->getMessage());
-        }
 
-        return back()->with('success', 'Partner group updated in '.$this->where().'.');
+            return 'Partner group updated in '.$this->where().'.';
+        });
     }
 
-    public function destroyGroup(int $group): RedirectResponse
+    public function destroyGroup(Request $request, int $group): RedirectResponse
     {
-        try {
+        return $this->onSite($request, function () use ($group) {
             $this->partners()->deleteGroup($group);
-        } catch (Throwable $e) {
-            return back()->with('error', $e->getMessage());
-        }
 
-        return back()->with('success', 'Group deleted. On a live site it goes to the WordPress trash and can be restored there.');
+            return 'Group deleted. On a live site it goes to the WordPress trash and can be restored there.';
+        });
     }
 
     /**
@@ -208,17 +317,15 @@ class SponsorDashboardController extends Controller
             'show' => ['required', 'boolean'],
         ]);
 
-        try {
+        return $this->onSite($request, function () use ($group, $data) {
             $data['show']
                 ? $this->partners()->placeGroup($data['page_id'], $group)
                 : $this->partners()->unplaceGroup($data['page_id'], $group);
-        } catch (Throwable $e) {
-            return back()->with('error', $e->getMessage());
-        }
 
-        return back()->with('success', $data['show']
-            ? 'Group added to that page — it shows there now.'
-            : 'Group taken off that page. Nothing in it was deleted.');
+            return $data['show']
+                ? 'Group added to that page — it shows there now.'
+                : 'Group taken off that page. Nothing in it was deleted.';
+        });
     }
 
     // -- partners within a group ---------------------------------------------
@@ -227,7 +334,7 @@ class SponsorDashboardController extends Controller
     {
         $data = $this->validatedPartner($request, logoRequired: true);
 
-        try {
+        return $this->onSite($request, function () use ($request, $group, $data) {
             // Before the logo: an upload that lands while the group cannot be
             // written would orphan an image in the media library.
             $this->partners()->assertWritable();
@@ -237,18 +344,16 @@ class SponsorDashboardController extends Controller
             }
 
             $this->partners()->addPartner($group, $data);
-        } catch (Throwable $e) {
-            return back()->with('error', $e->getMessage());
-        }
 
-        return back()->with('success', 'Partner added in '.$this->where().'.');
+            return 'Partner added in '.$this->where().'.';
+        });
     }
 
     public function updatePartner(Request $request, int $group, int $index): RedirectResponse
     {
         $data = $this->validatedPartner($request);
 
-        try {
+        return $this->onSite($request, function () use ($request, $group, $index, $data) {
             $this->partners()->assertWritable();
 
             if ($logo = $this->uploadLogo($request)) {
@@ -256,11 +361,9 @@ class SponsorDashboardController extends Controller
             }
 
             $this->partners()->updatePartner($group, $index, $data);
-        } catch (Throwable $e) {
-            return back()->with('error', $e->getMessage());
-        }
 
-        return back()->with('success', 'Partner updated in '.$this->where().'.');
+            return 'Partner updated in '.$this->where().'.';
+        });
     }
 
     /** Set the order of a group's partners, as dragged on the dashboard. */
@@ -271,13 +374,11 @@ class SponsorDashboardController extends Controller
             'order.*' => ['integer', 'min:0'],
         ]);
 
-        try {
+        return $this->onSite($request, function () use ($group, $data) {
             $this->partners()->reorderPartners($group, array_map('intval', $data['order']));
-        } catch (Throwable $e) {
-            return back()->with('error', $e->getMessage());
-        }
 
-        return back()->with('success', 'Partner order saved.');
+            return 'Partner order saved.';
+        });
     }
 
     /** Set the order of the groups on one page. */
@@ -288,24 +389,20 @@ class SponsorDashboardController extends Controller
             'order.*' => ['integer', 'min:1'],
         ]);
 
-        try {
+        return $this->onSite($request, function () use ($page, $data) {
             $this->partners()->reorderPage($page, array_map('intval', $data['order']));
-        } catch (Throwable $e) {
-            return back()->with('error', $e->getMessage());
-        }
 
-        return back()->with('success', 'Page order saved.');
+            return 'Page order saved.';
+        });
     }
 
-    public function destroyPartner(int $group, int $index): RedirectResponse
+    public function destroyPartner(Request $request, int $group, int $index): RedirectResponse
     {
-        try {
+        return $this->onSite($request, function () use ($group, $index) {
             $this->partners()->removePartner($group, $index);
-        } catch (Throwable $e) {
-            return back()->with('error', $e->getMessage());
-        }
 
-        return back()->with('success', 'Partner removed from the group. The logo stays in the WordPress media library.');
+            return 'Partner removed from the group. The logo stays in the WordPress media library.';
+        });
     }
 
     // -- helpers -------------------------------------------------------------
@@ -346,15 +443,16 @@ class SponsorDashboardController extends Controller
      * Region and season terms as the site defines them.
      *
      * Reference data that changes about once a year and costs two seconds to
-     * read, so it is cached — keyed by driver, or mock and live would share an
-     * entry.
+     * read, so it is cached — keyed by site as well as driver. The sites do not
+     * share term ids ("Australia" is 2 on one and 6 on another), so one shared
+     * entry would filter by whatever the last site read put there.
      *
      * @return array{region: array<int, array{id: int, name: string, slug: string}>, season: array<int, array{id: int, name: string, slug: string}>}
      */
     private function cachedTaxonomies(): array
     {
         return Cache::remember(
-            'sponsor_taxonomies:'.$this->partners()->driver(),
+            'sponsor_taxonomies:'.$this->partners()->driver().':'.$this->siteKey,
             now()->addMinutes(self::TAXONOMY_CACHE_MINUTES),
             fn () => $this->partners()->taxonomies(),
         );

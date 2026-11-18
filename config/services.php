@@ -39,10 +39,34 @@ return [
     // later). Credentials are WordPress "application passwords" — generated per
     // user in wp-admin, revocable on their own, and never the account password.
     'wordpress' => [
-        'waft' => [
-            'url' => env('WP_WAFT_URL'),
-            'user' => env('WP_WAFT_USER'),
-            'app_password' => env('WP_WAFT_APP_PASSWORD'),
+        // One entry per tour site. Each is a separate WordPress install with its
+        // own credentials and its own taxonomy term ids, so none of them may be
+        // assumed of another — the dashboard names the site on every request.
+        //
+        // The key travels on the wire and appears in links people bookmark, so
+        // renaming one is a breaking change. Adding a site is three env vars and
+        // an entry here; nothing else in the app needs to know.
+        'sites' => [
+            'waft' => [
+                'label' => "Women's Adventure Film Tour",
+                'url' => env('WP_WAFT_URL'),
+                'user' => env('WP_WAFT_USER'),
+                'app_password' => env('WP_WAFT_APP_PASSWORD'),
+            ],
+
+            'runnation' => [
+                'label' => 'RunNation Film Festival',
+                'url' => env('WP_RUNNATION_URL'),
+                'user' => env('WP_RUNNATION_USER'),
+                'app_password' => env('WP_RUNNATION_APP_PASSWORD'),
+            ],
+
+            'f3t' => [
+                'label' => 'Fly Fishing Film Tour',
+                'url' => env('WP_F3T_URL'),
+                'user' => env('WP_F3T_USER'),
+                'app_password' => env('WP_F3T_APP_PASSWORD'),
+            ],
         ],
 
         // Which backing the sponsor dashboard talks to: 'wordpress' or 'mock'.

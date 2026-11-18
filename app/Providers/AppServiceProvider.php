@@ -12,9 +12,8 @@ use App\Models\Prize;
 use App\Models\SignUpForm;
 use App\Models\User;
 use App\Observers\ActivityObserver;
-use App\Services\WordPress\MockSponsorService;
+use App\Services\WordPress\FilmSites;
 use App\Services\WordPress\SponsorRepository;
-use App\Services\WordPress\WordPressSponsorService;
 use Illuminate\Auth\Events\Failed;
 use Illuminate\Auth\Events\Login;
 use Illuminate\Auth\Events\Logout;
@@ -42,24 +41,28 @@ class AppServiceProvider extends ServiceProvider
      */
     public function register(): void
     {
-        // Sponsors live in WordPress, not here. Which WordPress — or the mock
-        // stand-in used while the post type is still unreachable — is chosen
-        // explicitly by SPONSOR_DRIVER and never inferred from a failure.
-        $this->app->bind(SponsorRepository::class, function () {
-            if (config('services.wordpress.sponsor_driver') === 'mock') {
-                return new MockSponsorService;
-            }
+        // Sponsors live in WordPress, not here, and there is one WordPress per
+        // tour. FilmSites holds the list and builds the client for whichever one
+        // a request names; whether that is a real site or the mock stand-in is
+        // decided explicitly by SPONSOR_DRIVER and never inferred from a failure.
+        $this->app->singleton(FilmSites::class);
 
-            $site = config('services.wordpress.waft');
+        // Resolving the interface with no site named means the default one — the
+        // first that is configured. Only ever right for reading; the dashboard
+        // names its site on every write, so nothing lands on a site by accident.
+        $this->app->bind(SponsorRepository::class, function ($app) {
+            $sites = $app->make(FilmSites::class);
+            $key = $sites->default();
 
-            if (blank($site['url']) || blank($site['user']) || blank($site['app_password'])) {
+            if ($key === null) {
                 throw new RuntimeException(
-                    'No WordPress credentials configured for sponsors. Set WP_WAFT_URL, WP_WAFT_USER and '
-                    .'WP_WAFT_APP_PASSWORD, or set SPONSOR_DRIVER=mock for local work.'
+                    'No film site is configured for partners. Set WP_WAFT_URL, WP_WAFT_USER and '
+                    .'WP_WAFT_APP_PASSWORD (or another site\'s three), or set SPONSOR_DRIVER=mock '
+                    .'for local work.'
                 );
             }
 
-            return new WordPressSponsorService($site['url'], $site['user'], $site['app_password']);
+            return $sites->repository($key);
         });
     }
 

@@ -7,7 +7,11 @@ import Swal from 'sweetalert2';
 const props = defineProps({
     driver: { type: String, default: 'mock' },
     isLive: { type: Boolean, default: false },
-    sites: { type: Array, default: () => [] },
+    // The tour sites this app can manage, and which one is on screen.
+    connections: { type: Array, default: () => [] },
+    site: { type: String, default: null },
+    siteError: { type: String, default: null },
+    films: { type: Array, default: () => [] },
     filters: { type: Object, default: () => ({ region: null, season: null, search: null }) },
     taxonomies: { type: Object, default: () => ({ region: [], season: [] }) },
     groups: { type: Array, default: () => [] },
@@ -20,6 +24,29 @@ const props = defineProps({
 
 const page = usePage();
 const flash = computed(() => page.props.flash ?? {});
+
+// -- which film site --------------------------------------------------------
+//
+// Each tour is a separate WordPress with its own partners, its own media
+// library and its own term ids, so every request has to say which one it means.
+// Routes are built through r() rather than route() for exactly that reason: a
+// call that forgot the site would write to whichever site the server picked,
+// which is the one mistake this screen must not be able to make.
+
+const connected = computed(() => props.connections.filter((c) => c.configured));
+const currentSite = computed(() => props.site ?? '');
+const siteLabel = computed(() => props.connections.find((c) => c.key === currentSite.value)?.label ?? '');
+
+const r = (name, params = {}) => route(name, { ...params, site: currentSite.value });
+
+function switchSite(key) {
+    if (key === currentSite.value) return;
+
+    // Region and season are deliberately dropped: the term ids belong to the
+    // site being left and mean something else, or nothing, on the next one.
+    router.get(route('sponsorDashboard.index'), { site: key }, { preserveScroll: true });
+}
+
 const termName = (tax, id) => props.taxonomies[tax]?.find((t) => t.id === id)?.name ?? `#${id}`;
 const maxLogoMb = computed(() => (props.maxLogoKb / 1024).toFixed(1).replace(/\.0$/, ''));
 const sizeLabel = (b) => (b >= 1048576 ? `${(b / 1048576).toFixed(1)} MB` : `${Math.max(1, Math.round(b / 1024))} KB`);
@@ -40,6 +67,7 @@ const search = ref(props.filters.search ?? '');
 
 function reload() {
     router.get(route('sponsorDashboard.index'), {
+        site: currentSite.value || undefined,
         region: region.value || undefined,
         season: season.value || undefined,
         search: search.value || undefined,
@@ -50,7 +78,7 @@ function reload() {
 function clearFilm() {
     region.value = '';
     season.value = '';
-    router.get(route('sponsorDashboard.index'), {}, { preserveScroll: true });
+    router.get(route('sponsorDashboard.index'), { site: currentSite.value || undefined }, { preserveScroll: true });
 }
 
 watch([region, season], () => reload());
@@ -61,16 +89,12 @@ watch(search, () => {
     searchTimer = setTimeout(() => reload(), 350);
 });
 
-// A film is not something the film sites model. Picking one here sets the
-// region and season already recorded for that event, which is the same thing
-// expressed the way WordPress stores it.
-function filterByFilm(site) {
-    const term = (tax, value) => props.taxonomies[tax]?.find(
-        (t) => t.slug?.toLowerCase() === String(value).toLowerCase() || t.name?.toLowerCase() === String(value).toLowerCase(),
-    );
-
-    region.value = term('region', site.region)?.id ?? '';
-    season.value = term('season', site.season)?.id ?? '';
+// A film is not something the film sites model. Picking one asks the server to
+// translate it, because the answer is three things at once — which tour site it
+// publishes to, and the region and season recorded for it — and only the server
+// knows what those terms are called on that particular site.
+function filterByFilm(film) {
+    router.get(route('sponsorDashboard.index'), { film: film.event_id }, { preserveScroll: true });
 }
 
 const totalPartners = computed(() => props.groups.reduce((n, g) => n + g.partners.length, 0));
@@ -137,8 +161,8 @@ function savePartner(group) {
     if (logo.value) data.logo = logo.value;
 
     const url = editing.value
-        ? route('sponsorDashboard.partners.update', { group: group.id, index: editing.value.index })
-        : route('sponsorDashboard.partners.store', { group: group.id });
+        ? r('sponsorDashboard.partners.update', { group: group.id, index: editing.value.index })
+        : r('sponsorDashboard.partners.store', { group: group.id });
 
     busy.value = true;
     router.post(url, data, {
@@ -169,7 +193,7 @@ function removePartner(group, partner) {
         confirmButtonColor: '#dc2626',
     }).then((r) => {
         if (!r.isConfirmed) return;
-        router.delete(route('sponsorDashboard.partners.destroy', { group: group.id, index: partner.index }), {
+        router.delete(r('sponsorDashboard.partners.destroy', { group: group.id, index: partner.index }), {
             preserveScroll: true,
             ...AFTER_PARTNER,
         });
@@ -184,7 +208,7 @@ const newGroup = ref({ title: '', heading: '', status: 'draft', regions: [], sea
 
 function saveGroup() {
     busy.value = true;
-    router.post(route('sponsorDashboard.groups.store'), newGroup.value, {
+    router.post(r('sponsorDashboard.groups.store'), newGroup.value, {
         preserveScroll: true,
         ...AFTER_PAGE,
         onSuccess: () => {
@@ -270,7 +294,7 @@ function dropPartner(group, to) {
     group.partners = moved(group.partners, from, to);   // follow the cursor now
 
     loadingWhat.value = 'Saving partner order…';
-    router.post(route('sponsorDashboard.partners.reorder', { group: group.id }), { order }, {
+    router.post(r('sponsorDashboard.partners.reorder', { group: group.id }), { order }, {
         preserveScroll: true,
         ...AFTER_PARTNER,
     });
@@ -287,7 +311,7 @@ function dropGroup(page, to) {
     page.group_ids = order;
 
     loadingWhat.value = `Saving the order of ${page.title}…`;
-    router.post(route('sponsorDashboard.pages.reorder', { page: page.id }), { order }, {
+    router.post(r('sponsorDashboard.pages.reorder', { page: page.id }), { order }, {
         preserveScroll: true,
         ...AFTER_PAGE,
     });
@@ -317,7 +341,7 @@ function togglePage(group, page) {
         if (!r.isConfirmed) return;
         busy.value = true;
         loadingWhat.value = showing ? `Taking it off ${page.title}…` : `Adding it to ${page.title}…`;
-        router.post(route('sponsorDashboard.groups.place', { group: group.id }), {
+        router.post(r('sponsorDashboard.groups.place', { group: group.id }), {
             page_id: page.id,
             show: showing ? 0 : 1,
         }, {
@@ -348,7 +372,7 @@ function startEditGroup(group) {
 
 function saveGroupEdit(group) {
     busy.value = true;
-    router.post(route('sponsorDashboard.groups.update', { group: group.id }), groupForm.value, {
+    router.post(r('sponsorDashboard.groups.update', { group: group.id }), groupForm.value, {
         preserveScroll: true,
         ...AFTER_PARTNER,
         onSuccess: () => { editGroupId.value = null; },
@@ -380,7 +404,7 @@ function toggleStatus(group) {
     }).then((r) => {
         if (!r.isConfirmed) return;
         busy.value = true;
-        router.post(route('sponsorDashboard.groups.update', { group: group.id }), {
+        router.post(r('sponsorDashboard.groups.update', { group: group.id }), {
             status: publishing ? 'publish' : 'draft',
         }, {
             preserveScroll: true,
@@ -402,7 +426,7 @@ function deleteGroup(group) {
         confirmButtonColor: '#dc2626',
     }).then((r) => {
         if (!r.isConfirmed) return;
-        router.delete(route('sponsorDashboard.groups.destroy', { group: group.id }), { preserveScroll: true, ...AFTER_PAGE });
+        router.delete(r('sponsorDashboard.groups.destroy', { group: group.id }), { preserveScroll: true, ...AFTER_PAGE });
     });
 }
 </script>
@@ -428,7 +452,10 @@ function deleteGroup(group) {
     <AuthenticatedLayout>
         <template #header>
             <div class="flex flex-wrap items-center justify-between gap-3">
-                <h2 class="text-xl font-semibold leading-tight text-gray-800">Partners</h2>
+                <h2 class="text-xl font-semibold leading-tight text-gray-800">
+                    Partners
+                    <span v-if="siteLabel" class="ml-2 text-sm font-normal text-gray-500">{{ siteLabel }}</span>
+                </h2>
                 <!-- Three states, not two: unconfigured is neither live nor mock,
                      and calling it "mock" would suggest work is being saved. -->
                 <span
@@ -453,6 +480,41 @@ function deleteGroup(group) {
                 </div>
                 <div v-if="flash.error" class="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
                     {{ flash.error }}
+                </div>
+
+                <!-- Which tour's site is being edited. Each is a separate
+                     WordPress with its own partners and its own media library,
+                     so this is the single most important thing on the screen:
+                     everything below belongs to whichever one is selected. -->
+                <div v-if="connections.length > 1" class="rounded-lg border border-gray-200 bg-white p-4">
+                    <div class="flex flex-wrap items-center gap-2">
+                        <span class="text-xs font-medium text-gray-700">Film site:</span>
+                        <button
+                            v-for="c in connections" :key="c.key" type="button"
+                            :disabled="!c.configured"
+                            @click="switchSite(c.key)"
+                            :class="c.key === currentSite
+                                ? 'border-indigo-600 bg-indigo-600 text-white'
+                                : c.configured
+                                    ? 'border-gray-300 bg-white text-gray-700 hover:bg-gray-50'
+                                    : 'cursor-not-allowed border-dashed border-gray-300 bg-gray-50 text-gray-400'"
+                            class="rounded-full border px-3 py-1 text-xs font-medium"
+                        >
+                            {{ c.label }}
+                            <span v-if="!c.configured" class="ml-1">· not connected</span>
+                        </button>
+                    </div>
+                    <p v-if="connected.length < connections.length" class="mt-2 text-xs text-gray-500">
+                        A site shows as not connected until its address and application password are set on the server.
+                    </p>
+                </div>
+
+                <div v-if="siteError" class="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
+                    <p class="font-medium">{{ siteError }}</p>
+                    <p class="mt-1">
+                        Partners live on the tour websites, not in this app, so there is nothing to show until
+                        a site's address and application password are set on the server. No partner data is affected.
+                    </p>
                 </div>
 
                 <div v-if="loadError" class="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
@@ -486,7 +548,7 @@ function deleteGroup(group) {
                     A partners page is built from <strong>groups</strong> — one per tier, per region, per season.
                     A partner is a logo and a link inside a group. Drag a partner to reorder it within its group,
                     or open <strong>Page order</strong> to change the order the groups appear down a page.
-                    Films are not part of that model, so picking a film below just sets the region and season recorded for it.
+                    Films are not part of that model, so picking a film below just opens its tour's site at the region and season recorded for it.
                 </div>
 
                 <!-- Filters -->
@@ -512,14 +574,14 @@ function deleteGroup(group) {
                         </label>
                     </div>
 
-                    <div v-if="sites.length" class="mt-3 flex flex-wrap items-center gap-2 border-t border-gray-100 pt-3">
+                    <div v-if="films.length" class="mt-3 flex flex-wrap items-center gap-2 border-t border-gray-100 pt-3">
                         <span class="text-xs text-gray-500">Jump to a film:</span>
                         <button
-                            v-for="s in sites" :key="s.id" type="button" @click="filterByFilm(s)"
+                            v-for="f in films" :key="f.id" type="button" @click="filterByFilm(f)"
                             class="rounded-full border border-gray-300 px-3 py-1 text-xs font-medium text-gray-700 hover:bg-gray-50"
                         >
-                            {{ s.event_name }}
-                            <span class="text-gray-400">{{ s.region }}/{{ s.season }}</span>
+                            {{ f.event_name }}
+                            <span class="text-gray-400">{{ f.region }}/{{ f.season }}</span>
                         </button>
                     </div>
                 </div>
