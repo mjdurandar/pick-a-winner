@@ -481,7 +481,7 @@ class SheetSyncController extends Controller
             return [];
         }
 
-        $existing = Location::where('event_id', $source->event_id)->get(['id', 'name', 'date']);
+        $existing = Location::where('event_id', $source->event_id)->get(['id', 'name', 'date', 'time', 'state']);
 
         if ($existing->isEmpty()) {
             return [];
@@ -529,7 +529,27 @@ class SheetSyncController extends Controller
                     'id' => $match['location']->id,
                     'name' => $match['location']->name,
                     'date' => $match['location']->date,
+                    'time' => $match['location']->time,
+                    'state' => $match['location']->state,
                 ];
+            }
+        }
+
+        // What approving would cost: a match holding attendees or prizes is one
+        // you almost certainly meant to update rather than duplicate.
+        $ids = array_column($hints, 'id');
+
+        if ($ids !== []) {
+            $attendees = TicketAttendee::whereIn('location_id', $ids)
+                ->selectRaw('location_id, COUNT(*) as total')->groupBy('location_id')
+                ->pluck('total', 'location_id');
+            $prizes = Prize::whereIn('location_id', $ids)
+                ->selectRaw('location_id, COUNT(*) as total')->groupBy('location_id')
+                ->pluck('total', 'location_id');
+
+            foreach ($hints as $changeId => $hint) {
+                $hints[$changeId]['attendees'] = (int) ($attendees[$hint['id']] ?? 0);
+                $hints[$changeId]['prizes'] = (int) ($prizes[$hint['id']] ?? 0);
             }
         }
 

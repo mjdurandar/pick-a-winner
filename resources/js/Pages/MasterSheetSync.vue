@@ -307,6 +307,54 @@ function fieldLabel(key) {
     return FIELD_LABELS[key] ?? key;
 }
 
+// -- the near-duplicate warning ---------------------------------------------
+// The warning used to assert a resemblance without showing it. Put the two side
+// by side instead: whether to approve turns entirely on which fields differ,
+// and a wording change is a different decision from a different night.
+
+const DUPLICATE_FIELDS = [
+    { key: 'name', label: 'Name' },
+    { key: 'date', label: 'Date' },
+    { key: 'time', label: 'Time' },
+    { key: 'state', label: 'State' },
+];
+
+function duplicateRows(change) {
+    const sheet = change.payload ?? {};
+    const existing = change.duplicate_of ?? {};
+
+    return DUPLICATE_FIELDS
+        // A field neither side carries says nothing; a tab with no Time column
+        // would otherwise show an empty row reading "same".
+        .filter((f) => (sheet[f.key] ?? '') !== '' || (existing[f.key] ?? '') !== '')
+        .map((f) => ({
+            label: f.label,
+            sheet: sheet[f.key] ?? '',
+            existing: existing[f.key] ?? '',
+            same: String(sheet[f.key] ?? '') === String(existing[f.key] ?? ''),
+        }));
+}
+
+/** One line saying what the difference amounts to. */
+function duplicateSummary(change) {
+    const differing = duplicateRows(change).filter((f) => !f.same).map((f) => f.label.toLowerCase());
+
+    if (differing.length === 0) {
+        return 'Everything matches — this is the same screening.';
+    }
+    if (differing.length === 1 && differing[0] === 'name') {
+        return 'Only the name differs, so this is very likely the same screening written another way.';
+    }
+    if (differing.includes('date')) {
+        return 'The dates differ, so these may well be two separate screenings.';
+    }
+    if (differing.includes('time')) {
+        return 'Same night, different time — this may be a second session rather than a duplicate.';
+    }
+
+    return `Differs on ${differing.join(' and ')}.`;
+}
+
 function cellText(value) {
     if (value === true) return 'Yes';
     if (value === false) return 'No';
@@ -776,12 +824,46 @@ const flash = computed(() => page.props.flash ?? {});
                                         <!-- A create that matches an existing location closely enough to be the
                                              same screening spelled differently. -->
                                         <div v-if="change.duplicate_of"
-                                             class="mt-1 rounded border border-orange-200 bg-orange-50 px-2 py-1 text-[11px] text-orange-900">
-                                            Looks like an existing location:
-                                            <strong>{{ change.duplicate_of.name }}</strong>
-                                            <span v-if="change.duplicate_of.date">({{ change.duplicate_of.date }})</span>.
-                                            Approving creates a second copy. Make the two names identical &mdash; in the
-                                            sheet or on the locations screen &mdash; and it will update that one instead.
+                                             class="mt-1 rounded border border-orange-200 bg-orange-50 px-2 py-1.5 text-[11px] text-orange-900">
+                                            <p class="font-medium">
+                                                Looks like an existing location. {{ duplicateSummary(change) }}
+                                            </p>
+
+                                            <!-- Field by field, so the decision is made on what actually
+                                                 differs rather than on the warning's say-so. -->
+                                            <table class="mt-1.5 w-full border-collapse text-[11px]">
+                                                <thead>
+                                                    <tr class="text-left text-orange-800/70">
+                                                        <th class="w-14 font-normal"></th>
+                                                        <th class="py-0.5 pr-3 font-normal">This sheet row</th>
+                                                        <th class="py-0.5 pr-3 font-normal">Existing location</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody>
+                                                    <tr v-for="f in duplicateRows(change)" :key="f.label"
+                                                        class="border-t border-orange-200/60 align-top">
+                                                        <td class="py-0.5 pr-2 text-orange-800/70">{{ f.label }}</td>
+                                                        <td class="py-0.5 pr-3" :class="f.same ? '' : 'font-medium'">{{ f.sheet || '—' }}</td>
+                                                        <td class="py-0.5 pr-3" :class="f.same ? '' : 'font-medium'">{{ f.existing || '—' }}</td>
+                                                        <td class="py-0.5 whitespace-nowrap" :class="f.same ? 'text-orange-800/50' : 'text-orange-900'">
+                                                            {{ f.same ? 'same' : 'differs' }}
+                                                        </td>
+                                                    </tr>
+                                                </tbody>
+                                            </table>
+
+                                            <p v-if="change.duplicate_of.attendees || change.duplicate_of.prizes" class="mt-1.5">
+                                                The existing one holds
+                                                <strong>{{ change.duplicate_of.attendees }} attendee{{ change.duplicate_of.attendees === 1 ? '' : 's' }}</strong>
+                                                and
+                                                <strong>{{ change.duplicate_of.prizes }} prize{{ change.duplicate_of.prizes === 1 ? '' : 's' }}</strong>.
+                                                A new location starts empty.
+                                            </p>
+
+                                            <p class="mt-1.5">
+                                                Approving creates a second copy. Make the two names identical &mdash; in the
+                                                sheet or on the locations screen &mdash; and it will update that one instead.
+                                            </p>
                                         </div>
 
                                         <!-- A screening the sheet has stopped listing: what deleting it would cost,
