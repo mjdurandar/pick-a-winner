@@ -503,18 +503,22 @@ class SheetSyncController extends Controller
             }
 
             $match = $normalised->first(function (array $candidate) use ($key, $change) {
-                // Same name once case, spacing and punctuation are set aside.
-                if ($candidate['key'] === $key) {
-                    return true;
-                }
+                $location = $candidate['location'];
 
-                // Or the same night at a venue spelled almost the same way. The
-                // date has to agree for this one — without it, two different
-                // screenings at the same cinema would look like duplicates.
-                if (($change->payload['date'] ?? null) !== ($candidate['location']->date ?? null)) {
+                // A different night is a different screening, however the name is
+                // spelled, so the date has to agree before anything else is asked.
+                if (($change->payload['date'] ?? null) !== ($location->date ?? null)) {
                     return false;
                 }
 
+                // Same night, same time: one screening written two ways.
+                if ($candidate['key'] === $key) {
+                    return ($change->payload['time'] ?? null) === ($location->time ?? null);
+                }
+
+                // Or spelled almost the same way. Time is deliberately not asked
+                // here: a near-miss name on the same night is worth a look even
+                // if the times differ.
                 similar_text($candidate['key'], $key, $percent);
 
                 return $percent >= 85;

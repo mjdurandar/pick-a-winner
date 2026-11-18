@@ -192,6 +192,11 @@ class SheetSyncService
         // first banner.
         $country = $source->defaultCountry();
 
+        // Read the sheet first, plan second. Pairing up the sessions of a venue
+        // that runs more than one a night needs to see all of its rows at once,
+        // which a single pass cannot do.
+        $parsed = [];
+
         foreach ($rows as $index => $row) {
             if ($index <= $header['index']) {
                 continue;
@@ -212,6 +217,40 @@ class SheetSyncService
                     $country = $banner;
                 }
 
+                $parsed[] = [
+                    'sheet_row' => $sheetRow,
+                    'skip_reason' => $reason,
+                    'fields' => $fields,
+                    'attributes' => null,
+                ];
+
+                continue;
+            }
+
+            $parsed[] = [
+                'sheet_row' => $sheetRow,
+                'skip_reason' => null,
+                'fields' => $fields,
+                'attributes' => $this->mapper->toLocationAttributes($fields, $country),
+            ];
+        }
+
+        $pairings = $this->pairSessions($parsed, $existing);
+
+        // A session spoken for by one row has to be invisible to the others.
+        // Without this the pairing is computed correctly and then ignored:
+        // whichever row the sheet lists first still reaches the record through
+        // the ordinary match and takes it.
+        $reservedBy = [];
+        foreach ($pairings as $forRow => $locationId) {
+            $reservedBy[$locationId] = $forRow;
+        }
+
+        foreach ($parsed as $entry) {
+            $sheetRow = $entry['sheet_row'];
+            $fields = $entry['fields'];
+
+            if ($entry['skip_reason'] !== null) {
                 $plan[] = [
                     'sheet_row' => $sheetRow,
                     'action' => SheetSourceChange::ACTION_SKIPPED,
@@ -219,17 +258,31 @@ class SheetSyncService
                     'label' => $this->labelForSkipped($fields),
                     'payload' => null,
                     'diff' => null,
-                    'skip_reason' => $reason,
+                    'skip_reason' => $entry['skip_reason'],
                 ];
 
                 continue;
             }
 
-            $attributes = $this->mapper->toLocationAttributes($fields, $country);
+            $attributes = $entry['attributes'];
             $label = trim($attributes['name'].' — '.($attributes['date'] ?? ''), ' —');
 
-            $match = $this->matchLocation($existing, $attributes['name'], $attributes, $claimed)
-                ?: $this->matchLocation($existing, $this->mapper->priorName($fields), $attributes, $claimed);
+            // A session paired by running order above, where the times alone
+            // could not say which is which.
+            $paired = isset($pairings[$sheetRow]) && ! isset($claimed[$pairings[$sheetRow]])
+                ? $locations->firstWhere('id', $pairings[$sheetRow])
+                : null;
+
+            $offLimits = $claimed;
+            foreach ($reservedBy as $locationId => $forRow) {
+                if ($forRow !== $sheetRow) {
+                    $offLimits[$locationId] = true;
+                }
+            }
+
+            $match = $paired
+                ?: $this->matchLocation($existing, $attributes['name'], $attributes, $offLimits)
+                ?: $this->matchLocation($existing, $this->mapper->priorName($fields), $attributes, $offLimits);
 
             if (! $match) {
                 $plan[] = [
@@ -315,6 +368,111 @@ class SheetSyncService
      * @param  array<string, mixed>  $attributes
      * @param  array<int, bool>  $claimed
      */
+    /**
+     * Pair up the sessions of a venue that runs more than one on a night.
+     *
+     * Name and date alone cannot tell two sessions apart, and the time only
+     * helps while it is unchanged. When a venue moves both of its sessions
+     * — 18:00 and 21:00 becoming 19:00 and 22:00 — nothing in the row says
+     * which became which, and matching them one at a time either guesses
+     * (swapping two live screenings, attendees and all) or gives up and
+     * reports both as new.
+     *
+     * Running order settles it: a venue that shifts its night keeps the early
+     * session early. Both sides are sorted by time and lined up, so the first
+     * row takes the first session.
+     *
+     * Only genuinely ambiguous groups are paired here. A row whose time already
+     * names a session is matched on that and left out of the ordering, and a
+     * venue with one session a night never reaches this at all.
+     *
+     * @param  array<int, array{sheet_row: int, skip_reason: ?string, attributes: ?array}>  $parsed
+     * @param  \Illuminate\Support\Collection<string, \Illuminate\Support\Collection<int, Location>>  $existing
+     * @return array<int, int> location id, keyed by sheet row
+     */
+    protected function pairSessions(array $parsed, $existing): array
+    {
+        $groups = [];
+
+        foreach ($parsed as $entry) {
+            if ($entry['skip_reason'] !== null) {
+                continue;
+            }
+
+            $name = $entry['attributes']['name'] ?? null;
+            $date = $entry['attributes']['date'] ?? null;
+
+            // TBA is not a night, so two TBA rows are not two sessions of one.
+            if ($name === null || $date === null || $date === 'TBA') {
+                continue;
+            }
+
+            $groups[$name."\0".$date][] = $entry;
+        }
+
+        $pairings = [];
+
+        foreach ($groups as $key => $rowsInGroup) {
+            if (count($rowsInGroup) < 2) {
+                continue;
+            }
+
+            [$name, $date] = explode("\0", $key, 2);
+
+            $candidates = ($existing[$name] ?? collect())->where('date', $date)->values();
+
+            // One existing session is enough. Two rows for a venue that has one
+            // record means a session is being added, and the row whose time
+            // already matches has to claim it — otherwise whichever row the
+            // sheet happens to list first takes the record, and the session
+            // that was already there is rebuilt empty beside it.
+            if ($candidates->isEmpty()) {
+                continue;
+            }
+
+            // Rows whose time still names a session are not in doubt.
+            $taken = [];
+            $undecided = [];
+
+            foreach ($rowsInGroup as $entry) {
+                $time = $entry['attributes']['time'] ?? null;
+                $hit = $candidates->first(fn (Location $l) => $l->time === $time && ! isset($taken[$l->id]));
+
+                if ($hit) {
+                    $taken[$hit->id] = true;
+                    $pairings[$entry['sheet_row']] = $hit->id;
+                } else {
+                    $undecided[] = $entry;
+                }
+            }
+
+            $free = $candidates->reject(fn (Location $l) => isset($taken[$l->id]))->values();
+
+            if ($undecided === [] || $free->isEmpty()) {
+                continue;
+            }
+
+            usort($undecided, fn ($a, $b) => strcmp(
+                (string) ($a['attributes']['time'] ?? ''),
+                (string) ($b['attributes']['time'] ?? ''),
+            ));
+
+            $free = $free->sortBy(fn (Location $l) => (string) $l->time)->values();
+
+            // Any extra rows have no session to pair with and become new
+            // screenings; any extra sessions are reported as dropped.
+            foreach ($undecided as $i => $entry) {
+                if (! isset($free[$i])) {
+                    break;
+                }
+
+                $pairings[$entry['sheet_row']] = $free[$i]->id;
+            }
+        }
+
+        return $pairings;
+    }
+
     protected function matchLocation($existing, ?string $name, array $attributes, array $claimed): ?Location
     {
         if ($name === null) {
@@ -328,22 +486,42 @@ class SheetSyncService
             return null;
         }
 
+        $date = $attributes['date'] ?? null;
+        $time = $attributes['time'] ?? null;
+
+        // Date and time together. A venue often runs two sessions in one night,
+        // and they are the same name on the same date — the time is the only
+        // thing that tells them apart.
+        if ($exact = $candidates->first(fn (Location $l) => $l->date === $date && $l->time === $time)) {
+            return $exact;
+        }
+
+        $onDate = $candidates->where('date', $date);
+
+        // One screening that night, at a different time: the session moved.
+        if ($onDate->count() === 1) {
+            return $onDate->first();
+        }
+
+        // Several that night and none at this time. Which one moved is a guess,
+        // and guessing swaps the times of two live screenings — taking their
+        // attendees and prizes with them. Reported as a new screening instead,
+        // where the duplicate hint puts it in front of an admin.
+        if ($onDate->count() > 1) {
+            return null;
+        }
+
+        // Nothing on this date. A single candidate elsewhere is that screening
+        // having moved date.
         if ($candidates->count() === 1) {
             return $candidates->first();
         }
 
-        // The date is what tells two screenings at one venue apart, so it decides
-        // whenever it can.
-        if ($dated = $candidates->firstWhere('date', $attributes['date'])) {
-            return $dated;
-        }
-
-        // Nothing carries this date yet. A screening imported while its date was
-        // still TBA is the one that has been waiting for exactly this — matching
-        // it fills the date in rather than standing up a second location beside
-        // it and reporting the first as dropped. A candidate with a real date
-        // that simply moved is left alone: which of several it moved from is a
-        // guess, and a guess here silently rewrites a live screening.
+        // A screening imported while its date was still TBA is the one that has
+        // been waiting for exactly this — matching it fills the date in rather
+        // than standing up a second location beside it and reporting the first
+        // as dropped. A candidate with a real date that simply moved is left
+        // alone: which of several it moved from is a guess.
         return $candidates->firstWhere('date', 'TBA');
     }
 
