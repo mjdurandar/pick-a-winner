@@ -87,6 +87,7 @@ class DripOutstandingOptInsJob implements ShouldQueue
 
         $api = MailchimpApi::for($credentials->resolve($account));
         $accepted = 0;
+        $viaApi = 0;
         $throttled = false;
 
         // Sign-up form first. These people stood at a venue and opted in minutes or
@@ -123,6 +124,18 @@ class DripOutstandingOptInsJob implements ShouldQueue
                 break;
             }
 
+            // A contact the API answered for never reached the form. It is not
+            // counted towards the form's pacing — that figure exists to find the
+            // form's limit, and crediting it with work it did not do would teach the
+            // schedule the wrong number — and there is nothing to pace after it.
+            if (! $relay->usedForm()) {
+                if ($outcome === OptInRelay::RECOVERED) {
+                    $viaApi++;
+                }
+
+                continue;
+            }
+
             if ($outcome === OptInRelay::RECOVERED) {
                 $accepted++;
             }
@@ -135,6 +148,7 @@ class DripOutstandingOptInsJob implements ShouldQueue
         Log::info('Opt-in drip finished', [
             'account' => $account,
             'accepted' => $accepted,
+            'confirmations_sent_via_api' => $viaApi,
             'throttled' => $throttled,
             'interval_used' => $plan['interval'],
             'next_interval' => $run->fresh()->interval_seconds,

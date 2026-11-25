@@ -253,13 +253,20 @@ class MailchimpImportRunner
         // bounced, or was reviewed — and the API will not lift that. Where the import
         // carries a documented opt-in collected since, that opt-in is transcribed to
         // the audience's own hosted form, which is the route Mailchimp does accept.
-        if ($this->relayStopped || ! $this->relay->permitted($import, $refusal)) {
-            // Once the relay has stopped, a compliance refusal is left exactly as the
-            // dry run classified it. Recording it as blocked would bury contacts the
-            // form never got a chance to answer for.
-            if (! $this->relayStopped) {
-                $this->record($import, $rowNumber, MailchimpImportRow::BLOCKED_UNSUBSCRIBED, $refusal, 400);
-            }
+        if (! $this->relay->permitted($import, $refusal)) {
+            // No documented opt-in, or a deletion request: neither route is offered.
+            $this->record($import, $rowNumber, MailchimpImportRow::BLOCKED_UNSUBSCRIBED, $refusal, 400);
+
+            return;
+        }
+
+        if ($this->relayStopped) {
+            // The form has stopped taking submissions for this run, but the API was
+            // never what was rate limited, so the confirmation is still requested
+            // through it. A contact it declines is left exactly as the dry run
+            // classified it — recording it as blocked would bury someone the form
+            // never got a chance to answer for.
+            $this->relay->relay($import, $api, $rowNumber, $email, $refusal, formAllowed: false);
 
             return;
         }
@@ -320,9 +327,13 @@ class MailchimpImportRunner
             $outcome = $attempt();
 
             if ($outcome !== OptInRelay::THROTTLED || ! $waits) {
-                // Paced whatever the answer was: the next contact is another
-                // submission to the same public form either way.
-                sleep(self::FORM_SUBMISSION_PAUSE_SECONDS);
+                // Paced only when the form was actually used: the next contact may
+                // be another submission to the same public page. A contact the API
+                // answered for cost the form nothing, and pausing after each of
+                // those is what would turn a five-minute import back into an hour.
+                if ($this->relay->usedForm()) {
+                    sleep(self::FORM_SUBMISSION_PAUSE_SECONDS);
+                }
 
                 return $outcome;
             }

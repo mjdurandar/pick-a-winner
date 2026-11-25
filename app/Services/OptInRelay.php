@@ -28,7 +28,22 @@ class OptInRelay
     /** No opt-in is documented for this import, so nothing is offered. */
     public const NOT_PERMITTED = 'not_permitted';
 
+    /**
+     * Whether the last relay had to go to the hosted form.
+     *
+     * The form is the only part of this that rate-limits, so callers pace
+     * themselves after a form submission and not after an API call — pausing
+     * three seconds per contact for a route that has no such limit would give
+     * back most of the time the API route saves.
+     */
+    protected bool $lastUsedForm = false;
+
     public function __construct(protected MailchimpHostedForm $hostedForm) {}
+
+    public function usedForm(): bool
+    {
+        return $this->lastUsedForm;
+    }
 
     /**
      * Whether this refusal may be answered with the contact's recorded opt-in.
@@ -69,11 +84,46 @@ class OptInRelay
         int $rowNumber,
         string $email,
         string $refusal,
+        bool $formAllowed = true,
     ): string {
+        $this->lastUsedForm = false;
+
         if (! $this->permitted($import, $refusal)) {
             return self::NOT_PERMITTED;
         }
 
+        // First through the API: ask Mailchimp to email the contact its opt-in
+        // confirmation. Same outcome as the form for a compliance-held address —
+        // they are back once they click — without the form's rate limit, which is
+        // what used to stall an import after the first sixteen or so.
+        $declined = $api->requestOptIn($import->audience_id, $email);
+
+        if ($declined === null) {
+            if (filled($import->tag)) {
+                $api->tagMember($import->audience_id, $email, $import->tag);
+            }
+
+            $this->record(
+                $import,
+                $rowNumber,
+                MailchimpImportRow::RECOVERED_VIA_FORM,
+                'Mailchimp emailed them a confirmation link. They are back once they click it.',
+                200,
+            );
+
+            return self::RECOVERED;
+        }
+
+        // The form is closed to this run — it has already pushed back enough that
+        // the caller stopped offering it contacts. The API route above stays open
+        // regardless, since it is not what was being rate limited; a contact it
+        // declined is simply left as it was for a later attempt.
+        if (! $formAllowed) {
+            return self::THROTTLED;
+        }
+
+        // The API would not send one, so the form gets the opt-in as it always did.
+        $this->lastUsedForm = true;
         $submission = $this->hostedForm->submit($import->account, $email);
 
         if ($submission['status'] === MailchimpHostedForm::THROTTLED) {

@@ -57,9 +57,13 @@ class MailchimpImportRow extends Model
     public const BLOCKED_UNSUBSCRIBED = 'blocked_unsubscribed';
 
     /**
-     * The API refused them, their opt-in was transcribed to the audience's hosted
-     * form, and a fresh read of the member confirms they are back. Kept separate
-     * from RESUBSCRIBED so the route a contact came back by stays visible.
+     * The API refused to set them subscribed, and their recorded opt-in was put to
+     * Mailchimp another way: first by asking the API to email them a confirmation
+     * link, and failing that through the audience's hosted form. Either way the
+     * member record was read back to confirm it. Kept separate from RESUBSCRIBED
+     * because most of these are waiting on the contact's own click — the row's
+     * detail says which. The stored value keeps its old name so existing rows and
+     * counters still mean what they meant.
      */
     public const RECOVERED_VIA_FORM = 'recovered_via_form';
 
@@ -107,7 +111,7 @@ class MailchimpImportRow extends Model
         self::SUBSCRIBED => 'Subscribed',
         self::RESUBSCRIBED => 'Resubscribed',
         self::UPDATED => 'Updated',
-        self::RECOVERED_VIA_FORM => 'Resubscribed (signup form)',
+        self::RECOVERED_VIA_FORM => 'Opted back in (confirmation)',
         self::BLOCKED_UNSUBSCRIBED => 'Blocked by Mailchimp (compliance)',
         self::FAILED => 'Failed',
     ];

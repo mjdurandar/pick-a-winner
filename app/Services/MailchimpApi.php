@@ -301,6 +301,57 @@ class MailchimpApi
     }
 
     /**
+     * Ask Mailchimp to email a compliance-held contact its opt-in confirmation.
+     *
+     * The API will not set such a contact to subscribed, but it will set them to
+     * pending — and pending is Mailchimp's own double opt-in: it sends the contact
+     * a confirmation link, and their click is what puts them back. Nothing is
+     * asserted on their behalf, which is why Mailchimp accepts it.
+     *
+     * This matters because the only other route, the audience's hosted signup
+     * form, is a public page with abuse protection in front of it. It starts
+     * turning submissions away after about sixteen, which is what made an import
+     * of a few hundred returning contacts take days. This is an ordinary
+     * authenticated API call and is not subject to that throttle. The outcome for
+     * the contact is the same either way: the form also answers a compliance-held
+     * address with a confirmation email rather than restoring it outright.
+     *
+     * Only ever called where the caller holds a documented opt-in for the address.
+     *
+     * @return string|null null when the confirmation is on its way; otherwise
+     *                     Mailchimp's own words for why it would not send one
+     *
+     * @throws MailchimpApiException
+     */
+    public function requestOptIn(string $listId, string $email): ?string
+    {
+        try {
+            $response = $this->patch(
+                "/lists/{$listId}/members/{$this->subscriberHash($email)}?skip_merge_validation=true",
+                ['status' => 'pending'],
+            );
+        } catch (MailchimpApiException $e) {
+            // A 400 is Mailchimp declining this one contact — a bounced address it
+            // will not mail, a deletion request, or an address that has asked for
+            // too many confirmations lately. The caller still has the form to try,
+            // so this is an answer rather than a reason to stop the run.
+            if ($e->statusCode === 400) {
+                return $e->detail ?: 'Mailchimp would not send this contact a confirmation.';
+            }
+
+            throw $e;
+        }
+
+        // Believed only when the member record says so. A 200 that leaves the
+        // contact unsubscribed has not sent anybody anything.
+        $status = (string) $response->json('status');
+
+        return in_array($status, ['pending', 'subscribed'], true)
+            ? null
+            : "Mailchimp left this contact as '{$status}' rather than sending a confirmation.";
+    }
+
+    /**
      * Mailchimp phrases this refusal several ways depending on the endpoint — the
      * title "Forgotten Email Not Subscribed", a detail line reading "... is in a
      * compliance state due to unsubscribe, bounce, or compliance review", and for a
