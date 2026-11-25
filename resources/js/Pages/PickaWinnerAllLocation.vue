@@ -1,5 +1,5 @@
 <script setup>
-import Swal from 'sweetalert2';
+import { toast } from '@/stores/pawToast';
 import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue';
 import { router } from '@inertiajs/vue3';
 import PickaWinnerLayout from '@/Layouts/PickaWinnerLayout.vue';
@@ -42,6 +42,11 @@ const showPick = ref(false);           // the draw itself
 const showPrizeDetails = ref(false);   // naming the prize for a saved winner
 const showHowTo = ref(false);          // how to pick a winner
 const showMenu = ref(false);           // everything that is not the draw
+
+// The film's own logo, uploaded on the event. Hidden if the file is missing,
+// so a broken image never sits on the screen the audience is watching.
+const logoBroken = ref(false);
+const eventLogo = computed(() => (props.event?.event_logo && !logoBroken.value ? `/storage/${props.event.event_logo}` : ''));
 
 // ✅ Location filter — the host can narrow the tour-wide draw to a chosen set of
 // screenings. Empty means the whole tour (every location).
@@ -454,54 +459,44 @@ const queueDelete = (prize) => {
     });
 };
 
-// Delete Prize
-const destroy = (prize) => {
-    // ✅ Winner only saved on this device (not confirmed by the server yet)
-    if (prize.__local && !prize.id) {
-        Swal.fire({
-            title: 'Are you sure?',
-            text: 'This winner has not synced to the server yet. Removing it will discard the winner.',
-            icon: 'warning',
-            showCancelButton: true,
-            confirmButtonText: 'Remove Winner',
-            cancelButtonText: 'Cancel',
-        }).then((result) => {
-            if (result.isConfirmed) {
-                queueDelete(prize);
-                Swal.fire('Removed!', 'The winner has been removed.', 'success');
-            }
-        });
-        return;
-    }
+// Deleting asks first, in a panel of the page's own rather than a pop-up. A
+// winner the server already has needs DELETE typed; one that only exists on
+// this phone needs a single tap, exactly as before.
+const deleteTarget = ref(null);
+const deleteText = ref('');
+const deleteBox = ref(null);
+const deleteIsLocalOnly = computed(() => !!deleteTarget.value && !!deleteTarget.value.__local && !deleteTarget.value.id);
+// Any capitals count: the word is there to stop a slip of the thumb, not to test typing.
+const deleteReady = computed(() => deleteIsLocalOnly.value || deleteText.value.trim().toUpperCase() === 'DELETE');
 
-    Swal.fire({
-        title: 'Are you sure?',
-        text: 'This action cannot be undone! If you delete this prize the winner for this Prize will be gone! To confirm, type DELETE below.',
-        icon: 'warning',
-        input: 'text', // ✅ Require user input
-        inputPlaceholder: 'Type DELETE to confirm',
-        showCancelButton: true,
-        confirmButtonText: 'Delete Prize',
-        cancelButtonText: 'Cancel',
-        inputValidator: (value) => {
-            if (value !== 'DELETE') {
-                return 'You must type DELETE to confirm!';
-            }
-        }
-    }).then((result) => {
-        if (result.isConfirmed) {
-            queueDelete(prize);
-            Swal.fire(
-                'Deleted!',
-                connection.value === 'offline'
-                    ? 'Prize has been removed and will be deleted from the server once internet is back.'
-                    : connection.value === 'weak'
-                        ? 'Prize has been removed on this device. The internet is weak, so it will keep trying to delete it from the server — keep this page open.'
-                        : 'Prize has been deleted.',
-                'success'
-            );
-        }
-    });
+const destroy = (prize) => {
+    deleteTarget.value = prize;
+    deleteText.value = '';
+    nextTick(() => deleteBox.value?.focus());
+};
+
+const cancelDelete = () => {
+    deleteTarget.value = null;
+    deleteText.value = '';
+};
+
+const confirmDelete = () => {
+    const prize = deleteTarget.value;
+    if (!prize || !deleteReady.value) return;
+
+    const localOnly = deleteIsLocalOnly.value;
+    queueDelete(prize);
+    cancelDelete();
+
+    if (localOnly) {
+        toast.success('Winner removed');
+    } else if (connection.value === 'offline') {
+        toast.success('Removed on this phone', 'It will be deleted from the server once the internet is back.');
+    } else if (connection.value === 'weak') {
+        toast.success('Removed on this phone', 'The internet is weak, so it is still being deleted from the server. Keep this page open.');
+    } else {
+        toast.success('Deleted');
+    }
 };
 
 // ✅ Track selected prize and winner
@@ -544,7 +539,7 @@ const prizeInput = ref(null);
 // Function to update the prize for a winner
 const updatePrizeForWinner = () => {
     if (!selectedPrize.value || !prizeForWinner.value) {
-        Swal.fire('Error', 'Prize name cannot be empty!', 'error');
+        toast.error('Type the prize first');
         return;
     }
 
@@ -566,7 +561,7 @@ const updatePrizeForWinner = () => {
             },
         });
         handleModalClose();
-        Swal.fire('Updated!', 'Prize has been assigned to the winner.', 'success');
+        toast.success('Prize saved');
         return;
     }
 
@@ -578,10 +573,10 @@ const updatePrizeForWinner = () => {
     router.post(route('prize.update', selectedPrize.value.id), data, {
         onSuccess: () => {
             handleModalClose();
-            Swal.fire('Updated!', 'Prize has been assigned to the winner.', 'success');
+            toast.success('Prize saved');
         },
         onError: (errors) => {
-            Swal.fire('Error!', 'There was an issue updating the prize.', 'error');
+            toast.error('The prize could not be saved', 'Check the internet and try again.');
             console.error(errors);
         }
     });
@@ -615,16 +610,15 @@ const runPickAnimation = () => {
 // ✅ Open Modal and Start Animation
 const openPickWinnerModal = () => {
     if (!eventAttendees.value.length) {
-        Swal.fire('No Attendees', 'There are no attendees for this event.', 'warning');
+        toast.warning('Nobody has signed up to this tour yet');
         return;
     }
     if (!eligibleAttendees.value.length) {
-        Swal.fire(
-            'No Eligible Attendees',
+        toast.warning(
+            'Nobody left to draw',
             hasActiveFilters.value
-                ? 'No attendees match the current filters, or they have all already won.'
-                : 'All attendees have already been chosen as winners.',
-            'warning'
+                ? 'Nobody matches the filter, or they have all already won.'
+                : 'Everyone has already been picked as a winner.',
         );
         return;
     }
@@ -636,7 +630,7 @@ const openPickWinnerModal = () => {
 
 const pickAgain = () => {
     if (!eligibleAttendees.value.length) {
-        Swal.fire('No Eligible Attendees', 'No attendees match the current filters, or they have all already won.', 'warning');
+        toast.warning('Nobody left to draw', 'Nobody matches the filter, or they have all already won.');
         return;
     }
 
@@ -680,7 +674,7 @@ const openPrizeDetailsModal = (winner) => {
 // internet never blocks the draw — it syncs to the server in the background.
 const confirmWinner = () => {
     if (!selectedWinner.value) {
-        Swal.fire('Error', 'No winner selected.', 'error');
+        toast.error('No winner selected');
         return;
     }
 
@@ -713,15 +707,13 @@ const confirmWinner = () => {
     showPick.value = false;
 
     const firstName = selectedWinner.value.first_name;
-    Swal.fire(
-        'Winner Selected!',
-        connection.value === 'offline'
-            ? `${firstName} has been saved on this device and will sync automatically once internet is back. You can keep picking.`
-            : connection.value === 'weak'
-                ? `${firstName} has been saved on this device. The internet is weak, so it is still sending in the background — you can keep picking, just leave this page open.`
-                : `${firstName} has been selected!`,
-        'success'
-    );
+    if (connection.value === 'offline') {
+        toast.success(`${firstName} saved on this phone`, 'It will send by itself once the internet is back. You can keep picking.');
+    } else if (connection.value === 'weak') {
+        toast.success(`${firstName} saved on this phone`, 'The internet is weak, so it is still sending. Keep this page open; you can keep picking.');
+    } else {
+        toast.success(`${firstName} saved as a winner`);
+    }
     isSubmitting.value = false;
 };
 
@@ -871,6 +863,13 @@ const unnamedCount = computed(() => mergedPrizes.value.filter(needsPrizeName).le
                         Write the winners down as well, just in case.
                     </p>
                 </div>
+
+                <!-- ======================================= logo -- -->
+                <img
+                    v-if="eventLogo" :src="eventLogo" :alt="event.event_name"
+                    class="mx-auto mb-4 max-h-32 max-w-[260px] object-contain"
+                    @error="logoBroken = true"
+                />
 
                 <!-- ===================================== counts -- -->
                 <div class="mb-3.5 grid grid-cols-2 gap-2.5">
@@ -1072,7 +1071,11 @@ const unnamedCount = computed(() => mergedPrizes.value.filter(needsPrizeName).le
 
                     <template v-else>
                         <div class="paw-rise flex flex-1 flex-col items-center justify-center gap-3 py-5 text-center">
-                            <span class="grid h-14 w-14 place-items-center rounded-full bg-[#0b2a30] text-[#16c3d9]">
+                            <img
+                                v-if="eventLogo" :src="eventLogo" :alt="event.event_name"
+                                class="max-h-20 max-w-[220px] object-contain" @error="logoBroken = true"
+                            />
+                            <span v-else class="grid h-14 w-14 place-items-center rounded-full bg-[#0b2a30] text-[#16c3d9]">
                                 <svg class="h-6 w-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M8 4h8v4a4 4 0 0 1-8 0V4zM8 5H5a3 3 0 0 0 3 3M16 5h3a3 3 0 0 1-3 3M10 12v3h4v-3M8 20h8" /></svg>
                             </span>
                             <p class="text-[11.5px] font-bold uppercase tracking-[0.12em] text-[#74797a]">Tour-wide winner</p>
@@ -1112,6 +1115,57 @@ const unnamedCount = computed(() => mergedPrizes.value.filter(needsPrizeName).le
                         </div>
                     </template>
                 </div>
+            </div>
+        </Teleport>
+
+        <!-- --------------------------------- delete a winner -- -->
+        <Teleport to="body">
+            <div v-if="deleteTarget" class="fixed inset-0 z-[72] bg-black/75"></div>
+            <div
+                v-if="deleteTarget" role="dialog" aria-modal="true" aria-label="Delete this winner"
+                class="fixed inset-x-0 bottom-0 z-[73] mx-auto grid max-h-[86vh] w-full max-w-[560px] gap-3 overflow-y-auto rounded-t-2xl border-t border-[#2e2e2e] bg-[#151515] px-[max(18px,env(safe-area-inset-left))] pb-[calc(20px+env(safe-area-inset-bottom))] pt-3.5"
+            >
+                <div class="relative pr-12">
+                    <button type="button" @click="cancelDelete" aria-label="Close" class="absolute right-0 top-0 grid h-9 w-9 place-items-center rounded-lg border border-[#2e2e2e] bg-[#1f1f1f] text-[#abb0b2] hover:text-white"><svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18" /></svg></button>
+                    <p class="text-[11.5px] font-bold uppercase tracking-[0.1em] text-[#f77d7d]">Delete</p>
+                    <h3 class="text-xl font-extrabold tracking-[-0.02em] text-white">
+                        {{ deleteTarget.winner || prizeLabel(deleteTarget) || 'This prize' }}
+                    </h3>
+                    <p class="mt-1 text-[13.5px] leading-snug text-[#abb0b2]">
+                        <template v-if="deleteIsLocalOnly">
+                            This winner is only saved on this phone so far. Removing it discards the winner.
+                        </template>
+                        <template v-else-if="deleteTarget.winner">
+                            This cannot be undone. They go back into the draw and can be picked again.
+                        </template>
+                        <template v-else>
+                            This cannot be undone. The prize is removed from the list.
+                        </template>
+                    </p>
+                </div>
+
+                <label v-if="!deleteIsLocalOnly" class="grid gap-2">
+                    <span class="text-[12.5px] font-bold text-[#abb0b2]">Type DELETE to confirm</span>
+                    <input
+                        ref="deleteBox" v-model="deleteText" type="text" placeholder="DELETE"
+                        autocomplete="off" autocapitalize="characters" autocorrect="off" spellcheck="false"
+                        class="paw-field min-h-[60px] w-full px-4 font-mono text-[16.5px] font-semibold uppercase tracking-[0.12em]"
+                        @keydown.enter.prevent="confirmDelete"
+                    />
+                </label>
+
+                <button
+                    type="button" @click="confirmDelete" :disabled="!deleteReady"
+                    class="min-h-[60px] w-full rounded-2xl bg-[#f77d7d] text-base font-extrabold text-[#2c0b0b] disabled:opacity-40"
+                >
+                    {{ deleteIsLocalOnly ? 'Remove this winner' : 'Delete' }}
+                </button>
+                <button
+                    type="button" @click="cancelDelete"
+                    class="min-h-[46px] w-full rounded-xl text-[14px] font-semibold text-[#abb0b2] hover:bg-[#1f1f1f] hover:text-white"
+                >
+                    Cancel
+                </button>
             </div>
         </Teleport>
 

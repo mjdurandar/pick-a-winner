@@ -1,5 +1,6 @@
 <script setup>
 import { Head } from '@inertiajs/vue3';
+import PawToasts from '@/Components/PawToasts.vue';
 </script>
 
 <template>
@@ -7,5 +8,8 @@ import { Head } from '@inertiajs/vue3';
         <main>
             <slot />
         </main>
+
+        <!-- "Saved", "deleted" and the like, for every Pick a Winner page. -->
+        <PawToasts />
     </div>
 </template> 
