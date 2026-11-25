@@ -100,6 +100,30 @@ Held back as of 25 Nov 2026:
 
 ---
 
+## Old or new Pick a Winner screens
+
+The redesigned Pick a Winner (what hosts see on the night) is switched on per
+site, so the rest of the app can go live while the new draw waits for approval.
+
+| Site | Setting in that site's `.env` | Hosts see |
+|---|---|---|
+| Staging | `PICK_A_WINNER_NEW_UI=true` | the new screens |
+| Production | not set (or `false`) | the old screens |
+
+To switch a site over once the new draw is approved, add this line to its
+`.env` on the server, then clear the config cache:
+
+```bash
+PICK_A_WINNER_NEW_UI=true
+```
+
+```bash
+/opt/alt/php82/usr/bin/php artisan config:clear
+```
+(Use `php84` on staging.) No deploy is needed. Remove the line to go back.
+
+---
+
 ## If a deploy goes wrong
 
 The script stops and prints the exact commands that put the previous version

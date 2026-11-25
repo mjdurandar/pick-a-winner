@@ -15,11 +15,21 @@ use Illuminate\Support\Facades\Session;
 class PickaWinnerController extends Controller
 {
     /**
+     * The host-facing screens exist twice while the redesign waits for approval:
+     * the new ones, and the ones hosts already know under Pages/Legacy. A site
+     * shows the new ones only when it has opted in (config/pick_a_winner.php).
+     */
+    private function screen(string $name): string
+    {
+        return config('pick_a_winner.new_ui') ? $name : 'Legacy/'.$name;
+    }
+
+    /**
      * Display a listing of the resource.
      */
     // Pick A Winner Index Page
     public function index() {
-        return Inertia::render('PickaWinner', [
+        return Inertia::render($this->screen('PickaWinner'), [
             // Only the fields the login screen needs — passwords are verified
             // server-side and must never reach this public page.
             'events' => Events::where('is_enabled', true)
@@ -69,7 +79,7 @@ class PickaWinnerController extends Controller
         ->where("$tableName.location_id", $location->id)
         ->get();
 
-        return Inertia::render('PickaWinnerLocationPage', [
+        return Inertia::render($this->screen('PickaWinnerLocationPage'), [
             'location' => $location,
             'event' => $event,
             'attendees' => $attendees,
@@ -109,7 +119,7 @@ class PickaWinnerController extends Controller
             || $request->session()->get('guide_verified_'.$event->id) === true;
 
         if (! $unlocked) {
-            return Inertia::render('HostGuide', [
+            return Inertia::render($this->screen('HostGuide'), [
                 'event' => $eventData,
                 'drawPassword' => null,
                 'locked' => true,
@@ -125,7 +135,7 @@ class PickaWinnerController extends Controller
             ->orderBy('time')
             ->value('password');
 
-        return Inertia::render('HostGuide', [
+        return Inertia::render($this->screen('HostGuide'), [
             'event' => $eventData,
             'drawPassword' => $drawPassword,
             'locked' => false,
@@ -180,7 +190,7 @@ class PickaWinnerController extends Controller
                ->whereNull('location_id') // ✅ Ensure location_id is NULL
                ->get();
 
-        return Inertia::render('PickaWinnerAllLocation', [
+        return Inertia::render($this->screen('PickaWinnerAllLocation'), [
             'event' => $event,
             'attendees' => $attendees,
             'prizes' => $prizes,
