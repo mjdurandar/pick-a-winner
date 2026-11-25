@@ -1,0 +1,34 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 480" preserveAspectRatio="xMidYMid slice" role="img" aria-label="Website">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#050607"/>
+      <stop offset="1" stop-color="#151515"/>
+    </linearGradient>
+    <radialGradient id="glow" cx=".5" cy=".5" r=".5">
+      <stop offset="0" stop-color="#16C3D9" stop-opacity=".28"/>
+      <stop offset="1" stop-color="#16C3D9" stop-opacity="0"/>
+    </radialGradient>
+    <clipPath id="page"><rect x="390" y="150" width="420" height="238" rx="0"/></clipPath>
+  </defs>
+
+  <rect width="1200" height="480" fill="url(#bg)"/>
+  <circle cx="600" cy="250" r="330" fill="url(#glow)"/>
+
+  <!-- a browser window -->
+  <rect x="390" y="92" width="420" height="296" rx="18" fill="#0A0B0C" stroke="#2E2E2E" stroke-width="3"/>
+  <path d="M390 150H810" stroke="#2E2E2E" stroke-width="3"/>
+  <circle cx="424" cy="121" r="8" fill="#16C3D9"/>
+  <circle cx="452" cy="121" r="8" fill="#3A3F40"/>
+  <circle cx="480" cy="121" r="8" fill="#3A3F40"/>
+  <rect x="520" y="109" width="260" height="24" rx="12" fill="#1C1E1F"/>
+
+  <!-- the page inside it: a film still over two lines of copy -->
+  <g clip-path="url(#page)">
+    <rect x="414" y="174" width="372" height="120" rx="10" fill="#0E5C68"/>
+    <circle cx="700" cy="222" r="22" fill="#16C3D9"/>
+    <path d="M414 294 500 222 556 268 624 204 700 276 742 246 786 284V294Z" fill="#0A0B0C" opacity=".85"/>
+    <rect x="414" y="314" width="230" height="14" rx="7" fill="#FFFFFF" opacity=".9"/>
+    <rect x="414" y="342" width="150" height="12" rx="6" fill="#3A3F40"/>
+    <rect x="686" y="322" width="100" height="32" rx="16" fill="#16C3D9"/>
+  </g>
+</svg>

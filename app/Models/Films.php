@@ -11,6 +11,7 @@ class Films extends Model
     protected $fillable = [
         'name',
         'country',
+        'image',
     ];
 
     public function events()
