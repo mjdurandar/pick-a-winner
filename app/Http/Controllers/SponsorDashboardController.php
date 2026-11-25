@@ -194,6 +194,12 @@ class SponsorDashboardController extends Controller
         // so they are closures: an Inertia partial reload then pays only for
         // the ones it actually asked for. A drag refetches the groups and
         // leaves the pages alone.
+        //
+        // They are also deferred. The page used to wait for all of them before
+        // it showed anything, which read as a dead click; now it opens at once
+        // and fetches them in a second request while a spinner says so. One
+        // group, so they still resolve in order in a single request and
+        // `loadError` still sees whether the ones before it failed.
         $failed = null;
         $guard = function (callable $fetch, $fallback) use (&$failed, $hasSite) {
             // No site settled means none is connected. That is a state to
@@ -235,13 +241,13 @@ class SponsorDashboardController extends Controller
             // Region and season terms are reference data that changes once a
             // year at most, and reading them costs two seconds. Cached per
             // site — the terms and their ids differ on every one of them.
-            'taxonomies' => fn () => $guard(fn () => $this->cachedTaxonomies(), ['region' => [], 'season' => []]),
-            'groups' => fn () => $guard(fn () => $this->partners()->groups($filters), []),
+            'taxonomies' => Inertia::defer(fn () => $guard(fn () => $this->cachedTaxonomies(), ['region' => [], 'season' => []]), 'wordpress'),
+            'groups' => Inertia::defer(fn () => $guard(fn () => $this->partners()->groups($filters), []), 'wordpress'),
             // Which pages exist and which groups each shows. A group on no page
             // is invisible however it is tagged, so the screen has to say so.
-            'pages' => fn () => $guard(fn () => $this->partners()->pages(), []),
+            'pages' => Inertia::defer(fn () => $guard(fn () => $this->partners()->pages(), []), 'wordpress'),
             // Declared after the closures above so it sees whether they failed.
-            'loadError' => fn () => $failed,
+            'loadError' => Inertia::defer(fn () => $failed, 'wordpress'),
             'maxLogoKb' => self::MAX_LOGO_KB,
             // For deep links into wp-admin. The site address only, never the
             // credentials that go with it.

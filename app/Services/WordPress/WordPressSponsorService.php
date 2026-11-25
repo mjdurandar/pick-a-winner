@@ -41,6 +41,12 @@ class WordPressSponsorService implements SponsorRepository
     /** Defaults the theme uses for a row, matched to what real rows carry. */
     private const ROW_DEFAULTS = ['text' => '', 'max_height' => 100, 'line_break' => 'none'];
 
+    /** The most WordPress will return in one request, whatever we ask for. */
+    private const PAGE_SIZE = 100;
+
+    /** A stop, so a site that keeps claiming more pages cannot loop forever. */
+    private const MAX_PAGES = 25;
+
     public function __construct(
         protected string $siteUrl,
         protected string $user,
@@ -69,14 +75,13 @@ class WordPressSponsorService implements SponsorRepository
     public function groups(array $filters = []): array
     {
         $query = array_filter([
-            'per_page' => 100,
             'status' => 'publish,draft',
             'search' => $filters['search'] ?? null,
             'region' => $filters['region'] ?? null,
             'season' => $filters['season'] ?? null,
         ], fn ($v) => $v !== null && $v !== '');
 
-        return array_map($this->present(...), $this->get('/wp/v2/'.self::POST_TYPE, $query));
+        return array_map($this->present(...), $this->getAll('/wp/v2/'.self::POST_TYPE, $query));
     }
 
     public function group(int $id): ?array
@@ -214,7 +219,7 @@ class WordPressSponsorService implements SponsorRepository
 
     public function pages(): array
     {
-        $pages = $this->get('/wp/v2/'.self::PAGE_TYPE, ['per_page' => 50, 'context' => 'edit']);
+        $pages = $this->getAll('/wp/v2/'.self::PAGE_TYPE, ['context' => 'edit']);
 
         return array_map(fn (array $p) => [
             'id' => (int) $p['id'],
@@ -255,7 +260,7 @@ class WordPressSponsorService implements SponsorRepository
     {
         $terms = fn (string $tax) => array_map(
             fn (array $t) => ['id' => (int) $t['id'], 'name' => html_entity_decode($t['name']), 'slug' => $t['slug']],
-            $this->get('/wp/v2/'.$tax, ['per_page' => 100, '_fields' => 'id,name,slug'])
+            $this->getAll('/wp/v2/'.$tax, ['_fields' => 'id,name,slug'])
         );
 
         return ['region' => $terms('region'), 'season' => $terms('season')];
@@ -538,6 +543,40 @@ class WordPressSponsorService implements SponsorRepository
         }
 
         return $response->json() ?? [];
+    }
+
+    /**
+     * Every page of a collection, not just the first hundred.
+     *
+     * WordPress caps per_page at 100 and reports how many pages a query has in
+     * X-WP-TotalPages. Asking once and stopping is how three published partner
+     * groups went missing from Fly Fishing, which has 105 of them: the screen
+     * showed 100 and gave no sign that anything was cut off.
+     *
+     * @param  array<string, mixed>  $query
+     * @return array<int, array<string, mixed>>
+     */
+    protected function getAll(string $path, array $query = []): array
+    {
+        $items = [];
+        $page = 1;
+
+        do {
+            $response = $this->request()->get($this->endpoint($path), $query + [
+                'per_page' => self::PAGE_SIZE,
+                'page' => $page,
+            ]);
+
+            if ($response->failed()) {
+                throw new RuntimeException($this->reason($response->json(), $response->status(), $path));
+            }
+
+            $items = array_merge($items, $response->json() ?? []);
+            $totalPages = max(1, (int) $response->header('X-WP-TotalPages'));
+            $page++;
+        } while ($page <= $totalPages && $page <= self::MAX_PAGES);
+
+        return $items;
     }
 
     /**
