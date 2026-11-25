@@ -6,6 +6,7 @@ import { locationTagForSource, locationTagForShow } from '@/locationTag';
 import { Head, router } from '@inertiajs/vue3';
 import { debounce } from 'lodash';
 import axios from 'axios';
+import Icon from '@/Components/Icon.vue';
 
 const props = defineProps({
     event: Object,
@@ -353,22 +354,23 @@ const closeEditPrizeModal = () => {
         <template #header>
             <div class="flex justify-between items-center">
                 <div class="flex items-center space-x-3">
-                    <h2 class="text-xl font-semibold leading-tight text-gray-800">
-                        Attendees for {{ location.name }} - {{ event.event_name }}
-                    </h2>
+                    <div class="min-w-0">
+                        <p class="truncate text-xs font-semibold text-gray-500">{{ event.event_name }} · {{ location.name }}</p>
+                        <h2 class="truncate text-2xl font-extrabold tracking-tight text-gray-900">Attendees</h2>
+                    </div>
                 </div>
                 <button 
                     @click="goBackToLocation"
                     class="bg-gray-500 text-white px-4 py-2 rounded hover:bg-gray-700"
                 >
-                    <i class="fa-solid fa-arrow-left"></i> Back to Locations
+                    <Icon name="arrow-left" /> Back to Locations
                 </button>
             </div>
         </template>
 
         <div class="p-2 pb-5 pt-5">
-            <div class="mx-auto max-w-7xl sm:px-6 lg:px-8">
-                <div class="overflow-hidden bg-white shadow-sm sm:rounded-lg">
+            <div class="mx-auto max-w-full sm:px-6 lg:px-8">
+                <div class="overflow-hidden bg-white shadow-card sm:rounded-lg">
                     <div class="p-6 text-gray-900">
                         <!-- Summary Stats -->
                         <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
@@ -413,7 +415,7 @@ const closeEditPrizeModal = () => {
                                     @click="exportWinnersToCSV" 
                                     class="bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700"
                                 >
-                                    <i class="fa-solid fa-trophy"></i> Export winners
+                                    <Icon name="trophy" /> Export winners
                                 </button>
                             </div>
                         </div>
@@ -463,22 +465,22 @@ const closeEditPrizeModal = () => {
                                                     class="bg-yellow-500 text-white px-2 py-1 rounded hover:bg-yellow-700 text-sm"
                                                     title="Mark as Winner"
                                                 >
-                                                    <i class="fa-solid fa-trophy"></i>
+                                                    <Icon name="trophy" />
                                                 </button>
                                                 <button 
                                                     v-if="isWinner(attendee)"
                                                     @click="editPrize(attendee)"
-                                                    class="bg-blue-500 text-white px-2 py-1 rounded hover:bg-blue-700 text-sm"
+                                                    class="bg-[#16C3D9] text-[#06242A] font-bold px-2 py-1 rounded hover:brightness-105 text-sm"
                                                     title="Edit Prize"
                                                 >
-                                                    <i class="fa-solid fa-edit"></i>
+                                                    <Icon name="edit" />
                                                 </button>
                                                 <button 
                                                     @click="deleteAttendee(attendee.id, event.id)"
                                                     class="bg-red-500 text-white px-2 py-1 rounded hover:bg-red-700 text-sm"
                                                     title="Delete Attendee"
                                                 >
-                                                    <i class="fa-solid fa-trash"></i>
+                                                    <Icon name="trash" />
                                                 </button>
                                             </div>
                                         </td>
@@ -518,15 +520,15 @@ const closeEditPrizeModal = () => {
 
         <!-- Winner Selection Modal -->
         <div v-if="showWinnerModal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-            <div class="bg-white p-6 rounded-lg shadow-xl max-w-md w-full mx-4">
-                <div class="flex justify-between items-center mb-4">
+            <div class="mx-4 flex max-h-[calc(100vh-3rem)] w-full max-w-md flex-col overflow-hidden rounded-xl bg-white shadow-xl">
+                <div class="flex shrink-0 items-center justify-between gap-3 border-b border-gray-200 px-6 py-4">
                     <h3 class="text-lg font-semibold">Mark as Winner</h3>
-                    <button @click="closeWinnerModal" class="text-gray-500 hover:text-gray-700">
-                        <i class="fa-solid fa-times"></i>
+                    <button @click="closeWinnerModal" class="grid h-8 w-8 shrink-0 place-items-center rounded-lg text-gray-400 hover:bg-gray-100 hover:text-gray-700" aria-label="Close">
+                        <Icon name="times" />
                     </button>
                 </div>
                 
-                <div class="space-y-4">
+                <div class="min-h-0 flex-1 space-y-4 overflow-y-auto px-6 py-4">
                     <div>
                         <p class="text-gray-600 mb-2">
                             Selected Attendee: <strong>{{ selectedAttendee?.first_name }} {{ selectedAttendee?.last_name }}</strong>
@@ -549,7 +551,8 @@ const closeEditPrizeModal = () => {
                         />
                     </div>
 
-                    <div class="flex justify-end space-x-3">
+                </div>
+                <div class="flex shrink-0 justify-end gap-2 border-t border-gray-200 bg-white px-6 py-4">
                         <button 
                             @click="closeWinnerModal"
                             class="px-4 py-2 border rounded text-gray-600 hover:bg-gray-50"
@@ -561,25 +564,24 @@ const closeEditPrizeModal = () => {
                             class="px-4 py-2 bg-yellow-500 text-white rounded hover:bg-yellow-600"
                             :disabled="!prizeName.trim()"
                         >
-                            <i class="fa-solid fa-trophy mr-2"></i>
+                            <Icon name="trophy" class="mr-2" />
                             Mark as Winner
                         </button>
-                    </div>
                 </div>
             </div>
         </div>
 
         <!-- Edit Prize Modal -->
         <div v-if="showEditPrizeModal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-            <div class="bg-white p-6 rounded-lg shadow-xl max-w-md w-full mx-4">
-                <div class="flex justify-between items-center mb-4">
+            <div class="mx-4 flex max-h-[calc(100vh-3rem)] w-full max-w-md flex-col overflow-hidden rounded-xl bg-white shadow-xl">
+                <div class="flex shrink-0 items-center justify-between gap-3 border-b border-gray-200 px-6 py-4">
                     <h3 class="text-lg font-semibold">Edit Prize Name</h3>
-                    <button @click="closeEditPrizeModal" class="text-gray-500 hover:text-gray-700">
-                        <i class="fa-solid fa-times"></i>
+                    <button @click="closeEditPrizeModal" class="grid h-8 w-8 shrink-0 place-items-center rounded-lg text-gray-400 hover:bg-gray-100 hover:text-gray-700" aria-label="Close">
+                        <Icon name="times" />
                     </button>
                 </div>
                 
-                <div class="space-y-4">
+                <div class="min-h-0 flex-1 space-y-4 overflow-y-auto px-6 py-4">
                     <div>
                         <p class="text-gray-600 mb-2">
                             Winner: <strong>{{ selectedPrize?.winner }}</strong>
@@ -602,7 +604,8 @@ const closeEditPrizeModal = () => {
                         />
                     </div>
 
-                    <div class="flex justify-end space-x-3">
+                </div>
+                <div class="flex shrink-0 justify-end gap-2 border-t border-gray-200 bg-white px-6 py-4">
                         <button 
                             @click="closeEditPrizeModal"
                             class="px-4 py-2 border rounded text-gray-600 hover:bg-gray-50"
@@ -611,13 +614,12 @@ const closeEditPrizeModal = () => {
                         </button>
                         <button 
                             @click="updatePrizeName"
-                            class="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600"
+                            class="px-4 py-2 bg-[#16C3D9] text-[#06242A] font-bold rounded hover:brightness-105"
                             :disabled="!editPrizeName.trim()"
                         >
-                            <i class="fa-solid fa-save mr-2"></i>
+                            <Icon name="save" class="mr-2" />
                             Update Prize
                         </button>
-                    </div>
                 </div>
             </div>
         </div>

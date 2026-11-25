@@ -107,6 +107,7 @@ Route::middleware(['auth', RoleMiddleware::class.':admin,host'])->group(function
     // LOCATION ROUTES
     Route::get('/location', [LocationController::class, 'index'])->name('location.index');
     Route::get('/location/{eventId}', [LocationController::class, 'locationpage'])->name('location.locationpage');
+    Route::get('/location/{eventId}/mailchimp-sync', [LocationController::class, 'mailchimpSync'])->name('location.mailchimpSync');
 
     // National Tour Wide draw — one draw across every location of an event.
     // Account-only (opened from the Locations page), unlike a location draw

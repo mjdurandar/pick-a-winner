@@ -28,6 +28,12 @@ onUnmounted(() => document.removeEventListener('keydown', closeOnEscape));
 const widthClass = computed(() => {
     return {
         48: 'w-48',
+        56: 'w-56',
+        64: 'w-64',
+        72: 'w-72',
+        // Wide enough for a grouped menu of several columns. It is capped to
+        // the viewport so it cannot push the page sideways on a small screen.
+        auto: 'w-[min(44rem,calc(100vw-2rem))]',
     }[props.width.toString()];
 });
 

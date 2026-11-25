@@ -120,7 +120,7 @@ const countries = ['AUSTRALIA & NEW ZEALAND', 'USA & CANADA', 'USA', 'Canada', '
                     <span v-else-if="event.is_enabled" class="rounded-md bg-green-50 px-3 py-1 text-xs font-medium text-green-800">Live</span>
                     <span v-else class="rounded-md bg-gray-100 px-3 py-1 text-xs font-medium text-gray-600">Hidden</span>
                     <button type="button" @click="save" :disabled="saving || !dirty"
-                            class="rounded-md bg-teal-600 px-4 py-2 text-sm font-medium text-white hover:bg-teal-700 disabled:opacity-40">
+                            class="rounded-md bg-[#16C3D9] px-4 py-2 text-sm font-bold text-[#06242A] hover:brightness-105 disabled:opacity-40">
                         {{ saving ? 'Saving…' : 'Save changes' }}
                     </button>
                 </div>
@@ -138,13 +138,13 @@ const countries = ['AUSTRALIA & NEW ZEALAND', 'USA & CANADA', 'USA', 'Canada', '
                         { label: 'Screenings', value: counts.locations },
                         { label: 'Prizes', value: counts.prizes },
                         { label: 'Winners drawn', value: counts.winners },
-                    ]" :key="s.label" class="rounded-lg border border-gray-200 border-t-2 border-t-teal-600 bg-white p-5 shadow-sm">
+                    ]" :key="s.label" class="rounded-lg border-t-2 border-t-[#16C3D9] bg-white p-5 shadow-card">
                         <p class="text-xs font-medium uppercase tracking-wide text-gray-500">{{ s.label }}</p>
                         <p class="mt-1 text-4xl font-semibold tracking-tight text-gray-900">{{ n(s.value) }}</p>
                     </div>
                 </div>
 
-                <section class="rounded-lg bg-white p-5 shadow-sm">
+                <section class="rounded-lg bg-white p-5 shadow-card">
                     <h3 class="text-base font-semibold text-gray-900">Event details</h3>
                     <p class="mt-1 text-sm text-gray-600">What the event is and when it runs.</p>
 
@@ -187,7 +187,7 @@ const countries = ['AUSTRALIA & NEW ZEALAND', 'USA & CANADA', 'USA', 'Canada', '
                 </section>
 
                 <div class="grid gap-4 lg:grid-cols-2 xl:grid-cols-3">
-                    <section class="rounded-lg bg-white p-5 shadow-sm">
+                    <section class="rounded-lg bg-white p-5 shadow-card">
                         <h3 class="text-base font-semibold text-gray-900">Host and coordinator</h3>
                         <p class="mt-1 text-sm text-gray-600">Shown on the shared host guide.</p>
 
@@ -214,7 +214,7 @@ const countries = ['AUSTRALIA & NEW ZEALAND', 'USA & CANADA', 'USA', 'Canada', '
                         </div>
                     </section>
 
-                    <section class="rounded-lg bg-white p-5 shadow-sm">
+                    <section class="rounded-lg bg-white p-5 shadow-card">
                         <h3 class="text-base font-semibold text-gray-900">Branding</h3>
                         <p class="mt-1 text-sm text-gray-600">Leave a field empty to keep the current image.</p>
 
@@ -246,7 +246,7 @@ const countries = ['AUSTRALIA & NEW ZEALAND', 'USA & CANADA', 'USA', 'Canada', '
                         </div>
                     </section>
 
-                <section class="rounded-lg bg-white p-5 shadow-sm">
+                <section class="rounded-lg bg-white p-5 shadow-card">
                     <h3 class="text-base font-semibold text-gray-900">Visibility</h3>
                     <p class="mt-1 text-sm text-gray-600">Where this event and its locations appear.</p>
 
@@ -276,7 +276,7 @@ const countries = ['AUSTRALIA & NEW ZEALAND', 'USA & CANADA', 'USA', 'Canada', '
                 </section>
                 </div>
 
-                <section class="rounded-lg bg-white p-5 shadow-sm">
+                <section class="rounded-lg bg-white p-5 shadow-card">
                     <h3 class="text-base font-semibold text-gray-900">Reports and tools</h3>
                     <p class="mt-1 text-sm text-gray-600">Everything for this event, in one place.</p>
 

@@ -1,6 +1,6 @@
 <template>
     <div class="scroll-date-picker">
-        <div class="picker-display form-control w-full border rounded px-3 py-2" @click="togglePicker" ref="displayRef">
+        <div class="picker-display w-full border rounded px-3 py-2" @click="togglePicker" ref="displayRef">
             <span v-if="displayValue">{{ displayValue }}</span>
             <span v-else class="placeholder">mm/dd/yyyy</span>
             <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 16 16" class="picker-icon">

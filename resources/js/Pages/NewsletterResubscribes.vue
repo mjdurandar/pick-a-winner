@@ -3,6 +3,7 @@ import { ref, computed, watch } from 'vue';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout.vue';
 import { Head, router } from '@inertiajs/vue3';
 import { debounce } from 'lodash';
+import Icon from '@/Components/Icon.vue';
 
 const props = defineProps({
     event: Object,
@@ -169,21 +170,22 @@ const goToPage = (url) => {
 
     <AuthenticatedLayout>
         <template #header>
-            <h2 class="text-xl font-semibold leading-tight text-gray-800">
-                Newsletter resubscribes — {{ event.film_name || event.event_name }}
-            </h2>
+            <div class="min-w-0">
+                <p class="truncate text-xs font-semibold text-gray-500">{{ event.film_name || event.event_name }}</p>
+                <h2 class="truncate text-2xl font-extrabold tracking-tight text-gray-900">Newsletter resubscribes</h2>
+            </div>
         </template>
 
         <div class="p-2 pb-5 pt-5">
-            <div class="mx-auto max-w-7xl sm:px-6 lg:px-8">
-                <div class="overflow-hidden bg-white shadow-sm sm:rounded-lg">
+            <div class="mx-auto max-w-full sm:px-6 lg:px-8">
+                <div class="overflow-hidden bg-white shadow-card sm:rounded-lg">
                     <div class="p-6 text-gray-900">
                         <!-- Resubscribes are queued when someone signs up, so until the
                              worker runs them they are owed but not yet reported below. -->
                         <div v-if="queueBacklog.pending || queueBacklog.failed"
                             class="mb-4 rounded border border-amber-300 bg-amber-50 px-4 py-3 text-sm">
                             <p class="font-semibold text-amber-900">
-                                <i class="fa-solid fa-clock mr-1"></i>
+                                <Icon name="clock" class="mr-1" />
                                 Not everything owed is on this page yet
                             </p>
                             <p class="text-amber-800 mt-1">
@@ -214,14 +216,14 @@ const goToPage = (url) => {
                                     @click="goBack"
                                     class="px-4 py-2 text-sm bg-gray-200 text-gray-700 rounded hover:bg-gray-300"
                                 >
-                                    <i class="fa-solid fa-arrow-left mr-1"></i> Locations
+                                    <Icon name="arrow-left" class="mr-1" /> Locations
                                 </button>
                                 <button
                                     @click="exportCsv"
                                     class="px-4 py-2 text-sm bg-green-600 text-white rounded hover:bg-green-700"
                                     title="Download the rows below as CSV"
                                 >
-                                    <i class="fa-solid fa-file-csv mr-1"></i> Export CSV
+                                    <Icon name="file-csv" class="mr-1" /> Export CSV
                                 </button>
                             </div>
                         </div>
@@ -231,14 +233,14 @@ const goToPage = (url) => {
                             <div class="inline-flex rounded-md border border-gray-300 overflow-hidden text-sm">
                                 <button
                                     @click="scope = 'event'"
-                                    :class="scope === 'event' ? 'bg-blue-600 text-white' : 'bg-white text-gray-700 hover:bg-gray-50'"
+                                    :class="scope === 'event' ? 'bg-[#16C3D9] text-[#06242A] font-bold' : 'bg-white text-gray-700 hover:bg-gray-50'"
                                     class="px-4 py-2"
                                 >
                                     This event
                                 </button>
                                 <button
                                     @click="scope = 'film'"
-                                    :class="scope === 'film' ? 'bg-blue-600 text-white' : 'bg-white text-gray-700 hover:bg-gray-50'"
+                                    :class="scope === 'film' ? 'bg-[#16C3D9] text-[#06242A] font-bold' : 'bg-white text-gray-700 hover:bg-gray-50'"
                                     class="px-4 py-2 border-l border-gray-300"
                                 >
                                     Whole film ({{ siblingEventCount }} events)
@@ -259,7 +261,7 @@ const goToPage = (url) => {
                                 class="border rounded-lg p-4 text-left transition hover:shadow"
                             >
                                 <div class="text-xs uppercase tracking-wide text-gray-600">
-                                    <i :class="`fa-solid ${tile.icon} mr-1`"></i> {{ tile.label }}
+                                    <Icon :name="tile.icon" class="mr-1" /> {{ tile.label }}
                                 </div>
                                 <div :class="tile.text" class="text-2xl font-bold mt-1">
                                     {{ tile.value.toLocaleString() }}
@@ -328,7 +330,7 @@ const goToPage = (url) => {
                         <!-- Breakdown -->
                         <div class="flex flex-wrap items-center justify-between gap-2 mb-3">
                             <h3 class="text-lg font-semibold text-gray-800">
-                                <i class="fa-solid fa-chart-simple mr-2"></i>
+                                <Icon name="chart-simple" class="mr-2" />
                                 By {{ breakdownBy === 'event' ? 'event' : 'location' }}
                             </h3>
                             <button
@@ -375,7 +377,7 @@ const goToPage = (url) => {
 
                         <!-- Detail -->
                         <h3 class="text-lg font-semibold text-gray-800 mb-3">
-                            <i class="fa-solid fa-list-ul mr-2"></i> Every attempt
+                            <Icon name="list-ul" class="mr-2" /> Every attempt
                             <span class="text-sm font-normal text-gray-500">
                                 ({{ (attempts.total ?? 0).toLocaleString() }})
                             </span>

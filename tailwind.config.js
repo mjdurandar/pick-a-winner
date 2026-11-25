@@ -15,6 +15,11 @@ export default {
             fontFamily: {
                 sans: ['Figtree', ...defaultTheme.fontFamily.sans],
             },
+            // The page is white, so a card is set apart by its shadow alone.
+            // One token, so every card on every page casts the same one.
+            boxShadow: {
+                card: '0 1px 2px rgb(0 0 0 / 0.06), 0 8px 24px -8px rgb(0 0 0 / 0.16)',
+            },
         },
     },
 

@@ -3,6 +3,7 @@ import { ref, watchEffect, computed } from 'vue';
 import { router, Head, usePage } from '@inertiajs/vue3';
 import Swal from 'sweetalert2';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout.vue';
+import Icon from '@/Components/Icon.vue';
 
 // ✅ Receive `eventId` and `form` as props
 const props = defineProps({ 
@@ -159,39 +160,39 @@ watchEffect(() => {
                 <div class="flex mt-4 md:mt-0">
                     <!-- ✅ Show this only if signupForm exists -->
                     <button v-if="signupForm" @click="copySignupFormUrl()" class="btn me-3" style="background-color: black; color: white; border-radius: 5px; padding: 10px 20px; cursor: pointer;">
-                        <i class="fa-solid fa-copy"></i>
+                        <Icon name="copy" />
                         Copy Signup Link
                     </button>
 
                     <!-- ✅ Show "Edit Form" only if signupForm exists and user is admin -->
                     <button v-if="signupForm && userRole === 'admin'" @click="editSignUpForm()" class="btn" style="background-color: black; color: white; border-radius: 5px; padding: 10px 20px; cursor: pointer;">
-                        <i class="fa-solid fa-pen-to-square"></i>
+                        <Icon name="pen-to-square" />
                         Edit Form 
                     </button>  
 
                     <!-- ✅ Show "Generate Sign Up Form" only if signupForm does NOT exist -->
                     <button v-if="!signupForm && userRole === 'admin'" @click="createSignUpForm()" class="btn" style="background-color: black; color: white; border-radius: 5px; padding: 10px 20px; cursor: pointer;">
-                        <i class="fa-solid fa-plus"></i>
+                        <Icon name="plus" />
                         Create Sign Up Form
                     </button>
                 </div>
             </div>
         </template>
 
-        <div class="container mt-4 mb-4 pb-4 d-flex justify-content-center align-items-center flex-column">
-            <div class="mx-auto max-w-7xl sm:px-6 lg:px-8">
+        <div class="mx-auto mt-4 mb-4 flex w-full max-w-5xl flex-col items-center justify-center px-4 pb-4">
+            <div class="mx-auto max-w-full sm:px-6 lg:px-8">
                 <!-- ✅ If a signup form exists, display it -->
                 <div v-if="signupForm">
                     <!-- Form Container -->
-                    <div class="text-center border rounded shadow-sm bg-light col-12 col-md-8 col-lg-5 bg-white w-full md:w-3/5 mx-auto rounded shadow-lg">
-                        <div class="w-100">
+                    <div class="mx-auto w-full rounded border bg-white text-center shadow-lg md:w-3/5">
+                        <div class="w-full">
                             <img :src="'/storage/' + eventValues.event_banner" alt="Event Banner" 
-                                class="img-fluid w-100" 
+                                class="h-auto w-full max-w-full" 
                                 style="object-fit: cover; height: 350px;">
                         </div>
 
                         <div class="p-4">
-                            <h2 class="mt-2 mb-3 fw-bold" style="font-size: 20px;">{{ form.heading }}</h2>
+                            <h2 class="mb-3 mt-2 font-bold" style="font-size: 20px;">{{ form.heading }}</h2>
                             <p class="mb-3">{{ form.event_description }}</p>
                             <p class="mb-2">
                                 <a :href="form.terms_link" target="_blank" class="text-decoration-none" style="color: #0000EE;">Terms and Conditions</a> |
@@ -203,7 +204,7 @@ watchEffect(() => {
                     <!-- ✅ Sign-up Form -->
                     <div class="bg-white w-full md:w-3/5 mx-auto p-5 mt-4 rounded shadow-lg">
                         <label class="block font-medium text-gray-800 mb-1">Events Location</label>
-                        <select v-model="selectedLocation" class="form-select mb-3 w-full border rounded px-3 py-2">
+                        <select v-model="selectedLocation" class="mb-3 w-full rounded border px-3 py-2">
                             <option value="" disabled>Select a location</option>
 
                             <template v-for="(group, date) in groupedLocations" :key="date">
@@ -246,9 +247,9 @@ watchEffect(() => {
                         </div>
 
                         <!-- ✅ Marketing Permission Checkbox (Required) -->
-                        <div class="form-check mt-3">
-                            <input type="checkbox" class="form-check-input" id="marketingPermission" required>
-                            <label class="form-check-label" for="marketingPermission">
+                        <div class="mt-3 flex items-start gap-2 text-left">
+                            <input type="checkbox" class="mt-1 h-4 w-4 shrink-0 rounded border-gray-300 text-[#16C3D9] focus:ring-[#16C3D9]" id="marketingPermission" required>
+                            <label class="text-sm text-gray-700" for="marketingPermission">
                                 <strong>Marketing Permission</strong> <br>
                                 By checking the box, you accept the competition terms and conditions and consent to receive marketing materials related to the offerings of Adventure Entertainment and our partners.
                             </label>
@@ -256,7 +257,7 @@ watchEffect(() => {
 
                         <!-- ✅ Submit Button -->
                         <div class="flex justify-center mt-5">
-                            <button class="bg-blue-500 text-white px-6 py-2 rounded w-full md:w-auto" @click="submitTest()">Submit</button>
+                            <button class="bg-[#16C3D9] text-[#06242A] font-bold px-6 py-2 rounded w-full md:w-auto" @click="submitTest()">Submit</button>
                         </div>
                     </div>
                 </div>

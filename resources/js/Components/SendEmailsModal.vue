@@ -153,10 +153,9 @@ const statusClass = {
 </script>
 
 <template>
-    <Modal :show="show" max-width="lg" :closeable="!sending" @close="close">
+    <Modal :show="show" max-width="lg" title="Send emails now" :closeable="!sending" @close="close">
         <div class="p-6">
-            <h2 class="text-lg font-semibold text-gray-900">Send emails now</h2>
-            <p class="mt-1 text-sm text-gray-500">
+            <p class="text-sm text-gray-500">
                 Built from the data as it is right now. Each ticked email is sent separately.
             </p>
 
@@ -175,9 +174,6 @@ const statusClass = {
                     </li>
                     <li v-if="results.length === 0" class="px-3 py-2 text-sm text-gray-500">Nothing matched — no emails were sent.</li>
                 </ul>
-                <div class="mt-6 flex justify-end">
-                    <button @click="close" class="rounded-md bg-gray-800 px-4 py-2 text-sm font-medium text-white hover:bg-gray-900">Done</button>
-                </div>
             </template>
 
             <template v-else>
@@ -239,18 +235,19 @@ const statusClass = {
                 <p v-if="sending" class="mt-4 text-sm text-gray-500">
                     Re-checking and sending — this can take a minute when several sites or tabs are ticked…
                 </p>
-
-                <div class="mt-6 flex justify-end gap-2">
-                    <button @click="close" :disabled="sending"
-                            class="rounded-md border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-40">
-                        Cancel
-                    </button>
-                    <button @click="send" :disabled="sending || count === 0"
-                            class="rounded-md bg-gray-800 px-4 py-2 text-sm font-medium text-white hover:bg-gray-900 disabled:opacity-40">
-                        {{ sending ? 'Sending…' : `Send ${count} email${count === 1 ? '' : 's'}` }}
-                    </button>
-                </div>
             </template>
         </div>
+
+        <template #footer>
+            <!-- Sent: one way out. Still loading, or failed to load: the same. -->
+            <button v-if="results" @click="close" type="button" class="rounded-lg bg-[#16C3D9] px-4 py-2 text-sm font-bold text-[#06242A] hover:brightness-105 disabled:opacity-40">Done</button>
+            <button v-else-if="loadError || !options" @click="close" type="button" class="rounded-lg border border-gray-200 px-4 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-50 disabled:opacity-40">Close</button>
+            <template v-else>
+                <button @click="close" :disabled="sending" type="button" class="rounded-lg border border-gray-200 px-4 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-50 disabled:opacity-40">Cancel</button>
+                <button @click="send" :disabled="sending || count === 0" type="button" class="rounded-lg bg-[#16C3D9] px-4 py-2 text-sm font-bold text-[#06242A] hover:brightness-105 disabled:opacity-40">
+                    {{ sending ? 'Sending…' : `Send ${count} email${count === 1 ? '' : 's'}` }}
+                </button>
+            </template>
+        </template>
     </Modal>
 </template>

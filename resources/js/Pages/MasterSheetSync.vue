@@ -152,7 +152,14 @@ async function approve(source) {
                       already has.</b> Approving creates a second copy of each. Check the
                       <b>New locations</b> group first.</div><br>`
                    : ''}
-               This applies exactly what you reviewed.`,
+               This applies exactly what you reviewed.
+               ${source.missing > 0
+                   ? `<br><br><div style="background:#f1f5f9;border-radius:8px;padding:10px 12px;text-align:left">
+                      <b>Nothing is removed by this.</b> The ${source.missing}
+                      screening${source.missing === 1 ? '' : 's'} missing from the sheet
+                      ${source.missing === 1 ? 'is' : 'are'} asked about one at a time, in the
+                      <b>Gone from the sheet</b> group.</div>`
+                   : ''}`,
         showCancelButton: true,
         confirmButtonText: 'Apply now',
         confirmButtonColor: '#0d9488',
@@ -497,7 +504,7 @@ const flash = computed(() => page.props.flash ?? {});
         </template>
 
         <div class="py-6">
-            <div class="mx-auto max-w-6xl px-4 sm:px-6 space-y-6">
+            <div class="mx-auto max-w-full px-4 sm:px-6 space-y-6">
 
                 <div v-if="flash.error" class="rounded-md bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-800">
                     {{ flash.error }}
@@ -507,7 +514,7 @@ const flash = computed(() => page.props.flash ?? {});
                 </div>
 
                 <!-- What this page does, in the order it happens -->
-                <section class="bg-white shadow-sm rounded-lg p-5">
+                <section class="bg-white shadow-card rounded-lg p-5">
                     <div class="flex flex-wrap items-start justify-between gap-3">
                         <div>
                             <h3 class="text-base font-semibold text-gray-800">How this works</h3>
@@ -607,7 +614,7 @@ const flash = computed(() => page.props.flash ?? {});
                 </section>
 
                 <!-- Google connection -->
-                <section class="bg-white shadow-sm rounded-lg p-5">
+                <section class="bg-white shadow-card rounded-lg p-5">
                     <h3 class="text-base font-semibold text-gray-800 mb-3">Google account</h3>
 
                     <div v-if="!props.configured" class="text-sm text-gray-600">
@@ -621,7 +628,7 @@ const flash = computed(() => page.props.flash ?? {});
                             No account connected. Connect the Google account the master schedule is shared with.
                         </p>
                         <a :href="route('google.integration.connect')"
-                           class="shrink-0 inline-flex items-center rounded-md bg-teal-600 px-4 py-2 text-sm font-medium text-white hover:bg-teal-700">
+                           class="shrink-0 inline-flex items-center rounded-md bg-[#16C3D9] px-4 py-2 text-sm font-bold text-[#06242A] hover:brightness-105">
                             Connect Google
                         </a>
                     </div>
@@ -639,7 +646,7 @@ const flash = computed(() => page.props.flash ?? {});
                         </div>
                         <div class="shrink-0 flex gap-2">
                             <a v-if="!connected" :href="route('google.integration.connect')"
-                               class="inline-flex items-center rounded-md bg-teal-600 px-4 py-2 text-sm font-medium text-white hover:bg-teal-700">
+                               class="inline-flex items-center rounded-md bg-[#16C3D9] px-4 py-2 text-sm font-bold text-[#06242A] hover:brightness-105">
                                 Reconnect
                             </a>
                             <button @click="disconnectGoogle"
@@ -651,7 +658,7 @@ const flash = computed(() => page.props.flash ?? {});
                 </section>
 
                 <!-- Add a tab -->
-                <section v-if="connected" class="bg-white shadow-sm rounded-lg p-5">
+                <section v-if="connected" class="bg-white shadow-card rounded-lg p-5">
                     <h3 class="text-base font-semibold text-gray-800 mb-1">Connect a tab</h3>
                     <p class="text-sm text-gray-500 mb-4">
                         Paste the spreadsheet link, then pick the tab and the event its screenings belong to.
@@ -695,7 +702,7 @@ const flash = computed(() => page.props.flash ?? {});
 
                         <div class="sm:col-span-4">
                             <button @click="addSource" :disabled="!newSource.tab_name || !newSource.event_id"
-                                    class="rounded-md bg-teal-600 px-4 py-2 text-sm font-medium text-white hover:bg-teal-700 disabled:opacity-40">
+                                    class="rounded-md bg-[#16C3D9] px-4 py-2 text-sm font-bold text-[#06242A] hover:brightness-105 disabled:opacity-40">
                                 Connect tab &amp; preview
                             </button>
                             <span class="ml-3 text-xs text-gray-500">Nothing is written until you review and approve it.</span>
@@ -704,7 +711,7 @@ const flash = computed(() => page.props.flash ?? {});
                 </section>
 
                 <!-- Configured sources -->
-                <section class="bg-white shadow-sm rounded-lg">
+                <section class="bg-white shadow-card rounded-lg">
                     <div class="px-5 py-4 border-b border-gray-200">
                         <h3 class="text-base font-semibold text-gray-800">Connected tabs</h3>
                     </div>
@@ -800,8 +807,8 @@ const flash = computed(() => page.props.flash ?? {});
                                         Send email now
                                     </button>
                                     <button v-if="source.pending > 0" @click="approve(source)"
-                                            class="rounded-md bg-teal-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-teal-700">
-                                        Approve &amp; apply
+                                            class="rounded-md bg-[#16C3D9] px-3 py-1.5 text-xs font-bold text-[#06242A] hover:brightness-105">
+                                        Approve {{ source.pending }} change{{ source.pending === 1 ? '' : 's' }}
                                     </button>
                                     <button v-if="source.pending > 0" @click="discard(source)"
                                             class="rounded-md border border-amber-300 bg-amber-50 px-3 py-1.5 text-xs font-medium text-amber-800 hover:bg-amber-100">
@@ -841,7 +848,16 @@ const flash = computed(() => page.props.flash ?? {});
                                         @click="setFilter(source.id, tab.key)"
                                         :class="[
                                             'rounded px-3 py-1 text-xs font-medium',
-                                            changeFilter === tab.key ? 'bg-white text-teal-700 shadow-sm' : 'text-gray-500 hover:text-gray-700'
+                                            // Removals are a different kind of decision from the rest, so the
+                                            // group that holds them is coloured like one rather than sitting in
+                                            // the row looking like another filter.
+                                            tab.key === 'missing' && tab.count > 0
+                                                ? (changeFilter === tab.key
+                                                    ? 'bg-white text-red-700 shadow-sm ring-1 ring-red-200'
+                                                    : 'bg-red-50 text-red-700 hover:bg-red-100')
+                                                : (changeFilter === tab.key
+                                                    ? 'bg-white text-teal-700 shadow-sm'
+                                                    : 'text-gray-500 hover:text-gray-700')
                                         ]"
                                     >
                                         {{ tab.label }} ({{ tab.count }})

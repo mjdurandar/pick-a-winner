@@ -134,8 +134,8 @@ function exportUrl() {
         </template>
 
         <div class="p-2 pb-5 pt-4">
-            <div class="mx-auto max-w-7xl sm:px-6 lg:px-8">
-                <div class="overflow-hidden bg-white shadow-sm sm:rounded-lg">
+            <div class="mx-auto max-w-full sm:px-6 lg:px-8">
+                <div class="overflow-hidden bg-white shadow-card sm:rounded-lg">
                     <div class="p-6 text-gray-900">
                         <p class="text-gray-600 mb-4">
                             Activity is logged here — data exports and Pick a Winner draw access (including

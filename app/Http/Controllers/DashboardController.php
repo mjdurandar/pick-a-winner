@@ -99,7 +99,7 @@ class DashboardController extends Controller
             // ✅ Format the chart data with dates
             $attendeesChartData = $attendeesPerLocation->map(function ($item) {
                 $date = date('F d, Y', strtotime($item->date));
-                $time = date('g:iA', strtotime($item->time));
+                $time = ($ts = strtotime((string) $item->time)) ? date('g:iA', $ts) : '';
                 return [
                     'location' => $item->location_name,
                     'date' => $date,
@@ -209,7 +209,7 @@ class DashboardController extends Controller
                 'event_id' => $location->event_id,
                 'location_name' => $location->name,
                 'event_name' => $location->event->event_name,
-                'time' => date('g:i A', strtotime($location->time)),
+                'time' => ($ts = strtotime((string) $location->time)) ? date('g:i A', $ts) : '',
                 'attendees' => $attendees
             ];
         }
@@ -256,7 +256,7 @@ class DashboardController extends Controller
                 'event_id' => $location->event_id,
                 'location_name' => $location->name,
                 'event_name' => $location->event->event_name,
-                'time' => date('g:i A', strtotime($location->time)),
+                'time' => ($ts = strtotime((string) $location->time)) ? date('g:i A', $ts) : '',
                 'attendees' => $attendees
             ];
         }
@@ -306,7 +306,7 @@ class DashboardController extends Controller
                 'location_name' => $location->name,
                 'event_name' => $location->event->event_name,
                 'date' => date('M d', strtotime($location->date)),
-                'time' => date('g:i A', strtotime($location->time)),
+                'time' => ($ts = strtotime((string) $location->time)) ? date('g:i A', $ts) : '',
                 'attendees' => $attendees
             ];
         }

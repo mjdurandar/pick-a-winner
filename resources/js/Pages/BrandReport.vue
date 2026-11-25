@@ -4,6 +4,7 @@ import { Link, router } from '@inertiajs/vue3';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout.vue';
 import { Head } from '@inertiajs/vue3';
 import axios from 'axios';
+import Icon from '@/Components/Icon.vue';
 
 const props = defineProps({
     film: { type: Object, required: true } // { id, name }
@@ -40,7 +41,7 @@ const locationStats = computed(() => reportData.value?.location_stats || []);
                         :href="route('films.index')"
                         class="text-gray-500 hover:text-gray-700"
                     >
-                        <i class="fa-solid fa-arrow-left"></i>
+                        <Icon name="arrow-left" />
                     </Link>
                     <h2 class="text-xl font-semibold text-gray-800 leading-tight">
                         Brand Report – {{ film.name }}
@@ -50,13 +51,13 @@ const locationStats = computed(() => reportData.value?.location_stats || []);
         </template>
 
         <div class="py-6">
-            <div class="max-w-7xl mx-auto sm:px-6 lg:px-8">
-                <div v-if="loading" class="bg-white rounded-lg shadow p-12 text-center">
-                    <i class="fa-solid fa-spinner fa-spin text-4xl text-teal-600"></i>
+            <div class="max-w-full mx-auto sm:px-6 lg:px-8">
+                <div v-if="loading" class="bg-white rounded-lg shadow-card p-12 text-center">
+                    <Icon name="spinner" spin class="text-4xl text-teal-600" />
                     <p class="mt-4 text-gray-600">Loading analytics...</p>
                 </div>
 
-                <div v-else-if="error" class="bg-white rounded-lg shadow p-6">
+                <div v-else-if="error" class="bg-white rounded-lg shadow-card p-6">
                     <p class="text-red-600">{{ error }}</p>
                     <Link :href="route('films.index')" class="inline-block mt-4 text-teal-600 hover:text-teal-800">
                         ← Back to Brands
@@ -66,37 +67,37 @@ const locationStats = computed(() => reportData.value?.location_stats || []);
                 <div v-else-if="reportData" class="space-y-6">
                     <!-- Summary cards -->
                     <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-                        <div class="bg-white rounded-lg shadow p-4 border-l-4 border-blue-500">
+                        <div class="bg-white rounded-lg shadow-card p-4 border-l-4 border-blue-500">
                             <p class="text-sm font-medium text-gray-500 uppercase">Ticket Emails</p>
                             <p class="text-2xl font-bold text-gray-900">{{ summary.ticket_emails_count ?? 0 }}</p>
                         </div>
-                        <div class="bg-white rounded-lg shadow p-4 border-l-4 border-purple-500">
+                        <div class="bg-white rounded-lg shadow-card p-4 border-l-4 border-purple-500">
                             <p class="text-sm font-medium text-gray-500 uppercase">Sign-up Emails</p>
                             <p class="text-2xl font-bold text-gray-900">{{ summary.signup_emails_count ?? 0 }}</p>
                         </div>
-                        <div class="bg-white rounded-lg shadow p-4 border-l-4 border-orange-500">
+                        <div class="bg-white rounded-lg shadow-card p-4 border-l-4 border-orange-500">
                             <p class="text-sm font-medium text-gray-500 uppercase">Duplicate (Both)</p>
                             <p class="text-2xl font-bold text-gray-900">{{ summary.duplicate_emails_count ?? 0 }}</p>
                         </div>
-                        <div class="bg-white rounded-lg shadow p-4 border-l-4 border-teal-500">
+                        <div class="bg-white rounded-lg shadow-card p-4 border-l-4 border-teal-500">
                             <p class="text-sm font-medium text-gray-500 uppercase">Total Unique</p>
                             <p class="text-2xl font-bold text-gray-900">{{ summary.total_unique_emails ?? 0 }}</p>
                         </div>
                     </div>
 
                     <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                        <div class="bg-white rounded-lg shadow p-4 border-l-4 border-gray-400">
+                        <div class="bg-white rounded-lg shadow-card p-4 border-l-4 border-gray-400">
                             <p class="text-sm font-medium text-gray-500 uppercase">Events</p>
                             <p class="text-2xl font-bold text-gray-900">{{ summary.total_events ?? 0 }}</p>
                         </div>
-                        <div class="bg-white rounded-lg shadow p-4 border-l-4 border-gray-400">
+                        <div class="bg-white rounded-lg shadow-card p-4 border-l-4 border-gray-400">
                             <p class="text-sm font-medium text-gray-500 uppercase">Locations</p>
                             <p class="text-2xl font-bold text-gray-900">{{ summary.total_locations ?? 0 }}</p>
                         </div>
                     </div>
 
                     <!-- Demographics by country -->
-                    <div v-if="demographics.by_country && demographics.by_country.length" class="bg-white rounded-lg shadow overflow-hidden">
+                    <div v-if="demographics.by_country && demographics.by_country.length" class="bg-white rounded-lg shadow-card overflow-hidden">
                         <div class="px-4 py-3 bg-gray-50 border-b border-gray-200">
                             <h3 class="text-lg font-semibold text-gray-800">Demographics by country</h3>
                             <p class="text-sm text-gray-500">Unique attendees (ticket data) by country</p>
@@ -120,7 +121,7 @@ const locationStats = computed(() => reportData.value?.location_stats || []);
                     </div>
 
                     <!-- By state (if any) -->
-                    <div v-if="demographics.by_state && demographics.by_state.length" class="bg-white rounded-lg shadow overflow-hidden">
+                    <div v-if="demographics.by_state && demographics.by_state.length" class="bg-white rounded-lg shadow-card overflow-hidden">
                         <div class="px-4 py-3 bg-gray-50 border-b border-gray-200">
                             <h3 class="text-lg font-semibold text-gray-800">By state / region</h3>
                         </div>
@@ -145,7 +146,7 @@ const locationStats = computed(() => reportData.value?.location_stats || []);
                     </div>
 
                     <!-- Per-location stats -->
-                    <div v-if="locationStats.length" class="bg-white rounded-lg shadow overflow-hidden">
+                    <div v-if="locationStats.length" class="bg-white rounded-lg shadow-card overflow-hidden">
                         <div class="px-4 py-3 bg-gray-50 border-b border-gray-200">
                             <h3 class="text-lg font-semibold text-gray-800">By location</h3>
                         </div>
@@ -173,7 +174,7 @@ const locationStats = computed(() => reportData.value?.location_stats || []);
                         </div>
                     </div>
 
-                    <div v-if="!locationStats.length && (!demographics.by_country || !demographics.by_country.length)" class="bg-white rounded-lg shadow p-8 text-center text-gray-500">
+                    <div v-if="!locationStats.length && (!demographics.by_country || !demographics.by_country.length)" class="bg-white rounded-lg shadow-card p-8 text-center text-gray-500">
                         <p>No event or ticket data is linked to this brand yet.</p>
                     </div>
                 </div>

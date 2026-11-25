@@ -14,6 +14,14 @@ const copied = ref(null);
 
 // Password gate for the private guide.
 const unlockForm = useForm({ password: '' });
+// Hidden as it is typed; the eye shows it for anyone who wants to check it.
+const showPassword = ref(false);
+const pwBox = ref(null);
+const togglePassword = () => {
+    showPassword.value = !showPassword.value;
+    // Tapping the eye takes focus off the field; hand it back.
+    requestAnimationFrame(() => pwBox.value?.focus());
+};
 const submitUnlock = () => {
     unlockForm.post(route('pickawinner.hostguide.verify', { event_uuid: props.event.event_uuid }), {
         preserveScroll: true,
@@ -68,14 +76,30 @@ async function copyText(text, key) {
                         instructions and draw passwords.
                     </p>
                     <form class="mt-5" @submit.prevent="submitUnlock">
-                        <input
-                            v-model="unlockForm.password"
-                            type="password"
-                            autofocus
-                            placeholder="Enter password"
-                            class="w-full rounded-lg border-gray-300 text-sm focus:border-cyan-500 focus:ring-cyan-500"
-                            :class="{ 'border-red-400': unlockForm.errors.password }"
-                        />
+                        <div class="relative">
+                            <input
+                                ref="pwBox"
+                                v-model="unlockForm.password"
+                                :type="showPassword ? 'text' : 'password'"
+                                autofocus
+                                placeholder="Enter password"
+                                aria-label="Host guide password"
+                                class="w-full rounded-lg border-gray-300 pr-11 text-sm focus:border-cyan-500 focus:ring-cyan-500"
+                                :class="{ 'border-red-400': unlockForm.errors.password }"
+                            />
+                            <button
+                                type="button" @click="togglePassword"
+                                :aria-label="showPassword ? 'Hide password' : 'Show password'" :aria-pressed="showPassword"
+                                class="absolute right-1 top-1/2 grid h-9 w-9 -translate-y-1/2 place-items-center rounded-md text-gray-400 hover:bg-gray-100 hover:text-gray-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-cyan-500"
+                            >
+                                <svg v-if="!showPassword" class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                    <path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12Z" /><circle cx="12" cy="12" r="3" />
+                                </svg>
+                                <svg v-else class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                                    <path d="M10.6 5.1A10.5 10.5 0 0 1 12 5c6.4 0 10 7 10 7a17.6 17.6 0 0 1-3.2 4.1M6.5 6.6C3.6 8.5 2 12 2 12s3.6 7 10 7a10 10 0 0 0 5.4-1.6M9.9 9.9a3 3 0 0 0 4.2 4.2M3 3l18 18" />
+                                </svg>
+                            </button>
+                        </div>
                         <p v-if="unlockForm.errors.password" class="mt-1 text-sm text-red-500">
                             {{ unlockForm.errors.password }}
                         </p>

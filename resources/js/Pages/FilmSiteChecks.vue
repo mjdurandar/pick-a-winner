@@ -29,6 +29,22 @@ const warningTotal = computed(() =>
 
 const failedCount = computed(() => activeChecks.value.filter((c) => c.last_status === 'failed').length);
 
+/**
+ * Sites that need looking at, named.
+ *
+ * The tiles count errors and failures, but a count does not tell you which
+ * site to open — and this page is reached from a badge that says only that
+ * something is wrong.
+ */
+const needsAttention = computed(() => activeChecks.value
+    .filter((c) => c.last_status === 'failed' || (c.latest_run?.errors ?? 0) > 0)
+    .map((c) => ({
+        name: c.name || c.site_url || 'Unnamed check',
+        why: c.last_status === 'failed'
+            ? 'the last run failed'
+            : `${c.latest_run.errors} show${c.latest_run.errors === 1 ? '' : 's'} on a different date`,
+    })));
+
 const lastCheckedAt = computed(() => {
     const stamps = props.checks.map((c) => c.last_checked_at).filter(Boolean).sort();
     return stamps.length ? stamps[stamps.length - 1] : null;
@@ -282,24 +298,26 @@ function triggerText(run) {
 
     <AuthenticatedLayout>
         <template #header>
-            <div class="flex flex-wrap items-baseline justify-between gap-2">
-                <h2 class="text-xl font-semibold text-gray-800 leading-tight">Film Site Check</h2>
-                <div class="flex flex-wrap items-center gap-3">
-                    <p class="text-sm text-gray-500">Our locations compared with the shows each film website publishes</p>
-                    <button @click="runAll" :disabled="runningAll || activeChecks.length === 0"
-                            class="rounded-md bg-gray-800 px-3 py-1.5 text-xs font-medium text-white hover:bg-gray-900 disabled:opacity-40">
-                        {{ runningAll ? 'Checking all…' : 'Check all now' }}
-                    </button>
-                    <button @click="openEmails({ film: 'all' })"
-                            class="rounded-md border border-gray-300 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50">
-                        Send emails
-                    </button>
+            <div class="flex flex-wrap items-end gap-3">
+                <div class="min-w-0 flex-1">
+                    <p class="text-xs font-semibold text-gray-500">
+                        Our screenings compared with the shows each film website publishes
+                    </p>
+                    <h2 class="truncate text-2xl font-extrabold tracking-tight text-gray-900">Film Site Check</h2>
                 </div>
+                <button @click="openEmails({ film: 'all' })"
+                        class="h-10 rounded-lg border border-gray-200 bg-white px-4 text-sm font-semibold text-gray-700 hover:bg-gray-50">
+                    Send emails
+                </button>
+                <button @click="runAll" :disabled="runningAll || activeChecks.length === 0"
+                        class="h-10 rounded-lg bg-[#16C3D9] px-4 text-sm font-bold text-[#06242A] hover:brightness-105 disabled:opacity-40">
+                    {{ runningAll ? 'Checking all…' : 'Check all now' }}
+                </button>
             </div>
         </template>
 
         <div class="py-6">
-            <div class="mx-auto max-w-7xl px-4 sm:px-6 space-y-6">
+            <div class="mx-auto max-w-full px-4 sm:px-6 space-y-6">
 
                 <div v-if="flash.error" class="rounded-md bg-red-50 border border-red-200 px-4 py-3 text-sm text-red-800">
                     {{ flash.error }}
@@ -308,26 +326,39 @@ function triggerText(run) {
                     {{ flash.success }}
                 </div>
 
+                <!-- Which sites need looking at, by name. The badge that sends
+                     you here says only that something is wrong. -->
+                <div v-if="needsAttention.length" class="rounded-xl bg-red-50 px-4 py-3">
+                    <p class="text-sm font-bold text-red-800">
+                        {{ needsAttention.length }} site{{ needsAttention.length === 1 ? '' : 's' }} need{{ needsAttention.length === 1 ? 's' : '' }} looking at
+                    </p>
+                    <ul class="mt-1 space-y-0.5">
+                        <li v-for="site in needsAttention" :key="site.name" class="text-sm text-red-900">
+                            <strong>{{ site.name }}</strong> — {{ site.why }}
+                        </li>
+                    </ul>
+                </div>
+
                 <!-- Summary -->
                 <section class="grid gap-3 grid-cols-2 lg:grid-cols-4">
-                    <div class="bg-white shadow-sm rounded-lg p-4">
+                    <div class="bg-white shadow-card rounded-lg p-4">
                         <p class="text-[11px] font-semibold uppercase tracking-wide text-gray-400">Sites checked</p>
                         <p class="mt-1 text-2xl font-semibold text-gray-900 tabular-nums">{{ activeChecks.length }}</p>
                         <p class="mt-0.5 text-xs text-gray-500">
                             Daily at 6:15am (Sydney) &middot; last {{ whenText(lastCheckedAt) }}
                         </p>
                     </div>
-                    <div class="bg-white shadow-sm rounded-lg p-4" :class="errorTotal > 0 ? 'ring-1 ring-red-200' : ''">
+                    <div class="bg-white shadow-card rounded-lg p-4" :class="errorTotal > 0 ? 'ring-1 ring-red-200' : ''">
                         <p class="text-[11px] font-semibold uppercase tracking-wide" :class="errorTotal > 0 ? 'text-red-600' : 'text-gray-400'">Errors</p>
                         <p class="mt-1 text-2xl font-semibold tabular-nums" :class="errorTotal > 0 ? 'text-red-700' : 'text-gray-900'">{{ errorTotal }}</p>
                         <p class="mt-0.5 text-xs text-gray-500">Shows on a different date</p>
                     </div>
-                    <div class="bg-white shadow-sm rounded-lg p-4" :class="warningTotal > 0 ? 'ring-1 ring-amber-200' : ''">
+                    <div class="bg-white shadow-card rounded-lg p-4" :class="warningTotal > 0 ? 'ring-1 ring-amber-200' : ''">
                         <p class="text-[11px] font-semibold uppercase tracking-wide" :class="warningTotal > 0 ? 'text-amber-600' : 'text-gray-400'">Warnings</p>
                         <p class="mt-1 text-2xl font-semibold tabular-nums" :class="warningTotal > 0 ? 'text-amber-700' : 'text-gray-900'">{{ warningTotal }}</p>
                         <p class="mt-0.5 text-xs text-gray-500">Upcoming shows listed on only one side</p>
                     </div>
-                    <div class="bg-white shadow-sm rounded-lg p-4" :class="failedCount > 0 ? 'ring-1 ring-gray-400' : ''">
+                    <div class="bg-white shadow-card rounded-lg p-4" :class="failedCount > 0 ? 'ring-1 ring-gray-400' : ''">
                         <p class="text-[11px] font-semibold uppercase tracking-wide text-gray-400">Failed checks</p>
                         <p class="mt-1 text-2xl font-semibold text-gray-900 tabular-nums">{{ failedCount }}</p>
                         <p class="mt-0.5 text-xs text-gray-500">Site unreachable or misconfigured</p>
@@ -342,7 +373,7 @@ function triggerText(run) {
                 </p>
 
                 <!-- Checks -->
-                <section class="bg-white shadow-sm rounded-lg">
+                <section class="bg-white shadow-card rounded-lg">
                     <div class="px-5 py-4 border-b border-gray-200">
                         <h3 class="text-base font-semibold text-gray-800">Sites</h3>
                     </div>
@@ -422,7 +453,7 @@ function triggerText(run) {
                 </section>
 
                 <!-- Add a site -->
-                <section class="bg-white shadow-sm rounded-lg p-5">
+                <section class="bg-white shadow-card rounded-lg p-5">
                     <h3 class="text-base font-semibold text-gray-800 mb-1">Add a site</h3>
                     <p class="text-sm text-gray-500 mb-4">
                         Paste the film website, then pick the region and season and the Win App event to compare it with.
@@ -459,7 +490,7 @@ function triggerText(run) {
                         </select>
                         <div class="sm:col-span-2">
                             <button @click="addCheck" :disabled="adding || !newCheck.event_id"
-                                    class="rounded-md bg-teal-600 px-4 py-2 text-sm font-medium text-white hover:bg-teal-700 disabled:opacity-40">
+                                    class="rounded-md bg-[#16C3D9] px-4 py-2 text-sm font-bold text-[#06242A] hover:brightness-105 disabled:opacity-40">
                                 {{ adding ? 'Checking…' : 'Add & run first check' }}
                             </button>
                         </div>
@@ -467,7 +498,7 @@ function triggerText(run) {
                 </section>
 
                 <!-- Run detail -->
-                <section v-if="selectedRun || loadingRun" ref="detailEl" class="bg-white shadow-sm rounded-lg scroll-mt-4">
+                <section v-if="selectedRun || loadingRun" ref="detailEl" class="bg-white shadow-card rounded-lg scroll-mt-4">
                     <div v-if="loadingRun && !selectedRun" class="px-5 py-10 text-center text-sm text-gray-500">Loading…</div>
 
                     <template v-else-if="selectedRun">
@@ -575,7 +606,7 @@ function triggerText(run) {
                 </section>
 
                 <!-- Run log -->
-                <section class="bg-white shadow-sm rounded-lg">
+                <section class="bg-white shadow-card rounded-lg">
                     <div class="px-5 py-4 border-b border-gray-200 flex flex-wrap items-center justify-between gap-3">
                         <div>
                             <h3 class="text-base font-semibold text-gray-800">Run log</h3>

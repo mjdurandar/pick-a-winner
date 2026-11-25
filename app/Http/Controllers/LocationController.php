@@ -80,33 +80,73 @@ class LocationController extends Controller
             return $location;
         });
 
-        $faveSportOptions = [];
-        if ($signUpForm) {
-            $questions = is_string($signUpForm->questions)
-                ? json_decode($signUpForm->questions, true)
-                : ($signUpForm->questions ?? []);
-            if (is_array($questions)) {
-                foreach ($questions as $q) {
-                    if (($q['column_name'] ?? null) === 'fave_sport') {
-                        $opts = $q['options'] ?? [];
-                        if (is_array($opts)) {
-                            $faveSportOptions = array_values(array_filter(array_map(
-                                fn ($o) => is_string($o) ? trim($o) : '',
-                                $opts
-                            ), fn ($o) => $o !== ''));
-                        }
-                        break;
-                    }
-                }
-            }
-        }
-
         return Inertia::render('LocationPage', [
             'event' => $event,
             'locations' => $locationsWithParticipants,
             'total_participants' => $totalParticipants,
-            'fave_sport_options' => $faveSportOptions,
         ]);
+    }
+
+    /**
+     * Mailchimp auto-sync settings for one event.
+     *
+     * Its own screen rather than a dialog on the screenings page: it is a
+     * configuration form with a tag map a line per answer, and it was the
+     * largest of the five jobs that page was carrying. The settings themselves
+     * are read and written over the mailchimp.autosync.* endpoints, so only
+     * what the form needs to render is passed here.
+     */
+    public function mailchimpSync($eventId)
+    {
+        $event = Events::findOrFail($eventId);
+
+        return Inertia::render('MailchimpSync', [
+            'event' => $event,
+            'fave_sport_options' => $this->faveSportOptions($eventId),
+        ]);
+    }
+
+    /**
+     * The answers offered by this event's "Favorite adventure sport?" question.
+     *
+     * Each one can be mapped to a Mailchimp interest tag, so the settings form
+     * needs the list to draw a row per answer. An event whose form has no such
+     * question simply has none.
+     *
+     * @return array<int, string>
+     */
+    private function faveSportOptions($eventId): array
+    {
+        $signUpForm = SignUpForm::where('event_id', $eventId)->first();
+
+        if (! $signUpForm) {
+            return [];
+        }
+
+        $questions = is_string($signUpForm->questions)
+            ? json_decode($signUpForm->questions, true)
+            : ($signUpForm->questions ?? []);
+
+        if (! is_array($questions)) {
+            return [];
+        }
+
+        foreach ($questions as $q) {
+            if (($q['column_name'] ?? null) !== 'fave_sport') {
+                continue;
+            }
+
+            $opts = $q['options'] ?? [];
+
+            return is_array($opts)
+                ? array_values(array_filter(
+                    array_map(fn ($o) => is_string($o) ? trim($o) : '', $opts),
+                    fn ($o) => $o !== ''
+                ))
+                : [];
+        }
+
+        return [];
     }
 
     public function updatePassword(Request $request, Location $location)

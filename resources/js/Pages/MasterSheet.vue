@@ -5,6 +5,7 @@ import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout.vue';
 import { Head } from '@inertiajs/vue3';
 import Swal from 'sweetalert2';
 import axios from 'axios';
+import Icon from '@/Components/Icon.vue';
 
 const props = defineProps({
     locations: { type: Array, default: () => [] },
@@ -263,7 +264,10 @@ watch(
     <AuthenticatedLayout>
         <template #header>
             <div class="flex justify-between items-center">
-                <h2 class="text-xl font-semibold text-gray-800 leading-tight">Master Sheet</h2>
+                <div class="min-w-0">
+                    <p class="text-xs font-semibold text-gray-500">What the shared spreadsheet currently holds</p>
+                    <h2 class="truncate text-2xl font-extrabold tracking-tight text-gray-900">Master Sheet</h2>
+                </div>
                 <div class="flex items-center gap-3">
                     <Link
                         v-if="userRole === 'admin'"
@@ -276,7 +280,7 @@ watch(
                     <select
                         :value="selectedYear"
                         @change="changeYear($event.target.value)"
-                        class="form-select rounded-md border-gray-300 text-sm py-1 px-3"
+                        class="rounded-md border-gray-300 text-sm py-1 px-3"
                     >
                         <option v-for="year in props.years" :key="year" :value="year">{{ year }}</option>
                     </select>
@@ -287,13 +291,13 @@ watch(
         <div class="py-4">
             <div class="mx-auto max-w-full px-2 sm:px-4 lg:px-6">
 
-                <div v-if="props.events.length === 0" class="bg-white shadow-sm rounded-lg text-center py-12 text-gray-500">
+                <div v-if="props.events.length === 0" class="bg-white shadow-card rounded-lg text-center py-12 text-gray-500">
                     <p class="text-lg">No events found for {{ selectedYear }}.</p>
                 </div>
 
                 <template v-else>
                     <!-- Event Tabs -->
-                    <div class="bg-white shadow-sm rounded-t-lg border-b border-gray-200">
+                    <div class="bg-white shadow-card rounded-t-lg border-b border-gray-200">
                         <div class="flex overflow-x-auto" role="tablist">
                             <button
                                 v-for="evt in props.events"
@@ -318,7 +322,7 @@ watch(
                     </div>
 
                     <!-- Spreadsheet Table -->
-                    <div class="bg-white shadow-sm rounded-b-lg" @click.self="clearSelection">
+                    <div class="bg-white shadow-card rounded-b-lg" @click.self="clearSelection">
                         <div v-if="tabLocations.length === 0" class="text-center py-12 text-gray-500">
                             <p class="text-lg">No locations for this event.</p>
                         </div>
@@ -401,8 +405,8 @@ watch(
                                             <template v-else>
                                                 <!-- Checkbox columns -->
                                                 <template v-if="col.type === 'checkbox'">
-                                                    <i v-if="loc[col.key]" class="fa-solid fa-check text-green-600"></i>
-                                                    <i v-else class="fa-solid fa-xmark text-gray-300"></i>
+                                                    <Icon v-if="loc[col.key]" name="check" class="text-green-600" />
+                                                    <Icon v-else name="xmark" class="text-gray-300" />
                                                 </template>
 
                                                 <!-- Status with color badge -->
@@ -495,7 +499,7 @@ watch(
 }
 
 .sheet-input {
-    @apply w-full border-0 bg-white text-xs p-0.5 focus:ring-2 focus:ring-blue-500 focus:outline-none;
+    @apply w-full border-0 bg-white text-xs p-0.5 focus:ring-2 focus:ring-[#16C3D9] focus:outline-none;
 }
 
 /* Row selected — subtle left border accent */

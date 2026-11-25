@@ -5,6 +5,7 @@ import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout.vue';
 import { Head, router } from '@inertiajs/vue3';
 import { debounce } from 'lodash';
 import axios from 'axios';
+import Icon from '@/Components/Icon.vue';
 
 const props = defineProps({
     event: Object,
@@ -241,14 +242,15 @@ const deleteAttendee = (attendeeId, eventId) => {
 
     <AuthenticatedLayout>
         <template #header>
-            <h2 class="text-xl font-semibold leading-tight text-gray-800">
-                Attendees for {{ event.event_name }}
-            </h2>
+            <div class="min-w-0">
+                <p class="truncate text-xs font-semibold text-gray-500">{{ event.event_name }}</p>
+                <h2 class="truncate text-2xl font-extrabold tracking-tight text-gray-900">Attendees</h2>
+            </div>
         </template>
 
         <div class="p-2 pb-5 pt-5">
-            <div class="mx-auto max-w-7xl sm:px-6 lg:px-8">
-                <div class="overflow-hidden bg-white shadow-sm sm:rounded-lg">
+            <div class="mx-auto max-w-full sm:px-6 lg:px-8">
+                <div class="overflow-hidden bg-white shadow-card sm:rounded-lg">
                     <div class="p-6 text-gray-900">
                         <div class="flex justify-between mb-3">
                             <!-- ✅ Search Bar -->
@@ -267,9 +269,9 @@ const deleteAttendee = (attendeeId, eventId) => {
                                         class="bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700 inline-flex items-center gap-2"
                                         title="Choose what to export"
                                     >
-                                        <i class="fa-solid fa-file-export"></i>
+                                        <Icon name="file-export" />
                                         Export
-                                        <i class="fa-solid fa-chevron-down text-xs"></i>
+                                        <Icon name="chevron-down" class="text-xs" />
                                     </button>
                                     <div
                                         v-if="showExportDropdown"
@@ -280,21 +282,21 @@ const deleteAttendee = (attendeeId, eventId) => {
                                             class="w-full text-left px-4 py-2 hover:bg-gray-100 text-sm flex items-center gap-2"
                                             title="Combined sign-up + ticket data, deduplicated by email"
                                         >
-                                            <i class="fa-solid fa-file-csv text-purple-600 w-4"></i>
+                                            <Icon name="file-csv" class="text-purple-600 w-4" />
                                             <span>All Data (Win/Tix) — CSV</span>
                                         </button>
                                         <button
                                             @click="exportWinDataCsv"
                                             class="w-full text-left px-4 py-2 hover:bg-gray-100 text-sm flex items-center gap-2"
                                         >
-                                            <i class="fa-solid fa-file-csv text-amber-600 w-4"></i>
+                                            <Icon name="file-csv" class="text-amber-600 w-4" />
                                             <span>Win Data — CSV</span>
                                         </button>
                                         <button
                                             @click="exportTixDataCsv"
                                             class="w-full text-left px-4 py-2 hover:bg-gray-100 text-sm flex items-center gap-2"
                                         >
-                                            <i class="fa-solid fa-file-csv text-sky-600 w-4"></i>
+                                            <Icon name="file-csv" class="text-sky-600 w-4" />
                                             <span>Tix Data — CSV</span>
                                         </button>
                                         <div class="border-t border-gray-100 my-1"></div>
@@ -304,7 +306,7 @@ const deleteAttendee = (attendeeId, eventId) => {
                                             class="w-full text-left px-4 py-2 hover:bg-gray-100 text-sm flex items-center gap-2"
                                             title="Only winners that have an email"
                                         >
-                                            <i class="fa-solid fa-trophy text-green-600 w-4"></i>
+                                            <Icon name="trophy" class="text-green-600 w-4" />
                                             <span>Winners with email — CSV</span>
                                         </button>
                                     </div>
@@ -341,8 +343,8 @@ const deleteAttendee = (attendeeId, eventId) => {
                                             <span v-else class="text-gray-400 text-sm">—</span>
                                         </td>
                                         <td class="text-center content-center whitespace-nowrap">
-                                            <button class="btn btn-danger m-1" @click="deleteAttendee(attendee.id, event.id)">
-                                                <i class="fa-solid fa-trash"></i>
+                                            <button class="m-1 rounded-lg bg-red-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-red-700" @click="deleteAttendee(attendee.id, event.id)">
+                                                <Icon name="trash" />
                                             </button>
                                         </td>
                                     </tr>
@@ -378,7 +380,7 @@ const deleteAttendee = (attendeeId, eventId) => {
                         <!-- Newsletter resubscribes by location -->
                         <div v-if="(resubBreakdown || []).length > 0" class="mt-8 pt-6 border-t border-gray-200">
                             <h3 class="text-lg font-semibold text-gray-800 mb-3">
-                                <i class="fa-solid fa-rotate mr-2"></i> Newsletter resubscribes by location
+                                <Icon name="rotate" class="mr-2" /> Newsletter resubscribes by location
                             </h3>
                             <p class="text-sm text-gray-600 mb-3">
                                 How many previously unsubscribed contacts were re-added to the newsletter via the signup form, broken down by location.
@@ -417,15 +419,15 @@ const deleteAttendee = (attendeeId, eventId) => {
 
         <!-- Export Tags Modal -->
         <div v-if="showExportModal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-            <div class="bg-white p-6 rounded-lg shadow-xl max-w-md w-full mx-4">
-                <div class="flex justify-between items-center mb-4">
+            <div class="mx-4 flex max-h-[calc(100vh-3rem)] w-full max-w-md flex-col overflow-hidden rounded-xl bg-white shadow-xl">
+                <div class="flex shrink-0 items-center justify-between gap-3 border-b border-gray-200 px-6 py-4">
                     <h3 class="text-lg font-semibold">Export {{ exportTypeLabel }} — Film Tour Code &amp; Tags</h3>
-                    <button @click="closeExportModal" class="text-gray-500 hover:text-gray-700">
-                        <i class="fa-solid fa-times"></i>
+                    <button @click="closeExportModal" class="grid h-8 w-8 shrink-0 place-items-center rounded-lg text-gray-400 hover:bg-gray-100 hover:text-gray-700" aria-label="Close">
+                        <Icon name="times" />
                     </button>
                 </div>
 
-                <div class="space-y-4">
+                <div class="min-h-0 flex-1 space-y-4 overflow-y-auto px-6 py-4">
                     <p class="text-gray-600">
                         Configure the tags that will be added to the <strong>{{ exportTypeLabel }}</strong> CSV.
                     </p>
@@ -480,7 +482,8 @@ const deleteAttendee = (attendeeId, eventId) => {
                         </p>
                     </div>
 
-                    <div class="flex justify-end space-x-3">
+                </div>
+                <div class="flex shrink-0 justify-end gap-2 border-t border-gray-200 bg-white px-6 py-4">
                         <button
                             @click="closeExportModal"
                             class="px-4 py-2 border rounded text-gray-600 hover:bg-gray-50"
@@ -491,10 +494,9 @@ const deleteAttendee = (attendeeId, eventId) => {
                             @click="confirmExport"
                             class="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700"
                         >
-                            <i class="fa-solid fa-file-csv mr-2"></i>
+                            <Icon name="file-csv" class="mr-2" />
                             Export
                         </button>
-                    </div>
                 </div>
             </div>
         </div>

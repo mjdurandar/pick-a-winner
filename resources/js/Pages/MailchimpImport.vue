@@ -4,6 +4,7 @@ import axios from 'axios';
 import Swal from 'sweetalert2';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout.vue';
 import { Head } from '@inertiajs/vue3';
+import Icon from '@/Components/Icon.vue';
 
 const props = defineProps({
     accounts: { type: Array, default: () => [] },
@@ -116,7 +117,7 @@ const sent = computed(
     () =>
         (counts.value.subscribed ?? 0) +
         (counts.value.resubscribed ?? 0) +
-        // Came back through the audience's own signup form after the API refused.
+        // Sent a confirmation link — through the API, or the signup form where the API would not.
         (counts.value.recovered_via_form ?? 0)
 );
 const complianceBlocked = computed(() => counts.value.blocked_unsubscribed ?? 0);
@@ -589,13 +590,14 @@ function startOver() {
 
     <AuthenticatedLayout>
         <template #header>
-            <h2 class="text-xl font-semibold leading-tight text-gray-800">
-                Import Contacts to Mailchimp
-            </h2>
+            <div class="min-w-0">
+                <p class="text-xs font-semibold text-gray-500">Upload a CSV, map its columns, dry run, then import</p>
+                <h2 class="truncate text-2xl font-extrabold tracking-tight text-gray-900">Import to Mailchimp</h2>
+            </div>
         </template>
 
         <div class="p-2 pb-5 pt-4">
-            <div class="mx-auto max-w-4xl sm:px-6 lg:px-8">
+            <div class="mx-auto max-w-full sm:px-6 lg:px-8">
                 <ol class="mb-6 flex flex-wrap items-center gap-2 text-sm">
                     <li
                         v-for="(s, index) in STEPS"
@@ -620,7 +622,7 @@ function startOver() {
                     </p>
                 </div>
 
-                <div v-else class="overflow-hidden bg-white shadow-sm sm:rounded-lg">
+                <div v-else class="overflow-hidden bg-white shadow-card sm:rounded-lg">
                     <!-- Destination banner, once chosen -->
                     <div
                         v-if="importRecord"
@@ -1040,7 +1042,7 @@ function startOver() {
                                     </p>
                                     <div class="mt-3 h-2 overflow-hidden rounded bg-blue-100">
                                         <div
-                                            class="h-full bg-blue-600 transition-all duration-500"
+                                            class="h-full bg-[#16C3D9] transition-all duration-500"
                                             :style="{ width: runProgress + '%' }"
                                         />
                                     </div>
@@ -1053,7 +1055,7 @@ function startOver() {
                                          for nobody for over a minute, so the run says so
                                          rather than looking frozen. -->
                                     <p v-if="preview.progress_note" class="mt-2 flex items-start gap-2 text-sm text-blue-900">
-                                        <i class="fa-solid fa-hourglass-half mt-0.5"></i>
+                                        <Icon name="hourglass-half" class="mt-0.5" />
                                         <span>{{ preview.progress_note }}</span>
                                     </p>
                                 </div>
@@ -1233,7 +1235,7 @@ function startOver() {
                                     </dl>
 
                                     <p v-if="!preview.relay.ever_run" class="mt-3 text-sm text-amber-800">
-                                        <i class="fa-solid fa-triangle-exclamation mr-1"></i>
+                                        <Icon name="triangle-exclamation" class="mr-1" />
                                         The schedule has never run. It needs
                                         <code class="rounded bg-amber-100 px-1">php artisan schedule:work</code>
                                         locally, or the scheduler cron in production.
@@ -1245,7 +1247,7 @@ function startOver() {
                                         class="mt-3 rounded bg-blue-700 px-4 py-2 text-sm font-medium text-white hover:bg-blue-800 disabled:bg-blue-300"
                                         @click="startRun"
                                     >
-                                        <i class="fa-solid fa-rotate-right mr-1"></i>
+                                        <Icon name="rotate-right" class="mr-1" />
                                         Try the remaining {{ preview.relay.outstanding.toLocaleString() }} now
                                     </button>
                                     <p class="mt-1 text-xs text-blue-700">
@@ -1262,9 +1264,10 @@ function startOver() {
                                         {{ complianceBlocked.toLocaleString() }} contacts could not be resubscribed
                                     </p>
                                     <p class="mt-1 text-sm text-amber-800">
-                                        Mailchimp holds these addresses in a compliance state and the API cannot lift
-                                        it. Their recorded opt-in was put to the audience's own signup form and it
-                                        turned them down — a deletion request is the usual reason. Filter the table
+                                        Mailchimp holds these addresses in a compliance state. It was asked to email
+                                        each of them a confirmation link, and then their recorded opt-in was put to
+                                        the audience's own signup form — and it turned both down. A deletion request
+                                        or a bounced address is the usual reason. Filter the table
                                         below by “{{ labels.blocked_unsubscribed }}” to see what it said about each.
                                     </p>
                                     <p v-if="preview.signup_url" class="mt-2 text-sm text-amber-800">
@@ -1281,7 +1284,7 @@ function startOver() {
                                         :href="route('mailchimpImport.consentEvidence', { import: importRecord.id })"
                                         class="mt-3 inline-block rounded border border-amber-400 bg-white px-3 py-2 text-sm font-medium text-amber-900 hover:bg-amber-100"
                                     >
-                                        <i class="fa-solid fa-file-shield mr-1"></i>
+                                        <Icon name="file-shield" class="mr-1" />
                                         Download these with their opt-in record
                                     </a>
                                     <p class="mt-1 text-xs text-amber-700">

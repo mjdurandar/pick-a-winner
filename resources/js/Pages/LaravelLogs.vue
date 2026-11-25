@@ -54,14 +54,15 @@ async function clearLogs() {
 
     <AuthenticatedLayout>
         <template #header>
-            <h2 class="text-xl font-semibold leading-tight text-gray-800">
-                Laravel Logs
-            </h2>
+            <div class="min-w-0">
+                <p class="text-xs font-semibold text-gray-500">What the application has been writing to its log</p>
+                <h2 class="truncate text-2xl font-extrabold tracking-tight text-gray-900">Laravel Logs</h2>
+            </div>
         </template>
 
         <div class="p-2 pb-5 pt-4">
-            <div class="mx-auto max-w-7xl sm:px-6 lg:px-8">
-                <div class="overflow-hidden bg-white shadow-sm sm:rounded-lg">
+            <div class="mx-auto max-w-full sm:px-6 lg:px-8">
+                <div class="overflow-hidden bg-white shadow-card sm:rounded-lg">
                     <div class="p-6 text-gray-900">
                         <p class="text-gray-600 mb-4">
                             View the last lines of the application log. Choose how many lines to load, then refresh or clear as needed.

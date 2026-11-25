@@ -749,22 +749,25 @@ watch(() => eventBreakdown.value, async () => {
 
     <AuthenticatedLayout>
         <template #header>
-            <h2 class="text-xl font-semibold leading-tight text-gray-800">
-                Report
-            </h2>
+            <div class="min-w-0">
+                <p class="text-xs font-semibold text-gray-500">
+                    {{ activeTab === 'weekly-report' ? 'Sign-ups and attendance, week by week' : 'One film, broken down' }}
+                </p>
+                <h2 class="truncate text-2xl font-extrabold tracking-tight text-gray-900">Report</h2>
+            </div>
         </template>
 
         <div class="py-4 px-2">
-            <div class="mx-auto max-w-7xl sm:px-6 lg:px-8">
+            <div class="mx-auto max-w-full sm:px-6 lg:px-8">
                 <!-- Tabs -->
-                <div class="mb-6 bg-white shadow-sm sm:rounded-lg">
+                <div class="mb-6 bg-white shadow-card sm:rounded-lg">
                     <div class="border-b border-gray-200">
                         <nav class="-mb-px flex space-x-8 px-6" aria-label="Tabs">
                             <button
                                 @click="switchTab('weekly-report')"
                                 :class="[
                                     activeTab === 'weekly-report'
-                                        ? 'border-blue-500 text-blue-600'
+                                        ? 'border-[#16C3D9] text-[#0B7A8A]'
                                         : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300',
                                     'whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm'
                                 ]"
@@ -775,7 +778,7 @@ watch(() => eventBreakdown.value, async () => {
                                 @click="switchTab('event-breakdown')"
                                 :class="[
                                     activeTab === 'event-breakdown'
-                                        ? 'border-blue-500 text-blue-600'
+                                        ? 'border-[#16C3D9] text-[#0B7A8A]'
                                         : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300',
                                     'whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm'
                                 ]"
@@ -789,7 +792,7 @@ watch(() => eventBreakdown.value, async () => {
                 <!-- Weekly Report Tab Content -->
                 <div v-show="activeTab === 'weekly-report'">
                 <!-- Date Range Selection -->
-                <div class="overflow-hidden bg-white shadow-sm sm:rounded-lg mb-6">
+                <div class="overflow-hidden bg-white shadow-card sm:rounded-lg mb-6">
                     <div class="p-6">
                         <h3 class="text-lg font-semibold mb-4">Select Date Range</h3>
                         
@@ -815,7 +818,7 @@ watch(() => eventBreakdown.value, async () => {
                                 <input
                                     type="date"
                                     v-model="startDate"
-                                    class="w-full p-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                                    class="w-full p-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-[#16C3D9] focus:border-blue-500"
                                 />
                             </div>
                             <div>
@@ -823,14 +826,14 @@ watch(() => eventBreakdown.value, async () => {
                                 <input
                                     type="date"
                                     v-model="endDate"
-                                    class="w-full p-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                                    class="w-full p-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-[#16C3D9] focus:border-blue-500"
                                 />
                             </div>
                             <div class="w-full flex justify-end gap-2">
                                 <button
                                     @click="generateReport"
                                     :disabled="isLoading"
-                                    class="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                                    class="px-4 py-2 bg-[#16C3D9] text-[#06242A] font-bold rounded-md hover:brightness-105 disabled:opacity-50 disabled:cursor-not-allowed"
                                 >
                                     {{ isLoading ? 'Generating...' : 'Generate Report' }}
                                 </button>
@@ -870,25 +873,25 @@ watch(() => eventBreakdown.value, async () => {
 
                 <!-- Summary Cards -->
                 <div v-if="hasData" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-                    <div class="bg-white overflow-hidden shadow-sm sm:rounded-lg">
+                    <div class="bg-white overflow-hidden shadow-card sm:rounded-lg">
                         <div class="p-6">
                             <div class="text-sm font-medium text-gray-500">Total Events</div>
                             <div class="text-2xl font-bold text-gray-900">{{ totalEvents }}</div>
                         </div>
                     </div>
-                    <div class="bg-white overflow-hidden shadow-sm sm:rounded-lg">
+                    <div class="bg-white overflow-hidden shadow-card sm:rounded-lg">
                         <div class="p-6">
                             <div class="text-sm font-medium text-gray-500">Total Locations</div>
                             <div class="text-2xl font-bold text-gray-900">{{ totalLocations }}</div>
                         </div>
                     </div>
-                    <div class="bg-white overflow-hidden shadow-sm sm:rounded-lg">
+                    <div class="bg-white overflow-hidden shadow-card sm:rounded-lg">
                         <div class="p-6">
                             <div class="text-sm font-medium text-gray-500">Total Signups</div>
                             <div class="text-2xl font-bold text-gray-900">{{ totalSignups }}</div>
                         </div>
                     </div>
-                    <div class="bg-white overflow-hidden shadow-sm sm:rounded-lg">
+                    <div class="bg-white overflow-hidden shadow-card sm:rounded-lg">
                         <div class="p-6">
                             <div class="text-sm font-medium text-gray-500">Average per Event</div>
                             <div class="text-2xl font-bold text-gray-900">{{ summary.average_signups_per_event }}</div>
@@ -897,7 +900,7 @@ watch(() => eventBreakdown.value, async () => {
                 </div>
 
                 <!-- Report Data -->
-                <div v-if="hasData" class="overflow-hidden bg-white shadow-sm sm:rounded-lg">
+                <div v-if="hasData" class="overflow-hidden bg-white shadow-card sm:rounded-lg">
                     <div class="p-6">
                         <div class="flex justify-between items-center mb-4">
                             <h3 class="text-lg font-semibold">
@@ -959,7 +962,7 @@ watch(() => eventBreakdown.value, async () => {
                 </div>
 
                 <!-- All Events Summary Section -->
-                <div v-if="allEventsSummary && allEventsSummary.length > 0" class="overflow-hidden bg-white shadow-sm sm:rounded-lg mt-6">
+                <div v-if="allEventsSummary && allEventsSummary.length > 0" class="overflow-hidden bg-white shadow-card sm:rounded-lg mt-6">
                     <div class="p-6">
                         <h3 class="text-lg font-semibold mb-4">All Events Summary (Total Data)</h3>
                         <div class="overflow-x-auto">
@@ -1023,7 +1026,7 @@ watch(() => eventBreakdown.value, async () => {
                 </div>
 
                 <!-- No Data Message -->
-                <div v-else class="overflow-hidden bg-white shadow-sm sm:rounded-lg">
+                <div v-else class="overflow-hidden bg-white shadow-card sm:rounded-lg">
                     <div class="p-6 text-center">
                         <div class="text-gray-500 text-lg mb-2">No data found</div>
                         <div class="text-gray-400 text-sm">
@@ -1035,7 +1038,7 @@ watch(() => eventBreakdown.value, async () => {
 
                 <!-- Event Breakdown Tab Content -->
                 <div v-show="activeTab === 'event-breakdown'">
-                    <div class="overflow-hidden bg-white shadow-sm sm:rounded-lg mb-6">
+                    <div class="overflow-hidden bg-white shadow-card sm:rounded-lg mb-6">
                         <div class="p-6">
                             <h3 class="text-lg font-semibold mb-4">Event Breakdown Report</h3>
                             
@@ -1044,7 +1047,7 @@ watch(() => eventBreakdown.value, async () => {
                                     <label class="block text-sm font-medium text-gray-700 mb-2">Select Event</label>
                                     <select
                                         v-model="selectedEventId"
-                                        class="w-full p-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                                        class="w-full p-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-[#16C3D9] focus:border-blue-500"
                                         @change="loadEventBreakdown"
                                     >
                                         <option value="">-- Select an event --</option>
@@ -1061,7 +1064,7 @@ watch(() => eventBreakdown.value, async () => {
                                     <button
                                         @click="loadEventBreakdown"
                                         :disabled="!selectedEventId || isLoadingBreakdown"
-                                        class="flex-1 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                                        class="flex-1 px-4 py-2 bg-[#16C3D9] text-[#06242A] font-bold rounded-md hover:brightness-105 disabled:opacity-50 disabled:cursor-not-allowed"
                                     >
                                         {{ isLoadingBreakdown ? 'Loading...' : 'Load Breakdown' }}
                                     </button>
@@ -1106,7 +1109,7 @@ watch(() => eventBreakdown.value, async () => {
                                         type="button"
                                         @click="loadDemographicsTable"
                                         :disabled="!selectedEventIdsForSpreadsheet.length || isLoadingDemographicsTable"
-                                        class="px-4 py-2 bg-teal-600 text-white rounded-md hover:bg-teal-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                                        class="px-4 py-2 bg-[#16C3D9] text-[#06242A] font-bold rounded-md hover:brightness-105 disabled:opacity-50 disabled:cursor-not-allowed"
                                     >
                                         <span v-if="isLoadingDemographicsTable">Loading...</span>
                                         <span v-else>Show demographics table ({{ selectedEventIdsForSpreadsheet.length }} selected)</span>
@@ -1141,7 +1144,7 @@ watch(() => eventBreakdown.value, async () => {
                                         <button
                                             type="button"
                                             @click="copyDemographicsTable"
-                                            class="px-3 py-1.5 text-sm bg-teal-600 text-white rounded hover:bg-teal-700"
+                                            class="px-3 py-1.5 text-sm bg-[#16C3D9] text-[#06242A] font-bold rounded hover:brightness-105"
                                         >
                                             Copy table
                                         </button>
@@ -1169,7 +1172,7 @@ watch(() => eventBreakdown.value, async () => {
                     <!-- Event Breakdown Results -->
                     <div v-if="eventBreakdown && !isLoadingBreakdown" class="space-y-6">
                         <!-- Event Summary -->
-                        <div class="overflow-hidden bg-white shadow-sm sm:rounded-lg">
+                        <div class="overflow-hidden bg-white shadow-card sm:rounded-lg">
                             <div class="p-6">
                                 <h3 class="text-lg font-semibold mb-4">{{ eventBreakdown.event.name }}</h3>
                                 <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -1190,7 +1193,7 @@ watch(() => eventBreakdown.value, async () => {
                         </div>
 
                         <!-- Location Breakdown -->
-                        <div v-if="eventBreakdown.location_breakdown.length > 0" class="overflow-hidden bg-white shadow-sm sm:rounded-lg">
+                        <div v-if="eventBreakdown.location_breakdown.length > 0" class="overflow-hidden bg-white shadow-card sm:rounded-lg">
                             <div class="p-6">
                                 <h4 class="text-md font-semibold mb-4">Location Breakdown</h4>
                                 <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -1205,7 +1208,7 @@ watch(() => eventBreakdown.value, async () => {
                                         </div>
                                         <div class="w-full bg-gray-200 rounded-full h-2">
                                             <div
-                                                class="bg-blue-600 h-2 rounded-full"
+                                                class="bg-[#16C3D9] h-2 rounded-full"
                                                 :style="{ width: location.percentage + '%' }"
                                             ></div>
                                         </div>
@@ -1216,7 +1219,7 @@ watch(() => eventBreakdown.value, async () => {
                         </div>
 
                         <!-- Question Breakdown -->
-                        <div v-for="(question, index) in eventBreakdown.breakdown" :key="index" class="overflow-hidden bg-white shadow-sm sm:rounded-lg">
+                        <div v-for="(question, index) in eventBreakdown.breakdown" :key="index" class="overflow-hidden bg-white shadow-card sm:rounded-lg">
                             <div class="p-6">
                                 <h4 class="text-md font-semibold mb-4">{{ question.question_text }}</h4>
                                 <div class="text-sm text-gray-500 mb-4">
@@ -1246,7 +1249,7 @@ watch(() => eventBreakdown.value, async () => {
                                         </div>
                                         <div class="w-full bg-gray-200 rounded-full h-2">
                                             <div
-                                                class="bg-blue-600 h-2 rounded-full"
+                                                class="bg-[#16C3D9] h-2 rounded-full"
                                                 :style="{ width: (response.percentage || 0) + '%' }"
                                             ></div>
                                         </div>
@@ -1261,14 +1264,14 @@ watch(() => eventBreakdown.value, async () => {
                     </div>
 
                     <!-- Loading State -->
-                    <div v-if="isLoadingBreakdown" class="overflow-hidden bg-white shadow-sm sm:rounded-lg">
+                    <div v-if="isLoadingBreakdown" class="overflow-hidden bg-white shadow-card sm:rounded-lg">
                         <div class="p-6 text-center">
                             <div class="text-gray-500">Loading event breakdown...</div>
                         </div>
                     </div>
 
                     <!-- No Event Selected -->
-                    <div v-if="!eventBreakdown && !isLoadingBreakdown && !selectedEventId" class="overflow-hidden bg-white shadow-sm sm:rounded-lg">
+                    <div v-if="!eventBreakdown && !isLoadingBreakdown && !selectedEventId" class="overflow-hidden bg-white shadow-card sm:rounded-lg">
                         <div class="p-6 text-center">
                             <div class="text-gray-500 text-lg mb-2">Select an event to view breakdown</div>
                             <div class="text-gray-400 text-sm">

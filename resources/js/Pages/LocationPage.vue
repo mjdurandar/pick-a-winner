@@ -1,19 +1,18 @@
 <script setup>
 import { ref, computed, watch } from 'vue';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout.vue';
-import { locationTagForSource, locationTagForShow, stateInName, stripState } from '@/locationTag';
-import { Head, usePage } from '@inertiajs/vue3';
+import { stateInName, stripState } from '@/locationTag';
+import { Head, Link, usePage } from '@inertiajs/vue3';
 import { router } from '@inertiajs/vue3';
 import Swal from 'sweetalert2';
 import { useForm } from '@inertiajs/vue3';
-import axios from 'axios';
+import Icon from '@/Components/Icon.vue';
 
 // ✅ Define Props to Receive Locations from Backend
 const props = defineProps({
     event: Object,
     locations: Array,
     total_participants: { type: Number, default: 0 },
-    fave_sport_options: { type: Array, default: () => [] },
     flash: Object
 });
 
@@ -21,7 +20,6 @@ const props = defineProps({
 const searchQuery = ref(''); // ✅ Search query input
 const copiedIndex = ref(null); // ✅ Index of copied location link
 const showPasswordModal = ref(false);
-const showEventPasswordModal = ref(false);
 const showLocationModal = ref(false);
 const showAllPasswordsModal = ref(false);
 const isEditing = ref(false);
@@ -29,73 +27,10 @@ const selectedLocation = ref(null);
 const selectedLocationsForExport = ref([]);
 const newPassword = ref('');
 const confirmPassword = ref('');
-const eventNewPassword = ref('');
-const eventConfirmPassword = ref('');
 const allLocationsNewPassword = ref('');
 const allLocationsConfirmPassword = ref('');
-const showMailchimpSettingsModal = ref(false);
-const mailchimpSettings = ref({
-    auto_sync: true, // Compulsory — the backend forces it on, it is never a choice
-    default_list_id: '',
-    default_tags: '',
-    enabled_locations: [],
-    film_tour: '',  // Default to WM
-    mailchimp_account: 'anz', // Default to ANZ
-    interest_tag_map: {},
-    event_id: props.event.id  // Add event_id
-});
-const availableLists = ref([]);
-// Auto-sync always writes to the account's WIN APP audience, so the audience is
-// never picked. Matched by name here only to label it and to follow an account
-// change; the backend forces the id from config on both read and save.
-const findWinAppList = (lists) => (lists || []).find(l => (l.name || '').trim().toUpperCase() === 'WIN APP') || null;
-const winAppList = computed(() => {
-    const byId = availableLists.value.find(l => l.id === mailchimpSettings.value.default_list_id);
-    return byId || findWinAppList(availableLists.value);
-});
-// The account is decided by the event's country on the server, never chosen here.
-const currentAccount = computed(() => availableAccounts.value?.[mailchimpSettings.value.mailchimp_account] || null);
-const accountLabel = computed(() => {
-    const key = mailchimpSettings.value.mailchimp_account;
-    return currentAccount.value?.name || (key === 'usa' ? 'USA' : 'ANZ');
-});
-const availableAccounts = ref([]);
-const isSettingsLoading = ref(false);
 const selectedCountry = ref(null);
 const selectedCategory = ref('');
-
-// Add computed property for tag preview
-const tagPreview = computed(() => {
-    if (!mailchimpSettings.value.film_tour) return [];
-    
-    const filmTour = mailchimpSettings.value.film_tour;
-    const year = props.event?.event_year ?? new Date().getFullYear();
-    
-    // Sample location names for preview
-    const sampleLocations = [
-        'Melbourne South East - Classic Cinema',
-        'Sydney - Opera House',
-        'Brisbane Central - Convention Centre',
-        'Adelaide - Entertainment Centre'
-    ];
-    
-    const previewTags = [];
-    
-    sampleLocations.forEach(locationName => {
-        const sourceLoc = locationTagForSource(locationName);
-        const showLoc = locationTagForShow(locationName, '', props.event?.event_country || '');
-        const showTag = `SHOW - ${showLoc}`;
-        const sourceTag = `SOURCE - ${filmTour.toUpperCase()} ${sourceLoc} COMP ${year}`;
-        
-        previewTags.push({
-            location: locationName,
-            showTag: showTag,
-            sourceTag: sourceTag
-        });
-    });
-    
-    return previewTags;
-});
 
 // Add new form for location creation
 const locationForm = useForm({
@@ -112,6 +47,17 @@ const locationForm = useForm({
 // Add reactive refs for TBA checkboxes
 const noDateYet = ref(false);
 const noTimeYet = ref(false);
+
+/**
+ * Screenings nobody has given a start time.
+ *
+ * The Time column is often left blank on the master sheet, and locations.time
+ * is NOT NULL, so those are stored as 'TBA'. Hosts cannot see a start time and
+ * the film sites will not list them, which is worth saying on the page rather
+ * than leaving to be noticed while scrolling.
+ */
+const missingTime = computed(() => (props.locations ?? [])
+    .filter((l) => !l.time || String(l.time).trim().toUpperCase() === 'TBA'));
 
 const formatLocationDateTime = (date, time) => {
     if (!date || !time) return '';
@@ -339,31 +285,18 @@ const openPasswordModal = (location) => {
     newPassword.value = '';
     confirmPassword.value = '';
     showPasswordModal.value = true;
-    let modalElement = new bootstrap.Modal(document.getElementById('passwordModal'));
-    modalElement.show();
 };
 
-const openEventPasswordModal = () => {
-    eventNewPassword.value = '';
-    eventConfirmPassword.value = '';
-    showEventPasswordModal.value = true;
-};
-
-const generatePassword = (isEvent = false) => {
+const generatePassword = () => {
     const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
     let password = '';
     for (let i = 0; i < 8; i++) {
         password += chars.charAt(Math.floor(Math.random() * chars.length));
     }
-    if (isEvent) {
-        eventNewPassword.value = password;
-        eventConfirmPassword.value = password;
-    } else {
-        newPassword.value = password;
-        confirmPassword.value = password;
-        allLocationsNewPassword.value = password;
-        allLocationsConfirmPassword.value = password;
-    }
+    newPassword.value = password;
+    confirmPassword.value = password;
+    allLocationsNewPassword.value = password;
+    allLocationsConfirmPassword.value = password;
 };
 
 const updatePassword = async () => {
@@ -420,17 +353,6 @@ const copyPassword = (location, index) => {
     // setTimeout(() => {
     //     copiedIndex.value = null;
     // }, 2000);
-};
-
-const copyEventPassword = () => {
-    navigator.clipboard.writeText(props.event.password);
-    Swal.fire({
-        icon: 'success',
-        title: 'Copied!',
-        text: 'Event password copied to clipboard',
-        timer: 1500,
-        showConfirmButton: false
-    });
 };
 
 const allLocationsPage = () => {
@@ -525,8 +447,6 @@ const openLocationModal = (location = null) => {
         locationForm.category = '';
     }
     showLocationModal.value = true;
-    let modalElement = new bootstrap.Modal(document.getElementById('createLocationModal'));
-    modalElement.show();
 };
 
 // Function to save location
@@ -611,37 +531,11 @@ const closeLocationModal = () => {
     showLocationModal.value = false;
     noDateYet.value = false;
     noTimeYet.value = false;
-    let modalElement = bootstrap.Modal.getInstance(document.getElementById('createLocationModal'));
-    if (modalElement) {
-        modalElement.hide();
-        // Remove the backdrop
-        const backdrop = document.querySelector('.modal-backdrop');
-        if (backdrop) {
-            backdrop.remove();
-        }
-        // Remove the modal-open class from body
-        document.body.classList.remove('modal-open');
-        document.body.style.overflow = '';
-        document.body.style.paddingRight = '';
-    }
 };
 
 // Add function to handle password modal close
 const closePasswordModal = () => {
     showPasswordModal.value = false;
-    let modalElement = bootstrap.Modal.getInstance(document.getElementById('passwordModal'));
-    if (modalElement) {
-        modalElement.hide();
-        // Remove the backdrop
-        const backdrop = document.querySelector('.modal-backdrop');
-        if (backdrop) {
-            backdrop.remove();
-        }
-        // Remove the modal-open class from body
-        document.body.classList.remove('modal-open');
-        document.body.style.overflow = '';
-        document.body.style.paddingRight = '';
-    }
 };
 
 const updateAllPasswords = async () => {
@@ -677,11 +571,8 @@ const updateAllPasswords = async () => {
             password: allLocationsNewPassword.value
         });
 
-        // Close the modal first
-        const modalElement = bootstrap.Modal.getInstance(document.getElementById('allPasswordsModal'));
-        if (modalElement) {
-            modalElement.hide();
-        }
+        // Close the panel first
+        showAllPasswordsModal.value = false;
         
         // Show success message
         Swal.fire({
@@ -708,128 +599,12 @@ const openAllPasswordsModal = () => {
     allLocationsNewPassword.value = '';
     allLocationsConfirmPassword.value = '';
     showAllPasswordsModal.value = true;
-    let modalElement = new bootstrap.Modal(document.getElementById('allPasswordsModal'));
-    modalElement.show();
 };
 
 const closeAllPasswordsModal = () => {
     showAllPasswordsModal.value = false;
     allLocationsNewPassword.value = '';
     allLocationsConfirmPassword.value = '';
-    let modalElement = bootstrap.Modal.getInstance(document.getElementById('allPasswordsModal'));
-    if (modalElement) {
-        modalElement.hide();
-        // Remove the backdrop
-        const backdrop = document.querySelector('.modal-backdrop');
-        if (backdrop) {
-            backdrop.remove();
-        }
-        // Remove the modal-open class from body
-        document.body.classList.remove('modal-open');
-        document.body.style.overflow = '';
-        document.body.style.paddingRight = '';
-    }
-};
-
-// Default Mailchimp tag for a given "Favorite adventure sport?" answer.
-// Matched by lowercase prefix so option labels like
-// "Snow Sports (Skiing, Snowboarding)" still map to INT - SNOWSPORTS.
-// Kept in sync with the PHP fallback in MailchimpService::mapFaveSportToInterestTags.
-const DEFAULT_INTEREST_TAG_MAP = [
-    { prefix: 'snow sports', tag: 'INT - SNOWSPORTS' },
-    { prefix: 'climbing', tag: 'INT - CLIMBING' },
-    { prefix: 'running', tag: 'INT - RUNNING' },
-    { prefix: 'trail sports', tag: 'INT - TRAILSPORTS, INT - RUNNING' },
-    { prefix: 'skate sports', tag: 'INT - SKATEBOARDING' },
-    { prefix: 'cycling', tag: 'INT - MTB' },
-    { prefix: 'water sports', tag: 'INT - WATERSPORTS' },
-    { prefix: 'outdoor', tag: 'INT - OUTDOOR' },
-    { prefix: 'aerial', tag: 'INT - OUTDOOR, INT - ENVIRONMENT' },
-    { prefix: 'extreme', tag: 'INT - OUTDOOR, INT - ENVIRONMENT' },
-    { prefix: 'other', tag: 'INT - ALL' },
-];
-
-const defaultInterestTagFor = (option) => {
-    const v = typeof option === 'string' ? option.trim().toLowerCase() : '';
-    if (!v) return '';
-    for (const { prefix, tag } of DEFAULT_INTEREST_TAG_MAP) {
-        if (v.startsWith(prefix)) return tag;
-    }
-    return '';
-};
-
-const openMailchimpSettingsModal = async () => {
-    isSettingsLoading.value = true;
-    try {
-        const response = await axios.get(route('mailchimp.autosync.settings'), {
-            params: {
-                event_id: props.event.id
-            }
-        });
-        const { settings, available_lists, available_accounts } = response.data;
-
-        const savedMap = (settings && typeof settings.interest_tag_map === 'object' && settings.interest_tag_map !== null)
-            ? settings.interest_tag_map
-            : {};
-        const seededMap = {};
-        (props.fave_sport_options || []).forEach((opt) => {
-            const saved = typeof savedMap[opt] === 'string' ? savedMap[opt].trim() : '';
-            seededMap[opt] = saved !== '' ? saved : defaultInterestTagFor(opt);
-        });
-
-        mailchimpSettings.value = {
-            ...settings,
-            film_tour: settings.film_tour,
-            default_tags: Array.isArray(settings.default_tags) ? settings.default_tags.join(', ') : '',
-            mailchimp_account: settings.mailchimp_account || 'anz',
-            interest_tag_map: seededMap,
-            event_id: props.event.id
-        };
-        availableLists.value = available_lists;
-        availableAccounts.value = available_accounts;
-        showMailchimpSettingsModal.value = true;
-    } catch (error) {
-        console.error('Failed to fetch Mailchimp settings:', error);
-        Swal.fire('Error', 'Failed to load Mailchimp settings', 'error');
-    } finally {
-        isSettingsLoading.value = false;
-    }
-};
-
-const saveMailchimpSettings = async () => {
-    try {
-        const rawMap = mailchimpSettings.value.interest_tag_map || {};
-        const cleanedMap = {};
-        Object.keys(rawMap).forEach((key) => {
-            const val = typeof rawMap[key] === 'string' ? rawMap[key].trim() : '';
-            if (val !== '') {
-                cleanedMap[key] = val;
-            }
-        });
-
-        const settings = {
-            ...mailchimpSettings.value,
-            film_tour: mailchimpSettings.value.film_tour,
-            default_tags: mailchimpSettings.value.default_tags.split(',').map(tag => tag.trim()).filter(tag => tag),
-            enabled_locations: Array.isArray(mailchimpSettings.value.enabled_locations)
-                ? mailchimpSettings.value.enabled_locations
-                : [],
-            mailchimp_account: mailchimpSettings.value.mailchimp_account,
-            interest_tag_map: cleanedMap,
-            event_id: props.event.id,
-        };
-
-        console.log('Saving settings:', settings);
-
-        await axios.post(route('mailchimp.autosync.update'), settings);
-        
-        showMailchimpSettingsModal.value = false;
-        
-        Swal.fire('Success', 'Mailchimp auto-sync settings updated successfully', 'success');
-    } catch (error) {
-        console.error('Failed to save Mailchimp settings:', error);
-        Swal.fire('Error', 'Failed to save Mailchimp settings', 'error');
-    }
 };
 
 // Toggle location selection for export
@@ -959,56 +734,67 @@ watch(
     <Head title="Pick a Winner Page" />
 
     <AuthenticatedLayout>
-        <div class="p-4">
-            <div class="mx-auto max-w-5xl">
-                <div class="overflow-hidden bg-white shadow-sm sm:rounded-lg">
-                    <div class="p-6 text-gray-900 text-center">
-                        <div class="flex flex-col sm:flex-row justify-between items-center gap-4 mb-4">
-                            <div class="text-center sm:text-left flex items-center gap-2">
-                                <!-- National Tour Wide draw — account-only, so it
-                                     lives here rather than on the public login. -->
-                                <button
-                                    @click="allLocationsPage"
-                                    style="background-color: #16C3D9; color: white; border-radius: 5px; padding: 10px 20px; cursor: pointer;"
-                                    title="Draw a winner from every location on the tour"
-                                >
-                                    National Tour Wide
-                                </button>
-                            </div>
+        <!-- The page header carries the name and the actions, so the body can
+             get on with the list. Every button says what it does: the gear and
+             the key used to be icons with nothing but a tooltip. -->
+        <template #header>
+            <div class="flex flex-wrap items-end gap-3">
+                <div class="min-w-0 flex-1">
+                    <p class="text-xs font-semibold text-gray-500">
+                        {{ locations?.length ?? 0 }} screening{{ (locations?.length ?? 0) === 1 ? '' : 's' }} ·
+                        {{ total_participants }} sign-up{{ total_participants === 1 ? '' : 's' }}
+                    </p>
+                    <h2 class="truncate text-2xl font-extrabold tracking-tight text-gray-900">{{ event.event_name }}</h2>
+                </div>
 
-                            <h3 class="text-lg font-semibold">{{ event.event_name }}</h3>
-                            <div class="flex gap-2">
-                                <!-- Add Location Button -->
-                                <button 
-                                    class="bg-black text-white px-4 py-2 rounded hover:bg-black-700"
-                                    @click="openLocationModal()"
-                                >
-                                    <i class="fa-solid fa-plus"></i> Add Location
-                                </button>
-                                <!-- Mailchimp Settings Button -->
-                                <button 
-                                    style="background-color: #16C3D9; color: white; border-radius: 5px; padding: 10px 20px; cursor: pointer;"
-                                    @click="openMailchimpSettingsModal"
-                                    title="Mailchimp Auto-Sync Settings"
-                                    :disabled="isSettingsLoading"
-                                >
-                                    <i v-if="!isSettingsLoading" class="fa-solid fa-gear"></i>
-                                    <i v-else class="fa-solid fa-spinner fa-spin"></i>
-                                </button>
-                                <!-- Update All Passwords Button -->
-                                <button 
-                                    style="background-color: #16C3D9; color: white; border-radius: 5px; padding: 10px 20px; cursor: pointer;"
-                                    @click="openAllPasswordsModal"
-                                >
-                                    <i class="fa-solid fa-key"></i> 
-                                </button>
-                            </div>
-                        </div>
-                        <!-- <div class="d-flex justify-content-between items-center mb-4">
-                            <button class="btn btn-primary" @click="openEventPasswordModal">
-                                <i class="fa-solid fa-key"></i> Event Password
-                            </button>
-                        </div> -->
+                <Link
+                    :href="route('location.mailchimpSync', { eventId: event.id })"
+                    class="flex h-10 items-center gap-2 rounded-lg border border-gray-200 bg-white px-4 text-sm font-semibold text-gray-700 hover:bg-gray-50"
+                >
+                    <Icon name="gear" /> Mailchimp sync
+                </Link>
+                <button
+                    type="button" @click="openAllPasswordsModal"
+                    class="flex h-10 items-center gap-2 rounded-lg border border-gray-200 bg-white px-4 text-sm font-semibold text-gray-700 hover:bg-gray-50"
+                >
+                    <Icon name="key" /> Set all passwords
+                </button>
+                <!-- National Tour Wide draw — account-only, so it lives here
+                     rather than on the public login. -->
+                <button
+                    type="button" @click="allLocationsPage"
+                    class="flex h-10 items-center gap-2 rounded-lg border border-gray-200 bg-white px-4 text-sm font-semibold text-gray-700 hover:bg-gray-50"
+                    title="Draw a winner from every location on the tour"
+                >
+                    <Icon name="trophy" /> Tour-wide draw
+                </button>
+                <button
+                    type="button" @click="openLocationModal()"
+                    class="flex h-10 items-center gap-2 rounded-lg bg-[#16C3D9] px-4 text-sm font-bold text-[#06242A] hover:brightness-105"
+                >
+                    <Icon name="plus" /> Add screening
+                </button>
+            </div>
+        </template>
+
+        <div class="p-4">
+            <div class="mx-auto max-w-full">
+                <!-- A screening with no start time is invisible to its host and
+                     to the film site, so it gets said out loud. -->
+                <div
+                    v-if="missingTime.length"
+                    class="mb-4 flex flex-wrap items-center gap-3 rounded-xl bg-amber-50 px-4 py-3 text-left"
+                >
+                    <Icon name="triangle-exclamation" class="text-amber-700" />
+                    <p class="min-w-0 flex-1 text-sm text-amber-900">
+                        <strong>{{ missingTime.length }} screening{{ missingTime.length === 1 ? ' has' : 's have' }} no start time.</strong>
+                        {{ missingTime.slice(0, 3).map((l) => l.name).join(', ') }}<span v-if="missingTime.length > 3"> and {{ missingTime.length - 3 }} more</span>.
+                        Hosts cannot see a start time, and the film sites will not list them.
+                    </p>
+                </div>
+
+                <div class="overflow-hidden bg-white shadow-card sm:rounded-lg">
+                    <div class="p-6 text-gray-900 text-center">
                         <!-- ✅ Search Bar and Category Filter -->
                         <div class="mb-4 space-y-3">
                         <input 
@@ -1023,7 +809,7 @@ watch(
                                 <div class="flex items-center gap-3 flex-wrap">
                                     <!-- Total participants - at start on the left -->
                                     <span class="text-sm font-medium text-gray-700 whitespace-nowrap" title="Total participants (win form) across all locations">
-                                        <i class="fa-solid fa-users mr-1"></i> Total: <strong>{{ total_participants ?? 0 }}</strong> participants
+                                        <Icon name="users" class="mr-1" /> Total: <strong>{{ total_participants ?? 0 }}</strong> participants
                                     </span>
                                     <div v-if="selectedCountry && availableCategories.length > 0" class="flex items-center gap-2">
                                         <label class="text-sm font-medium text-gray-700 whitespace-nowrap">Filter by Category:</label>
@@ -1055,7 +841,7 @@ watch(
                                             @click="exportSelectedLocations"
                                             :title="`Export ${selectedLocationsForExport.length} selected location(s)`"
                                         >
-                                            <i class="fa-solid fa-file-export"></i> Export ({{ selectedLocationsForExport.length }})
+                                            <Icon name="file-export" /> Export ({{ selectedLocationsForExport.length }})
                                         </button>
                                     </div>
                                 </div>
@@ -1066,7 +852,7 @@ watch(
                                         style="background-color: #16C3D9; color: white; border-radius: 5px; padding: 6px 14px; font-size: 14px; cursor: pointer;"
                                         title="View Attendees Database"
                                     >
-                                        <i class="fa-solid fa-database"></i> Database
+                                        <Icon name="database" /> Database
                                     </button>
                                     <button
                                         v-if="isAdmin"
@@ -1074,7 +860,7 @@ watch(
                                         style="background-color: #7C3AED; color: white; border-radius: 5px; padding: 6px 14px; font-size: 14px; cursor: pointer;"
                                         title="Newsletter resubscribes: who came back and who Mailchimp blocked"
                                     >
-                                        <i class="fa-solid fa-rotate"></i> Resubscribes
+                                        <Icon name="rotate" /> Resubscribes
                                     </button>
                                 </div>
                             </div>
@@ -1088,12 +874,7 @@ watch(
                                         v-for="country in countryList"
                                         :key="country"
                                         @click="selectedCountry = country"
-                                        :class="[
-                                            'px-4 py-2 text-sm font-medium border-b-2 transition-colors whitespace-nowrap',
-                                            selectedCountry === country
-                                                ? 'border-blue-500 text-blue-600'
-                                                : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-                                        ]"
+                                        :class="[ 'px-4 py-2 text-sm font-medium border-b-2 transition-colors whitespace-nowrap', selectedCountry === country ? 'border-[#16C3D9] text-[#0B7A8A]' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300' ]"
                                         :style="selectedCountry === country ? 'background-color: #EFF6FF;' : ''"
                                     >
                                         {{ country }}
@@ -1127,7 +908,7 @@ watch(
                                     type="checkbox"
                                     :checked="areAllLocationsSelected"
                                     @change="toggleSelectAll"
-                                    class="w-5 h-5 text-blue-600 border-gray-300 rounded focus:ring-blue-500 cursor-pointer"
+                                    class="w-5 h-5 text-blue-600 border-gray-300 rounded focus:ring-[#16C3D9] cursor-pointer"
                                     style="min-width: 20px;"
                                 />
                                 <label class="text-sm font-medium text-gray-700 cursor-pointer" @click="toggleSelectAll">
@@ -1144,7 +925,7 @@ watch(
                                     type="checkbox"
                                     :checked="isLocationSelected(location)"
                                     @change="toggleLocationSelection(location)"
-                                    class="w-5 h-5 text-blue-600 border-gray-300 rounded focus:ring-blue-500 cursor-pointer"
+                                    class="w-5 h-5 text-blue-600 border-gray-300 rounded focus:ring-[#16C3D9] cursor-pointer"
                                     style="min-width: 20px;"
                                 />
                                 <div 
@@ -1169,7 +950,7 @@ watch(
                                                 class="px-2 py-1 rounded text-xs font-medium bg-teal-100 text-teal-800"
                                                 title="Win data imported to Mailchimp"
                                             >
-                                                <i class="fa-solid fa-circle-check mr-1"></i>Win data
+                                                <Icon name="circle-check" class="mr-1" />Win data
                                             </span>
                                             <!-- Ticket data imported to Mailchimp -->
                                             <span 
@@ -1177,7 +958,7 @@ watch(
                                                 class="px-2 py-1 rounded text-xs font-medium bg-amber-100 text-amber-800"
                                                 title="Ticket data imported to Mailchimp"
                                             >
-                                                <i class="fa-solid fa-circle-check mr-1"></i>Ticket data
+                                                <Icon name="circle-check" class="mr-1" />Ticket data
                                             </span>
                                             <!-- Category + Participant count always together -->
                                             <span class="inline-flex items-center gap-2">
@@ -1185,7 +966,7 @@ watch(
                                                     class="px-2 py-1 rounded text-xs font-medium bg-gray-200 text-gray-700"
                                                     title="Participants (win form) for this location"
                                                 >
-                                                    <i class="fa-solid fa-user-group mr-1"></i>{{ location.participants_count ?? 0 }}
+                                                    <Icon name="user-group" class="mr-1" />{{ location.participants_count ?? 0 }}
                                                 </span>
                                                 <span 
                                                     v-if="location.category"
@@ -1199,22 +980,20 @@ watch(
                                     </div>
                                 </div>
                                 <!-- Edit Button -->
-                                <button 
-                                    @click="openLocationModal(location)"
-                                    class="text-white px-3 py-2 rounded"
-                                    style="background-color: #16C3D9; color: white; border-radius: 5px; padding: 10px 20px; cursor: pointer;"
-                                    title="Edit Location"
+                                <button
+                                    type="button" @click="openLocationModal(location)"
+                                    class="flex h-10 items-center gap-2 rounded-lg border border-gray-200 bg-white px-3 text-sm font-semibold text-gray-700 hover:bg-gray-50"
+                                    :aria-label="`Edit ${location.name}`"
                                 >
-                                    <i class="fa-solid fa-pen-to-square"></i>
+                                    <Icon name="pen-to-square" /> Edit
                                 </button>
                                 <!-- Password Button -->
-                                <button 
-                                    @click="openPasswordModal(location)"
-                                    class="text-white px-3 py-2 rounded"
-                                    style="background-color: #16C3D9; color: white; border-radius: 5px; padding: 10px 20px; cursor: pointer;"
-                                    title="View Password"
+                                <button
+                                    type="button" @click="openPasswordModal(location)"
+                                    class="flex h-10 items-center gap-2 rounded-lg border border-gray-200 bg-white px-3 text-sm font-semibold text-gray-700 hover:bg-gray-50"
+                                    :aria-label="`Password for ${location.name}`"
                                 >
-                                    <i class="fa-solid fa-key"></i>
+                                    <Icon name="key" /> Password
                                 </button>
                             </div>
                         </div>
@@ -1242,103 +1021,67 @@ watch(
         </div>
 
         <!-- Location Password Modal -->
-        <div class="modal fade" id="passwordModal" tabindex="-1" aria-labelledby="passwordModalLabel" @hidden.bs.modal="closePasswordModal">
-            <div class="modal-dialog">
-                <div class="modal-content">
-                    <div class="modal-header">
-                        <h5 class="modal-title" id="passwordModalLabel">Location Password - {{ selectedLocation?.name }}</h5>
-                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+        <div v-if="showPasswordModal" class="fixed inset-0 z-[60] flex items-center justify-center bg-gray-900/50 p-4 sm:p-8">
+            <div class="flex max-h-full w-full max-w-lg flex-col">
+                <div class="flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl bg-white shadow-xl">
+                    <div class="flex shrink-0 items-center justify-between gap-3 border-b border-gray-200 px-5 py-4">
+                        <h2 class="text-lg font-extrabold tracking-tight text-gray-900">Location Password - {{ selectedLocation?.name }}</h2>
+                        <button type="button" class="grid h-8 w-8 shrink-0 place-items-center rounded-lg text-gray-400 hover:bg-gray-100 hover:text-gray-700" @click="closePasswordModal" aria-label="Close"><svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18" /></svg></button>
                     </div>
-                    <div class="modal-body">
+                    <div class="min-h-0 flex-1 overflow-y-auto px-5 py-4">
                         <div class="mb-3">
-                            <label class="form-label">Current Password</label>
-                            <div class="input-group">
-                                <input type="text" :value="selectedLocation?.password" class="form-control" readonly>
-                                <button class="btn btn-outline-secondary" @click="copyPassword(selectedLocation, -1)">
-                                    <i class="fa-solid fa-copy"></i>
+                            <label class="mb-1 block text-sm font-semibold text-gray-700">Current Password</label>
+                            <div class="flex items-stretch gap-2">
+                                <input type="text" :value="selectedLocation?.password" class="w-full rounded-lg border-gray-300 text-sm focus:border-[#16C3D9] focus:ring-[#16C3D9]" readonly>
+                                <button class="inline-flex items-center justify-center rounded-lg px-4 py-2 text-sm font-semibold border border-gray-300 bg-white text-gray-700 hover:bg-gray-50" @click="copyPassword(selectedLocation, -1)">
+                                    <Icon name="copy" />
                                 </button>
                             </div>
                         </div>
                         <div class="mb-3">
-                            <label class="form-label">New Password</label>
-                            <input type="text" v-model="newPassword" class="form-control" placeholder="Enter new password">
+                            <label class="mb-1 block text-sm font-semibold text-gray-700">New Password</label>
+                            <input type="text" v-model="newPassword" class="w-full rounded-lg border-gray-300 text-sm focus:border-[#16C3D9] focus:ring-[#16C3D9]" placeholder="Enter new password">
                         </div>
                         <div class="mb-3">
-                            <label class="form-label">Confirm New Password</label>
-                            <input type="text" v-model="confirmPassword" class="form-control" placeholder="Confirm new password">
+                            <label class="mb-1 block text-sm font-semibold text-gray-700">Confirm New Password</label>
+                            <input type="text" v-model="confirmPassword" class="w-full rounded-lg border-gray-300 text-sm focus:border-[#16C3D9] focus:ring-[#16C3D9]" placeholder="Confirm new password">
                         </div>
                     </div>
-                    <div class="modal-footer">
-                        <button type="button" class="btn btn-secondary" @click="generatePassword(false)">
-                            <i class="fa-solid fa-random"></i> Generate Password
+                    <div class="flex shrink-0 flex-wrap justify-end gap-2 border-t border-gray-200 bg-white px-5 py-4">
+                        <button type="button" class="inline-flex items-center justify-center rounded-lg px-4 py-2 text-sm font-semibold border border-gray-200 bg-white text-gray-700 hover:bg-gray-50" @click="generatePassword">
+                            <Icon name="random" /> Generate Password
                         </button>
-                        <button type="button" class="btn btn-primary" @click="updatePassword">Save Changes</button>
+                        <button type="button" class="inline-flex items-center justify-center rounded-lg px-4 py-2 text-sm font-semibold bg-[#16C3D9] text-[#06242A] hover:brightness-105" @click="updatePassword">Save Changes</button>
                     </div>
                 </div>
             </div>
         </div>
 
-        <!-- Event Password Modal -->
-        <!-- <div v-if="showEventPasswordModal" class="modal fade show" style="display: block;">
-            <div class="modal-dialog">
-                <div class="modal-content">
-                    <div class="modal-header">
-                        <h5 class="modal-title">Event Password - {{ event.event_name }}</h5>
-                        <button type="button" class="btn-close" @click="showEventPasswordModal = false"></button>
-                    </div>
-                    <div class="modal-body">
-                        <div class="mb-3">
-                            <label class="form-label">Current Password</label>
-                            <div class="input-group">
-                                <input type="text" :value="event.password" class="form-control" readonly>
-                                <button class="btn btn-outline-secondary" @click="copyEventPassword">
-                                    <i class="fa-solid fa-copy"></i>
-                                </button>
-                            </div>
-                        </div>
-                        <div class="mb-3">
-                            <label class="form-label">New Password</label>
-                            <input type="text" v-model="eventNewPassword" class="form-control" placeholder="Enter new password">
-                        </div>
-                        <div class="mb-3">
-                            <label class="form-label">Confirm New Password</label>
-                            <input type="text" v-model="eventConfirmPassword" class="form-control" placeholder="Confirm new password">
-                        </div>
-                    </div>
-                    <div class="modal-footer">
-                        <button type="button" class="btn btn-secondary" @click="generatePassword(true)">
-                            <i class="fa-solid fa-random"></i> Generate Password
-                        </button>
-                        <button type="button" class="btn btn-primary" @click="updateEventPassword">Save Changes</button>
-                    </div>
-                </div>
-            </div>
-        </div> -->
 
         <!-- Add/Edit Location Modal -->
-        <div class="modal fade" id="createLocationModal" tabindex="-1" aria-labelledby="createLocationModalLabel" @hidden.bs.modal="closeLocationModal">
-            <div class="modal-dialog">
-                <div class="modal-content">
-                    <div class="modal-header">
-                        <h5 class="modal-title" id="createLocationModalLabel">{{ isEditing ? 'Edit Location' : 'Create New Location' }}</h5>
-                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+        <div v-if="showLocationModal" class="fixed inset-0 z-[60] flex items-center justify-center bg-gray-900/50 p-4 sm:p-8">
+            <div class="flex max-h-full w-full max-w-lg flex-col">
+                <div class="flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl bg-white shadow-xl">
+                    <div class="flex shrink-0 items-center justify-between gap-3 border-b border-gray-200 px-5 py-4">
+                        <h2 class="text-lg font-extrabold tracking-tight text-gray-900">{{ isEditing ? 'Edit Location' : 'Create New Location' }}</h2>
+                        <button type="button" class="grid h-8 w-8 shrink-0 place-items-center rounded-lg text-gray-400 hover:bg-gray-100 hover:text-gray-700" @click="closeLocationModal" aria-label="Close"><svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18" /></svg></button>
                     </div>
-                    <div class="modal-body">
-                        <form @submit.prevent="saveLocation">
+                    <div class="min-h-0 flex-1 overflow-y-auto px-5 py-4">
+                        <form id="location-form" @submit.prevent="saveLocation">
                             <div class="mb-3">
-                                <label class="form-label">Location Name</label>
+                                <label class="mb-1 block text-sm font-semibold text-gray-700">Location Name</label>
                                 <input 
                                     v-model="locationForm.name" 
                                     type="text" 
-                                    class="form-control" 
+                                    class="w-full rounded-lg border-gray-300 text-sm focus:border-[#16C3D9] focus:ring-[#16C3D9]" 
                                     required 
                                 />
                             </div>
                             <div class="mb-3">
-                                <label class="form-label">Country</label>
+                                <label class="mb-1 block text-sm font-semibold text-gray-700">Country</label>
                                 <select 
                                     v-model="locationForm.country" 
-                                    class="form-control" 
+                                    class="w-full rounded-lg border-gray-300 text-sm focus:border-[#16C3D9] focus:ring-[#16C3D9]" 
                                     required
                                 >
                                     <option value="">Select Country</option>
@@ -1349,23 +1092,23 @@ watch(
                                 </select>
                             </div>
                             <div class="mb-3">
-                                <label class="form-label">State (Optional)</label>
+                                <label class="mb-1 block text-sm font-semibold text-gray-700">State (Optional)</label>
                                 <input 
                                     v-model="locationForm.state" 
                                     type="text" 
-                                    class="form-control" 
+                                    class="w-full rounded-lg border-gray-300 text-sm focus:border-[#16C3D9] focus:ring-[#16C3D9]" 
                                     placeholder="e.g., MT, VIC"
                                     maxlength="3"
                                     @input="locationForm.state = $event.target.value.toUpperCase()"
                                     style="text-transform: uppercase;"
                                 />
-                                <small class="text-muted">2-3 letter state abbreviation (e.g., MT, VIC, NSW)</small>
+                                <small class="text-gray-500">2-3 letter state abbreviation (e.g., MT, VIC, NSW)</small>
                             </div>
                             <div class="mb-3">
-                                <label class="form-label">Category</label>
+                                <label class="mb-1 block text-sm font-semibold text-gray-700">Category</label>
                                 <select 
                                     v-model="locationForm.category" 
-                                    class="form-control" 
+                                    class="w-full rounded-lg border-gray-300 text-sm focus:border-[#16C3D9] focus:ring-[#16C3D9]" 
                                     required
                                 >
                                     <option value="">Select Category</option>
@@ -1375,244 +1118,86 @@ watch(
                                 </select>
                             </div>
                             <div class="mb-3">
-                                <label class="form-label">Date</label>
+                                <label class="mb-1 block text-sm font-semibold text-gray-700">Date</label>
                                 <input 
                                     v-model="locationForm.date" 
                                     type="date" 
-                                    class="form-control" 
+                                    class="w-full rounded-lg border-gray-300 text-sm focus:border-[#16C3D9] focus:ring-[#16C3D9]" 
                                     :disabled="noDateYet"
                                     :required="!noDateYet"
                                 />
-                                <div class="form-check mt-2">
+                                <div class="flex items-center gap-2 mt-2">
                                     <input 
                                         type="checkbox" 
                                         v-model="noDateYet" 
-                                        class="form-check-input" 
+                                        class="h-4 w-4 shrink-0 rounded border-gray-300 text-[#16C3D9] focus:ring-[#16C3D9]" 
                                         id="noDateYet"
                                     />
-                                    <label class="form-check-label" for="noDateYet">
+                                    <label class="text-sm text-gray-700" for="noDateYet">
                                         No Date yet
                                     </label>
                                 </div>
                             </div>
                             <div class="mb-3">
-                                <label class="form-label">Time</label>
+                                <label class="mb-1 block text-sm font-semibold text-gray-700">Time</label>
                                 <input 
                                     v-model="locationForm.time" 
                                     type="time" 
-                                    class="form-control" 
+                                    class="w-full rounded-lg border-gray-300 text-sm focus:border-[#16C3D9] focus:ring-[#16C3D9]" 
                                     :disabled="noTimeYet"
                                     :required="!noTimeYet"
                                 />
-                                <div class="form-check mt-2">
+                                <div class="flex items-center gap-2 mt-2">
                                     <input 
                                         type="checkbox" 
                                         v-model="noTimeYet" 
-                                        class="form-check-input" 
+                                        class="h-4 w-4 shrink-0 rounded border-gray-300 text-[#16C3D9] focus:ring-[#16C3D9]" 
                                         id="noTimeYet"
                                     />
-                                    <label class="form-check-label" for="noTimeYet">
+                                    <label class="text-sm text-gray-700" for="noTimeYet">
                                         No Time yet
                                     </label>
                                 </div>
                             </div>
-
-                            <div class="modal-footer">
-                                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                                <button type="submit" class="btn btn-primary">{{ isEditing ? 'Update Location' : 'Save Location' }}</button>
-                            </div>
                         </form>
+                    </div>
+                    <!-- Outside the form so it can stay put while the fields
+                         scroll; the submit button reaches the form by its id. -->
+                    <div class="flex shrink-0 flex-wrap justify-end gap-2 border-t border-gray-200 bg-white px-5 py-4">
+                        <button type="button" class="inline-flex items-center justify-center rounded-lg px-4 py-2 text-sm font-semibold border border-gray-200 bg-white text-gray-700 hover:bg-gray-50" @click="closeLocationModal">Cancel</button>
+                        <button type="submit" form="location-form" class="inline-flex items-center justify-center rounded-lg px-4 py-2 text-sm font-semibold bg-[#16C3D9] text-[#06242A] hover:brightness-105">{{ isEditing ? 'Update Location' : 'Save Location' }}</button>
                     </div>
                 </div>
             </div>
         </div>
 
         <!-- Update All Passwords Modal -->
-        <div class="modal fade" id="allPasswordsModal" tabindex="-1" aria-labelledby="allPasswordsModalLabel" @hidden.bs.modal="closeAllPasswordsModal">
-            <div class="modal-dialog">
-                <div class="modal-content">
-                    <div class="modal-header">
-                        <h5 class="modal-title" id="allPasswordsModalLabel">Update All Location Passwords</h5>
-                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+        <div v-if="showAllPasswordsModal" class="fixed inset-0 z-[60] flex items-center justify-center bg-gray-900/50 p-4 sm:p-8">
+            <div class="flex max-h-full w-full max-w-lg flex-col">
+                <div class="flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl bg-white shadow-xl">
+                    <div class="flex shrink-0 items-center justify-between gap-3 border-b border-gray-200 px-5 py-4">
+                        <h2 class="text-lg font-extrabold tracking-tight text-gray-900">Update All Location Passwords</h2>
+                        <button type="button" class="grid h-8 w-8 shrink-0 place-items-center rounded-lg text-gray-400 hover:bg-gray-100 hover:text-gray-700" @click="closeAllPasswordsModal" aria-label="Close"><svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18" /></svg></button>
                     </div>
-                    <div class="modal-body">
+                    <div class="min-h-0 flex-1 overflow-y-auto px-5 py-4">
                         <div class="mb-3">
-                            <label class="form-label">New Password</label>
-                            <input type="text" v-model="allLocationsNewPassword" class="form-control" placeholder="Enter new password">
+                            <label class="mb-1 block text-sm font-semibold text-gray-700">New Password</label>
+                            <input type="text" v-model="allLocationsNewPassword" class="w-full rounded-lg border-gray-300 text-sm focus:border-[#16C3D9] focus:ring-[#16C3D9]" placeholder="Enter new password">
                         </div>
                         <div class="mb-3">
-                            <label class="form-label">Confirm New Password</label>
-                            <input type="text" v-model="allLocationsConfirmPassword" class="form-control" placeholder="Confirm new password">
+                            <label class="mb-1 block text-sm font-semibold text-gray-700">Confirm New Password</label>
+                            <input type="text" v-model="allLocationsConfirmPassword" class="w-full rounded-lg border-gray-300 text-sm focus:border-[#16C3D9] focus:ring-[#16C3D9]" placeholder="Confirm new password">
                         </div>
                     </div>
-                    <div class="modal-footer">
-                        <button type="button" class="btn btn-secondary" @click="generatePassword(false)">
-                            <i class="fa-solid fa-random"></i> Generate Password
+                    <div class="flex shrink-0 flex-wrap justify-end gap-2 border-t border-gray-200 bg-white px-5 py-4">
+                        <button type="button" class="inline-flex items-center justify-center rounded-lg px-4 py-2 text-sm font-semibold border border-gray-200 bg-white text-gray-700 hover:bg-gray-50" @click="generatePassword">
+                            <Icon name="random" /> Generate Password
                         </button>
-                        <button type="button" class="btn btn-primary" @click="updateAllPasswords">Update All Passwords</button>
+                        <button type="button" class="inline-flex items-center justify-center rounded-lg px-4 py-2 text-sm font-semibold bg-[#16C3D9] text-[#06242A] hover:brightness-105" @click="updateAllPasswords">Update All Passwords</button>
                     </div>
                 </div>
             </div>
         </div>
-
-
-        <!-- Mailchimp Settings Modal -->
-        <div class="modal fade" :class="{ 'show': showMailchimpSettingsModal }" :style="{ display: showMailchimpSettingsModal ? 'block' : 'none' }" id="mailchimpSettingsModal" tabindex="-1" aria-labelledby="mailchimpSettingsModalLabel" aria-modal="true">
-            <div class="modal-dialog modal-lg">
-                <div class="modal-content">
-                    <div class="modal-header">
-                        <h5 class="modal-title" id="mailchimpSettingsModalLabel">Mailchimp Auto-Sync Settings</h5>
-                        <button type="button" class="btn-close" @click="showMailchimpSettingsModal = false" aria-label="Close"></button>
-                    </div>
-                    <div class="modal-body">
-                        <div class="mb-4">
-                            <label class="form-label">Mailchimp Account</label>
-                            <input
-                                type="text"
-                                class="form-control"
-                                readonly
-                                disabled
-                                :value="accountLabel"
-                            >
-                            <div class="form-text">
-                                Set by this event's country ({{ event.event_country || 'not set' }}) — USA and Canada sync
-                                through the USA account, everywhere else through ANZ.
-                            </div>
-                            <div v-if="currentAccount && !currentAccount.enabled" class="form-text text-warning">
-                                <i class="fa-solid fa-exclamation-triangle me-1"></i>
-                                This account is not configured, so auto-sync cannot reach it.
-                            </div>
-                        </div>
-
-                        <div class="mb-4">
-                            <label class="form-label">Auto-Sync</label>
-                            <div class="d-flex align-items-center gap-2">
-                                <span class="badge bg-success">
-                                    <i class="fa-solid fa-check me-1"></i> Always on
-                                </span>
-                                <span class="text-muted small">Every location in this event syncs automatically.</span>
-                            </div>
-                        </div>
-
-                        <div class="mb-4">
-                            <label class="form-label">Mailchimp Audience</label>
-                            <input
-                                type="text"
-                                class="form-control"
-                                readonly
-                                disabled
-                                :value="winAppList ? (winAppList.name + ' (' + winAppList.stats.member_count + ' members)') : 'WIN APP'"
-                            >
-                            <div class="form-text">
-                                Auto-sync always writes to this account's WIN APP audience — nothing to set up.
-                            </div>
-                            <div v-if="!winAppList" class="form-text text-warning">
-                                <i class="fa-solid fa-exclamation-triangle me-1"></i>
-                                No WIN APP audience was found on this account. Check the API configuration or pick a different account.
-                            </div>
-                        </div>
-
-                        <div class="mb-4">
-                            <label class="form-label">Film Tour Code</label>
-                            <input 
-                                type="text" 
-                                v-model="mailchimpSettings.film_tour"
-                                class="form-control"
-                                placeholder="e.g., WM, RUNNATION, etc."
-                                required
-                            >
-                            <div class="form-text">
-                                Enter the film tour code (e.g., WM for Warren Miller, RUNNATION). This will be used in the SOURCE tag.
-                            </div>
-                        </div>
-
-                        <div class="mb-4">
-                            <label class="form-label">Default Tags</label>
-                            <input
-                                type="text"
-                                v-model="mailchimpSettings.default_tags"
-                                class="form-control"
-                                placeholder="e.g., 2025, FILM TOUR - WARREN MILLER, SHOW - MELBOURNE"
-                            >
-                            <div class="form-text">
-                                Enter tags separated by commas. Each tag will be added to the subscribers.
-                            </div>
-                        </div>
-
-                        <div class="mb-4">
-                            <label class="form-label">Interest Tags (by adventure sport)</label>
-                            <div class="form-text mb-2">
-                                Choose the tag to apply for each answer to the "Favorite adventure sport?" question.
-                                Leave a field empty to skip tagging for that answer.
-                            </div>
-                            <div v-if="!fave_sport_options || fave_sport_options.length === 0" class="text-muted small">
-                                The sign-up form for this event has no "Favorite adventure sport?" question, so there are no answers to map.
-                            </div>
-                            <div v-else class="border rounded p-2">
-                                <div
-                                    v-for="option in fave_sport_options"
-                                    :key="option"
-                                    class="d-flex align-items-center gap-2 mb-2"
-                                >
-                                    <div class="flex-grow-1 small text-break">{{ option }}</div>
-                                    <input
-                                        type="text"
-                                        class="form-control form-control-sm"
-                                        style="max-width: 260px;"
-                                        :placeholder="'e.g., INT - SNOWSPORTS'"
-                                        v-model="mailchimpSettings.interest_tag_map[option]"
-                                    />
-                                </div>
-                            </div>
-                        </div>
-
-                        <!-- Tag Preview Section -->
-                        <!-- <div class="mb-4" v-if="mailchimpSettings.film_tour">
-                            <label class="form-label">Tag Preview</label>
-                            <div class="p-3 bg-light rounded">
-                                <div class="mb-2">
-                                    <strong>Sample tags that will be automatically generated:</strong>
-                                </div>
-                                <div class="row">
-                                    <div class="col-md-6" v-for="(preview, index) in tagPreview" :key="index">
-                                        <div class="mb-3 p-2 border rounded">
-                                            <div class="fw-bold text-primary mb-1">{{ preview.location }}</div>
-                                            <div class="mb-1">
-                                                <span class="badge bg-success me-1">{{ preview.showTag }}</span>
-                                            </div>
-                                            <div class="mb-1">
-                                                <span class="badge bg-info">{{ preview.sourceTag }}</span>
-                                            </div>
-                                        </div>
-                                    </div>
-                                </div>
-                                <div class="text-muted small">
-                                    <i class="fa-solid fa-info-circle me-1"></i>
-                                    These tags will be automatically added to subscribers based on their selected location.
-                                </div>
-                            </div>
-                        </div> -->
-                    </div>
-                    <div class="modal-footer">
-                        <button 
-                            type="button"
-                            class="btn btn-secondary" 
-                            @click="showMailchimpSettingsModal = false"
-                        >
-                            Cancel
-                        </button>
-                        <button 
-                            type="button"
-                            class="btn btn-primary"
-                            @click="saveMailchimpSettings"
-                        >
-                            Save Settings
-                        </button>
-                    </div>
-                </div>
-            </div>
-        </div>
-        <div v-if="showMailchimpSettingsModal" class="modal-backdrop fade show"></div>
 
     </AuthenticatedLayout>
 </template>

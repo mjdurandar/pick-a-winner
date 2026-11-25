@@ -3,6 +3,7 @@ import { ref, computed, watch, onMounted, onUnmounted } from 'vue';
 import { router } from '@inertiajs/vue3';
 import Swal from 'sweetalert2';
 import ScrollDatePicker from '@/Components/ScrollDatePicker.vue';
+import Icon from '@/Components/Icon.vue';
 
 const props = defineProps({
     form: Object,
@@ -196,7 +197,6 @@ const handleLocationSelect = (event) => {
     }
 };
 
-// const marketingPermission = ref(true); // ✅ Track checkbox state
 
 // ✅ Get CSRF token from Laravel
 const csrfToken = computed(() => {
@@ -671,47 +671,47 @@ onMounted(() => {
 </script>
 
 <template>
-    <div class="container mt-4 mb-4 d-flex justify-content-center align-items-center flex-column" style="min-height: 100vh;">
+    <div class="mx-auto mb-4 mt-4 flex max-w-5xl flex-col items-center justify-center px-4" style="min-height: 100vh;">
         
         <!-- Form Container -->
-        <div class="text-center mb-4 border rounded shadow-sm bg-light col-12 col-md-8 col-lg-5">
-            <div class="w-100">
+        <div class="text-center mb-4 border rounded shadow-sm w-full bg-gray-50 md:w-2/3 lg:w-2/5">
+            <div class="w-full">
                 <img :src="'/storage/' + event.event_banner" alt="Event Banner" 
-                     class="img-fluid w-100" 
+                     class="h-auto w-full max-w-full" 
                      style="object-fit: contain; max-height: 500px;">
             </div>
 
             <!-- ✅ Sign-ups Closed Card (Shown once the event's end date has passed) -->
             <div v-if="isSignupClosed" class="text-center p-5">
-                <h2 class="mb-3 fw-bold" style="font-size: 20px;">Sign-ups are now closed</h2>
+                <h2 class="mb-3 font-bold" style="font-size: 20px;">Sign-ups are now closed</h2>
                 <p class="mb-2">Thanks for your interest! Sign-ups for {{ event.event_name }} closed on
                     {{ formatDate(event.event_end_date) }}.</p>
-                <p class="mb-0 text-muted" style="font-size: 14px;">In the meantime, check out other films from Adventure Entertainment at
-                    <a href="https://adventureentertainment.com" target="_blank" class="text-decoration-none" style="color: #0000EE;">adventureentertainment.com</a>.</p>
+                <p class="mb-0 text-gray-500" style="font-size: 14px;">In the meantime, check out other films from Adventure Entertainment at
+                    <a href="https://adventureentertainment.com" target="_blank" class="no-underline" style="color: #0000EE;">adventureentertainment.com</a>.</p>
             </div>
 
             <!-- ✅ Thank You Card (Shown after submission) -->
-            <div v-else-if="isSubmitted" class="text-center p-5 border rounded shadow-sm bg-light">
-                <h2 class="mb-3 fw-bold" style="font-size: 20px;">Thank you for joining!</h2>
+            <div v-else-if="isSubmitted" class="rounded border bg-gray-50 p-5 text-center shadow-sm">
+                <h2 class="mb-3 font-bold" style="font-size: 20px;">Thank you for joining!</h2>
                 <p class="mb-3">You're now part of our community and in the running to win amazing prizes!</p>
                 <p class="mb-0">While you wait, check out other films from Adventure Entertainment at
-                    <a href="https://adventureentertainment.com" target="_blank" class="text-decoration-none" style="color: #0000EE;">adventureentertainment.com</a>.</p>
+                    <a href="https://adventureentertainment.com" target="_blank" class="no-underline" style="color: #0000EE;">adventureentertainment.com</a>.</p>
             </div>
 
             <!-- ✅ Event Details (Shown before submission) -->
             <div class="p-4" v-else>
-                <h2 class="mt-2 mb-3 fw-bold" style="font-size: 19px;">{{ form.heading }}</h2>
+                <h2 class="mb-3 mt-2 font-bold" style="font-size: 19px;">{{ form.heading }}</h2>
                 <p class="mb-3" style="font-size: 14px;">{{ form.event_description }}</p>
                 <p class="mb-2">
-                    <a :href="form.terms_link" target="_blank" class="text-decoration-none" style="color: #0000EE; font-size: 14px;">Terms and Conditions</a> |
-                    <a :href="form.privacy_link" target="_blank" class="text-decoration-none" style="color: #0000EE; font-size: 14px;">Privacy Policy</a>
+                    <a :href="form.terms_link" target="_blank" class="no-underline" style="color: #0000EE; font-size: 14px;">Terms and Conditions</a> |
+                    <a :href="form.privacy_link" target="_blank" class="no-underline" style="color: #0000EE; font-size: 14px;">Privacy Policy</a>
                 </p>
             </div>
         </div>
 
         <!-- ✅ Sign-up Form (Hidden after submission and once sign-ups close) -->
         <form @submit.prevent="submitForm"
-              class="p-3 border rounded shadow-sm bg-light col-12 col-md-8 col-lg-5"
+              class="p-3 border rounded shadow-sm w-full bg-gray-50 md:w-2/3 lg:w-2/5"
               v-if="!isSubmitted && !isSignupClosed">
             <input type="hidden" :value="csrfToken" name="_token">
 
@@ -722,7 +722,7 @@ onMounted(() => {
                 <select
                     v-model="selectedLocation"
                     @change="handleLocationSelect"
-                    class="form-select mb-3 w-full border rounded px-3 py-2"
+                    class="mb-3 w-full border rounded px-3 py-2"
                     required
                 >
                     <option value="" disabled selected>Select a location</option>
@@ -745,7 +745,7 @@ onMounted(() => {
             </div>
 
             <!-- Message when no events in window -->
-            <div v-else class="alert alert-info mb-3">
+            <div v-else class="mb-3 rounded-lg bg-sky-50 px-4 py-3 text-sm text-sky-900">
                 No events available in the selected date range. Please check back later.
             </div>
 
@@ -757,12 +757,12 @@ onMounted(() => {
             </div>
 
             <template v-for="(question, index) in JSON.parse(form.questions)" :key="index">
-                <label class="form-label" v-if="question.column_name !== 'street_address' && question.column_name !== 'street_address_2' && question.column_name !== 'city' && question.column_name !== 'state' && question.column_name !== 'zip_code' && question.column_name !== 'country'" >{{ question.text }}</label>
-                <label class="form-label" v-if="question.column_name === 'street_address'">Address</label>
+                <label class="mb-1 block text-sm font-semibold text-gray-700" v-if="question.column_name !== 'street_address' && question.column_name !== 'street_address_2' && question.column_name !== 'city' && question.column_name !== 'state' && question.column_name !== 'zip_code' && question.column_name !== 'country'" >{{ question.text }}</label>
+                <label class="mb-1 block text-sm font-semibold text-gray-700" v-if="question.column_name === 'street_address'">Address</label>
                 <!-- ✅ Text & Number Inputs -->
                 <template v-if="question.type === 'text' && question.column_name !== 'street_address' && question.column_name !== 'street_address_2' && question.column_name !== 'city' && question.column_name !== 'state' && question.column_name !== 'zip_code' && question.column_name !== 'country'" >
                     <div class="pb-3">
-                        <input v-model="formValues[question.text]" type="text" class="form-control  w-full border rounded px-3 py-2" required>
+                        <input v-model="formValues[question.text]" type="text" class="w-full border rounded px-3 py-2" required>
                     </div>
                 </template>
 
@@ -771,7 +771,7 @@ onMounted(() => {
                         <input
                             v-model="formValues[question.text]"
                             type="email"
-                            class="form-control w-full border rounded px-3 py-2"
+                            class="w-full border rounded px-3 py-2"
                             required
                             @blur="checkEmailSubscription"
                         >
@@ -786,7 +786,7 @@ onMounted(() => {
 
                 <template v-if="question.type === 'textarea'">
                     <div class="pb-3">
-                        <textarea v-model="formValues[question.text]" class="form-control w-full border rounded px-3 py-2" rows="4" required></textarea>
+                        <textarea v-model="formValues[question.text]" class="w-full border rounded px-3 py-2" rows="4" required></textarea>
                     </div>
                 </template>
 
@@ -794,7 +794,7 @@ onMounted(() => {
                     <div class="pb-3 ">
                         <input 
                             v-model="formValues[question.text]" 
-                            class="form-control"
+                            class="w-full rounded border px-3 py-2"
                             required
                             inputmode="tel"
                             maxlength="25"
@@ -834,7 +834,7 @@ onMounted(() => {
                                     v-if="formValues[question.text]?.includes('Other')" 
                                     v-model="otherValues[question.column_name]"
                                     type="text" 
-                                    class="form-control mt-2 w-full border rounded px-3 py-2" 
+                                    class="mt-2 w-full border rounded px-3 py-2" 
                                     placeholder="Please specify..."
                                     required
                                 >
@@ -843,7 +843,7 @@ onMounted(() => {
                         <template v-else>
                             <select 
                                 v-model="formValues[question.text]" 
-                                class="form-select w-full border rounded px-3 py-2" 
+                                class="w-full border rounded px-3 py-2" 
                                 required
                                 @change="checkForOther(question)"
                             >
@@ -860,7 +860,7 @@ onMounted(() => {
                                 v-if="question.hasOtherOption && formValues[question.text] === 'Other'" 
                                 v-model="otherValues[question.column_name]"
                                 type="text" 
-                                class="form-control mt-2 w-full border rounded px-3 py-2" 
+                                class="mt-2 w-full border rounded px-3 py-2" 
                                 placeholder="Please specify..."
                                 required
                             >
@@ -871,16 +871,16 @@ onMounted(() => {
                 <!-- ✅ Address Fields -->
                 <template v-if="question.column_name === 'street_address' || question.column_name === 'street_address_2' || question.column_name === 'city' || question.column_name === 'state' || question.column_name === 'zip_code' || question.column_name === 'country'">
                     <div class="pb-2">
-                        <div class="d-flex ">
-                            <input v-if="question.column_name === 'street_address'" v-model="formValues[question.text]" type="text" class="form-control  w-full border rounded px-3 py-2" placeholder="Street Address" required>
-                            <input v-if="question.column_name === 'street_address_2'" v-model="formValues[question.text]" type="text" class="form-control  w-full border rounded px-3 py-2" placeholder="Address Line 2">
-                            <input v-if="question.column_name === 'city'" v-model="formValues[question.text]" type="text" class="flex-1 form-control  w-full border rounded px-3 py-2" placeholder="City" required>
-                            <input v-if="question.column_name === 'state'" v-model="formValues[question.text]" type="text" class="flex-1 form-control  w-full border rounded px-3 py-2" placeholder="State" required>
-                            <input v-if="question.column_name === 'zip_code'" v-model="formValues[question.text]" type="text" class="flex-1 form-control  w-full border rounded px-3 py-2" placeholder="Zip Code" required>                
+                        <div class="flex gap-2">
+                            <input v-if="question.column_name === 'street_address'" v-model="formValues[question.text]" type="text" class="w-full border rounded px-3 py-2" placeholder="Street Address" required>
+                            <input v-if="question.column_name === 'street_address_2'" v-model="formValues[question.text]" type="text" class="w-full border rounded px-3 py-2" placeholder="Address Line 2">
+                            <input v-if="question.column_name === 'city'" v-model="formValues[question.text]" type="text" class="flex-1 w-full border rounded px-3 py-2" placeholder="City" required>
+                            <input v-if="question.column_name === 'state'" v-model="formValues[question.text]" type="text" class="flex-1 w-full border rounded px-3 py-2" placeholder="State" required>
+                            <input v-if="question.column_name === 'zip_code'" v-model="formValues[question.text]" type="text" class="flex-1 w-full border rounded px-3 py-2" placeholder="Zip Code" required>                
                         </div>
-                        <label class="form-label" v-if="question.column_name === 'country'">{{ countryQuestionText }}</label>
+                        <label class="mb-1 block text-sm font-semibold text-gray-700" v-if="question.column_name === 'country'">{{ countryQuestionText }}</label>
                         <div v-if="question.column_name === 'country'">
-                            <select v-model="formValues[question.text]" class="form-select  w-full border rounded px-3 py-2" required>
+                            <select v-model="formValues[question.text]" class=" w-full border rounded px-3 py-2" required>
                             <option value="">Select an option</option>
                             <option v-for="option in getVisibleOptions(question)" :key="option" :value="option">{{ option }}</option>
                             </select>       
@@ -889,28 +889,28 @@ onMounted(() => {
                 </template>
             </template>
 
-            <!-- ✅ Marketing Permission Checkbox (Required) -->
-            <div class="form-check mt-2">
-                <!-- <input v-model="marketingPermission" type="checkbox" class="form-check-input" id="marketingPermission" required> -->
-                <label class="form-check-label" for="marketingPermission">
-                    <strong>Marketing Permission</strong> <br>
-                    <!-- By checking the box, you accept the competition terms and conditions and consent to receive marketing materials related to the offerings of Adventure Entertainment and our partners. -->
-                    By submitting this form, you agree to the competition terms and conditions and authorize us to send you marketing materials about Adventure Entertainment and our partners' offerings.
-                </label>
+            <!-- Consent is given by submitting, so this is a statement, not a
+                 checkbox. The checkbox it replaced had been commented out. -->
+            <div class="mt-2 text-left">
+                <p class="text-sm text-gray-700">
+                    <strong>Marketing Permission</strong><br />
+                    By submitting this form, you agree to the competition terms and conditions and authorize us to
+                    send you marketing materials about Adventure Entertainment and our partners' offerings.
+                </p>
             </div>
 
-            <div class="d-flex justify-content-center mt-4 mb-3">
+            <div class="flex justify-center mt-4 mb-3">
                 <button
                     type="submit"
-                    class="btn btn-primary w-40"
+                    class="w-40 rounded-lg bg-[#16C3D9] px-4 py-2 text-sm font-bold text-[#06242A] hover:brightness-105 disabled:opacity-50"
                     :disabled="!hasEventsInWindow || isSubmitting || subscriptionStatus === 'checking'"
                 >
                     <span v-if="subscriptionStatus === 'checking'">
-                        <i class="fa-solid fa-spinner fa-spin me-2"></i>
+                        <Icon name="spinner" spin class="mr-2" />
                         Verifying...
                     </span>
                     <span v-else-if="isSubmitting">
-                        <i class="fa-solid fa-spinner fa-spin me-2"></i>
+                        <Icon name="spinner" spin class="mr-2" />
                         Submitting...
                     </span>
                     <span v-else>Submit</span>

@@ -109,10 +109,9 @@ function close() {
 </script>
 
 <template>
-    <Modal :show="show" max-width="md" :closeable="!saving" @close="close">
+    <Modal :show="show" max-width="md" title="Weekly digest settings" :closeable="!saving" @close="close">
         <div class="p-6">
-            <h2 class="text-lg font-semibold text-gray-900">Weekly digest settings</h2>
-            <p class="mt-1 text-sm text-gray-500">
+            <p class="text-sm text-gray-500">
                 When the automated weekly report email is sent, and who it goes to. Changes apply from the next run — nothing to restart.
             </p>
 
@@ -176,24 +175,18 @@ function close() {
 
                 <p v-if="error" class="mt-4 text-sm text-red-700">{{ error }}</p>
                 <p v-if="notice" class="mt-4 text-sm text-green-700">{{ notice }}</p>
-
-                <div class="mt-6 flex items-center justify-between gap-2">
-                    <button @click="useDefault" :disabled="saving || isDefault" type="button"
-                            class="text-sm text-gray-600 underline-offset-2 hover:underline disabled:opacity-40 disabled:no-underline">
-                        Reset to default
-                    </button>
-                    <div class="flex gap-2">
-                        <button @click="close" :disabled="saving"
-                                class="rounded-md border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-40">
-                            Close
-                        </button>
-                        <button @click="save" :disabled="saving || !dirty"
-                                class="rounded-md bg-gray-800 px-4 py-2 text-sm font-medium text-white hover:bg-gray-900 disabled:opacity-40">
-                            {{ saving ? 'Saving…' : 'Save' }}
-                        </button>
-                    </div>
-                </div>
             </template>
         </div>
+
+        <template #footer>
+            <button v-if="data && !loadError" @click="useDefault" :disabled="saving || isDefault" type="button"
+                    class="mr-auto text-sm text-gray-600 underline-offset-2 hover:underline disabled:opacity-40 disabled:no-underline">
+                Reset to default
+            </button>
+            <button @click="close" :disabled="saving" type="button" class="rounded-lg border border-gray-200 px-4 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-50 disabled:opacity-40">Close</button>
+            <button v-if="data && !loadError" @click="save" :disabled="saving || !dirty" type="button" class="rounded-lg bg-[#16C3D9] px-4 py-2 text-sm font-bold text-[#06242A] hover:brightness-105 disabled:opacity-40">
+                {{ saving ? 'Saving…' : 'Save' }}
+            </button>
+        </template>
     </Modal>
 </template>

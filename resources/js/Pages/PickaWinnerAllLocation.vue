@@ -32,8 +32,16 @@ const eventAttendees = computed(() => props.attendees || []);
 // already unlocked this draw, and leaving the page mid-draw risks the winners
 // still sitting in the offline sync queue.
 const openInstructions = () => {
-    new bootstrap.Modal(document.getElementById('howToPickModal')).show();
+    showHowTo.value = true;
 };
+
+// Panels, held in state rather than driven through bootstrap.Modal. A draw runs
+// on a phone and a dialog box cannot be sized for a stage: the winner's name has
+// to fill the screen.
+const showPick = ref(false);           // the draw itself
+const showPrizeDetails = ref(false);   // naming the prize for a saved winner
+const showHowTo = ref(false);          // how to pick a winner
+const showMenu = ref(false);           // everything that is not the draw
 
 // ✅ Location filter — the host can narrow the tour-wide draw to a chosen set of
 // screenings. Empty means the whole tour (every location).
@@ -411,37 +419,15 @@ const fetchAttendees = () => {
     });
 };
 
-const initializeModals = () => {
-    // Initialize all modals with proper configuration
-    const modals = document.querySelectorAll('.modal');
-    modals.forEach(modal => {
-        new bootstrap.Modal(modal, {
-            backdrop: 'static',
-            keyboard: false,
-            focus: true
-        });
-    });
-};
-
 onMounted(() => {
     startAutoSync(); // ✅ Background sync of locally saved winners
     processQueue();
     pollingInterval = setInterval(fetchAttendees, 5000);
-
-    initializeModals();
 });
 
 onUnmounted(() => {
     clearInterval(pollingInterval);
-
-    // Clean up any open modals
-    const modals = document.querySelectorAll('.modal');
-    modals.forEach(modal => {
-        const modalInstance = bootstrap.Modal.getInstance(modal);
-        if (modalInstance) {
-            modalInstance.hide();
-        }
-    });
+    if (animationInterval) clearInterval(animationInterval);
 });
 
 // ✅ Queue the delete so it works offline too: the row disappears immediately
@@ -524,6 +510,32 @@ const selectedWinner = ref(null);
 const isPicking = ref(false); // ✅ Controls animation state
 const winnerDisplay = ref(''); // ✅ Displays random names
 let animationInterval = null;
+
+// The drawn person's details, shown under their name. Display only: the draw
+// itself never reads these.
+const hasValue = (v) => v !== null && v !== undefined && String(v).trim() !== '';
+const winnerDetails = computed(() => {
+    const w = selectedWinner.value;
+    if (!w) return [];
+    return [
+        { label: 'Screening', value: w.location_name },
+        { label: 'Email', value: w.email_address },
+        { label: 'Phone', value: w.mobile_number },
+        { label: 'Gender', value: w.gender },
+        { label: 'Age', value: w.age },
+    ].filter((row) => hasValue(row.value));
+});
+const prizeWinnerDetails = computed(() => {
+    const p = selectedPrize.value;
+    if (!p) return [];
+    return [
+        { label: 'Screening', value: p.winner_location },
+        { label: 'Email', value: p.winner_email },
+        { label: 'Phone', value: p.winner_mobile_number },
+        { label: 'Gender', value: p.winner_gender || p.gender },
+        { label: 'Age', value: p.winner_age || p.age },
+    ].filter((row) => hasValue(row.value));
+});
 
 // Prize input for winner
 const prizeForWinner = ref('');
@@ -617,8 +629,7 @@ const openPickWinnerModal = () => {
         return;
     }
 
-    let modalElement = new bootstrap.Modal(document.getElementById('pickWinnerModal'));
-    modalElement.show();
+    showPick.value = true;
 
     runPickAnimation();
 };
@@ -654,8 +665,7 @@ const openPrizeDetailsModal = (winner) => {
     };
     prizeForWinner.value = ''; // Reset the prize input
 
-    let modalElement = new bootstrap.Modal(document.getElementById('prizeDetailsModal'));
-    modalElement.show();
+    showPrizeDetails.value = true;
 
     // Focus on the prize input after modal is shown
     nextTick(() => {
@@ -700,8 +710,7 @@ const confirmWinner = () => {
         },
     });
 
-    let modalElement = bootstrap.Modal.getInstance(document.getElementById('pickWinnerModal'));
-    modalElement.hide();
+    showPick.value = false;
 
     const firstName = selectedWinner.value.first_name;
     Swal.fire(
@@ -747,571 +756,446 @@ const handleModalClose = () => {
     prizeForWinner.value = '';
     selectedPrize.value = null;
 
-    // Hide modal
-    const modalElement = document.getElementById('prizeDetailsModal');
-    if (modalElement) {
-        const modalInstance = bootstrap.Modal.getInstance(modalElement);
-        if (modalInstance) {
-            modalInstance.hide();
-        }
-    }
+    showPrizeDetails.value = false;
 };
+
+/* ------------------------------------------------------------- display -- */
+// A winner is saved the moment the draw is confirmed, with prize_name held as
+// the string 'null' until the host names it. These read that, nothing more.
+
+/** The prize's name, or '' while it is still waiting to be named. */
+const prizeLabel = (prize) => {
+    const name = prize?.prize_name;
+
+    return !name || name === 'null' ? '' : name;
+};
+
+/** Drawn, but nobody has said what they won yet. */
+const needsPrizeName = (prize) => !!prize?.winner && !prizeLabel(prize);
+
+const drawnCount = computed(() => mergedPrizes.value.filter((p) => p.winner).length);
+const unnamedCount = computed(() => mergedPrizes.value.filter(needsPrizeName).length);
 </script>
-<style>
-/* Global modal styles - not scoped to ensure it affects all modals */
-.modal-backdrop {
-    background-color: rgba(0, 0, 0, 0.5) !important;
-    backdrop-filter: blur(2px);
-}
-
-.modal-content {
-    box-shadow: 0 5px 15px rgba(0, 0, 0, 0.5);
-}
-</style>
 <style scoped>
-/* Sticky offline-sync banner — stays visible above the table while scrolling */
-.paw-sync-banner {
-    top: 0;
-    z-index: 1080;
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
+/* The spin and the reveal. Everything else is utility classes. */
+@keyframes paw-pulse {
+    0%, 100% { transform: scale(1); opacity: .85; }
+    50%      { transform: scale(1.09); opacity: 1; }
+}
+@keyframes paw-rise {
+    from { transform: translateY(10px) scale(.97); opacity: 0; }
+    to   { transform: none; opacity: 1; }
+}
+.paw-pulse { animation: paw-pulse 1.1s ease-in-out infinite; }
+.paw-rise  { animation: paw-rise .34s cubic-bezier(.2, .9, .3, 1) both; }
+
+@media (prefers-reduced-motion: reduce) {
+    .paw-pulse, .paw-rise { animation: none; }
 }
 
-/* Weak signal — orange, so it reads as worse than "syncing" (yellow) but not
-   yet fully offline (red). */
-.paw-sync-weak {
-    background-color: #d9480f;
+.paw-field {
+    background-color: #151515;
+    border: 2px solid #2e2e2e;
+    color: #fff;
+    border-radius: 0.75rem;
 }
+.paw-field:focus { outline: 0; border-color: #16c3d9; box-shadow: none; }
+.paw-field::placeholder { color: #55595a; }
 
-/* The "keep your own record" line sits inside the banner but has to read as a
-   separate instruction, not more of the same status text. */
-.paw-sync-keep-record {
-    background-color: rgba(0, 0, 0, 0.25);
-    border-radius: 0.25rem;
-    font-size: 0.95rem;
+.paw-select {
+    background-color: #1f1f1f;
+    border: 1px solid #2e2e2e;
+    color: #fff;
+    border-radius: 0.625rem;
 }
-
-/* Override Bootstrap's input focus styles */
-.form-control:focus {
-    background-color: #1f2937 !important;
-    color: white !important;
-    border-color: #374151 !important;
-    box-shadow: 0 0 0 0.25rem rgba(192, 199, 201, 0.25) !important;
-}
-
-/* Ensure placeholder text is visible on dark backgrounds */
-::placeholder {
-    color: #9ca3af !important;
-    opacity: 1;
-}
-
-/* Fix for autofill background in Chrome */
-input:-webkit-autofill,
-input:-webkit-autofill:hover,
-input:-webkit-autofill:focus,
-input:-webkit-autofill:active {
-    -webkit-box-shadow: 0 0 0 30px #1f2937 inset !important;
-    -webkit-text-fill-color: white !important;
-    transition: background-color 5000s ease-in-out 0s;
-}
-
-.winners-table {
-    margin-top: 20px;
-}
-
-/* Location picker — long tours have many screenings, so cap the height and
-   scroll rather than pushing the Pick a Winner button off the screen. */
-.paw-location-list {
-    max-height: 320px;
-    overflow-y: auto;
-}
-
-.paw-location-option {
-    background-color: #374151;
-    border: 1px solid #4b5563;
-    cursor: pointer;
-    margin: 0;
-}
-
-.paw-location-option:hover {
-    background-color: #4b5563;
-}
-
-/* A ticked screening reads as "in the draw" at a glance. */
-.paw-location-on {
-    background-color: #0e7490;
-    border-color: #22d3ee;
-}
+.paw-select:focus { outline: 0; border-color: #16c3d9; box-shadow: none; }
 </style>
+
 <template>
-    <Head title="National Tour Wide" />
+    <Head title="Tour-wide draw" />
 
     <PickaWinnerLayout>
-        <div class="p-2 text-white" style="background-color: #151515;">
-            <div class="mt-3 p-2">
-                <div class="mx-auto max-w-7xl sm:px-6 lg:px-8">
-                    <div class="d-flex flex-column flex-md-row justify-content-between items-center pb-4">
-                        <div class="mb-3 mb-md-0 text-center text-md-start">
-                            <img
-                            :src="`/storage/${event.event_logo}`"
-                            alt="Event Logo"
-                            class="img-fluid"
-                            style="max-width: 200px; max-height: 300px;"
-                            >
-                        </div>
-                        <h2 class="text-2xl font-bold text-center text-white">
-                            {{ event.event_name }} <br> National Tour Wide <br>
-                            <span class="text-base font-normal text-gray-300">
-                                {{ hasLocationFilter
-                                    ? `${selectedLocationIds.length} of ${locationOptions.length} locations`
-                                    : 'All locations' }}
+        <div class="mx-auto flex min-h-screen w-full max-w-[560px] flex-col bg-black">
+            <!-- =========================================== header -- -->
+            <header class="sticky top-0 z-20 flex min-h-[56px] items-center gap-2.5 border-b border-[#2e2e2e] bg-[#151515] px-[max(18px,env(safe-area-inset-left))] py-2.5">
+                <div class="min-w-0 flex-1 leading-tight">
+                    <b class="block truncate text-sm font-bold text-white">{{ event.event_name }}</b>
+                    <span class="block truncate text-[11.5px] text-[#74797a]">Tour-wide draw · every screening</span>
+                </div>
+
+                <span
+                    class="inline-flex shrink-0 items-center gap-1.5 rounded-full px-2.5 py-1 text-[10.5px] font-bold"
+                    :class="connection === 'online' ? 'bg-[#0d2419] text-[#3dd68c]'
+                        : connection === 'weak' ? 'bg-[#2a1410] text-[#e85c41]'
+                        : 'bg-[#2c1414] text-[#f77d7d]'"
+                >
+                    <span class="h-1.5 w-1.5 rounded-full bg-current"></span>
+                    {{ connection === 'online' ? 'Online' : connection === 'weak' ? 'Weak' : 'Offline' }}
+                </span>
+
+                <button
+                    type="button" @click="showMenu = true"
+                    class="grid h-9 w-9 shrink-0 place-items-center rounded-lg border border-[#2e2e2e] bg-[#1f1f1f] text-[#abb0b2] hover:text-white"
+                    aria-label="Menu"
+                >
+                    <svg class="h-[17px] w-[17px]" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round"><circle cx="12" cy="5" r="1.6" /><circle cx="12" cy="12" r="1.6" /><circle cx="12" cy="19" r="1.6" /></svg>
+                </button>
+            </header>
+
+            <main class="flex-1 px-[max(18px,env(safe-area-inset-left))] pb-[calc(28px+env(safe-area-inset-bottom))] pt-4">
+                <!-- ================================ sync banner -- -->
+                <div
+                    v-if="connection !== 'online' || pendingSyncCount > 0"
+                    class="mb-3.5 rounded-xl px-4 py-3"
+                    :class="connection === 'offline' ? 'bg-[#2c1414]' : connection === 'weak' ? 'bg-[#2a1410]' : 'bg-[#0d2419]'"
+                >
+                    <p
+                        class="text-[13.5px] font-bold"
+                        :class="connection === 'offline' ? 'text-[#f77d7d]' : connection === 'weak' ? 'text-[#e85c41]' : 'text-[#3dd68c]'"
+                    >
+                        <template v-if="connection === 'offline'">No internet — saving on this phone</template>
+                        <template v-else-if="connection === 'weak'">Weak signal — still sending</template>
+                        <template v-else>Sending {{ pendingSyncCount }} to the server…</template>
+                    </p>
+                    <p class="mt-1 text-[12.5px] text-[#abb0b2]">
+                        <template v-if="connection === 'offline'">
+                            {{ pendingSyncCount }} winner{{ pendingSyncCount === 1 ? '' : 's' }} saved here. They send
+                            themselves once you have signal — keep drawing.
+                        </template>
+                        <template v-else-if="connection === 'weak'">
+                            {{ pendingSyncCount }} waiting{{ syncDetail }}. Keep drawing and leave this page open.
+                        </template>
+                        <template v-else>Nothing is lost if you close the page.</template>
+                    </p>
+                    <p v-if="connection !== 'online'" class="mt-2 rounded-lg bg-black/25 px-3 py-2 text-[12.5px] text-white">
+                        Write the winners down as well, just in case.
+                    </p>
+                </div>
+
+                <!-- ===================================== counts -- -->
+                <div class="mb-3.5 grid grid-cols-2 gap-2.5">
+                    <div class="rounded-xl border border-[#2e2e2e] bg-[#151515] px-3.5 py-3">
+                        <span class="text-[10.5px] font-bold uppercase tracking-[0.08em] text-[#74797a]">In the draw</span>
+                        <span class="block font-mono text-2xl tracking-[-0.03em] text-white">{{ eligibleAttendees.length }}</span>
+                        <span class="text-[11.5px] text-[#abb0b2]">
+                            of {{ hasLocationFilter ? locationScopedAttendees.length : eventAttendees.length }} signed up
+                        </span>
+                    </div>
+                    <div class="rounded-xl border border-[#2e2e2e] bg-[#151515] px-3.5 py-3">
+                        <span class="text-[10.5px] font-bold uppercase tracking-[0.08em] text-[#74797a]">Drawn</span>
+                        <span class="block font-mono text-2xl tracking-[-0.03em] text-white">{{ drawnCount }}</span>
+                        <span class="text-[11.5px] text-[#abb0b2]">winner{{ drawnCount === 1 ? '' : 's' }} so far</span>
+                    </div>
+                </div>
+
+                <p v-if="hasActiveFilters" class="mb-3.5 rounded-xl bg-[#0b2a30] px-4 py-3 text-[12.5px] text-[#16c3d9]">
+                    {{ locationExplanation }}
+                    <span v-if="hasActiveQuestionFilters" class="mt-1 block">{{ getFilterExplanation }}</span>
+                </p>
+
+                <!-- =================================== the draw -- -->
+                <button
+                    type="button" @click="openPickWinnerModal"
+                    :disabled="!eligibleAttendees.length"
+                    class="min-h-[68px] w-full rounded-2xl bg-[#16c3d9] text-lg font-extrabold text-[#00171c] disabled:opacity-40"
+                >
+                    {{ eligibleAttendees.length ? 'Pick a winner' : 'Nobody left to draw' }}
+                </button>
+                <p v-if="!eligibleAttendees.length" class="mt-2 text-center text-[12.5px] text-[#74797a]">
+                    {{ eventAttendees.length ? 'Everyone in the draw has already won.' : 'Nobody has signed up to this tour yet.' }}
+                </p>
+
+                <button
+                    type="button" @click="showFilters = !showFilters"
+                    class="mt-2.5 min-h-[46px] w-full rounded-xl text-[14px] font-semibold text-[#abb0b2] hover:bg-[#1f1f1f] hover:text-white"
+                >
+                    {{ showFilters ? 'Hide filter' : 'Filter' }}<span v-if="activeFilterCount"> · {{ activeFilterCount }}</span>
+                </button>
+
+                <!-- =================================== filters -- -->
+                <div v-if="showFilters" class="mt-1 rounded-2xl border border-[#2e2e2e] bg-[#151515] p-4">
+                    <p class="text-[13.5px] font-bold text-white">Screenings</p>
+                    <p class="mt-1 text-[12.5px] text-[#74797a]">
+                        Leave every one unticked and the whole tour is in the draw.
+                    </p>
+
+                    <div class="mt-3 flex gap-2">
+                        <button type="button" @click="selectAllLocations" class="min-h-[40px] flex-1 rounded-xl border border-[#2e2e2e] bg-[#1f1f1f] text-[13px] font-bold text-white hover:bg-[#2b2b2b]">Select all</button>
+                        <button type="button" @click="clearLocationSelection" class="min-h-[40px] flex-1 rounded-xl border border-[#2e2e2e] bg-[#1f1f1f] text-[13px] font-semibold text-[#abb0b2] hover:bg-[#2b2b2b]">Clear</button>
+                    </div>
+
+                    <div class="mt-3 max-h-64 overflow-y-auto">
+                        <button
+                            v-for="loc in locationOptions" :key="loc.id" type="button"
+                            @click="toggleLocation(loc.id)"
+                            class="mb-2 flex min-h-[52px] w-full items-center gap-3 rounded-xl border px-3 text-left"
+                            :class="isLocationSelected(loc.id)
+                                ? 'border-[#16c3d9] bg-[#0b2a30]'
+                                : 'border-[#2e2e2e] bg-[#1f1f1f]'"
+                        >
+                            <span
+                                class="grid h-5 w-5 shrink-0 place-items-center rounded-md border-2 text-[12px]"
+                                :class="isLocationSelected(loc.id) ? 'border-[#16c3d9] bg-[#16c3d9] text-[#00171c]' : 'border-[#2e2e2e]'"
+                            >{{ isLocationSelected(loc.id) ? '✓' : '' }}</span>
+                            <span class="min-w-0 flex-1">
+                                <span class="block truncate text-[14px] font-semibold text-white">{{ loc.name }}</span>
+                                <span class="text-[12px] text-[#74797a]">{{ loc.count }} signed up</span>
                             </span>
-                        </h2>
-                        <div class="mt-2 bg-cyan-700 px-3 py-1 rounded">
-                            <span class="font-bold">Participants: {{ filteredAttendees.length }}</span>
-                        </div>
-                    </div>
-
-                    <!-- Filter Section -->
-                    <div class="d-flex justify-content-center flex-wrap gap-3 mt-3 mb-3">
-                        <!-- Filter Toggle Button -->
-                        <button
-                            @click="showFilters = !showFilters"
-                            class="px-4 py-2 rounded transition-colors text-white"
-                            :class="hasActiveFilters ? 'bg-orange-500 hover:bg-orange-600' : 'bg-gray-600 hover:bg-gray-700'"
-                        >
-                            <i class="fas fa-filter mr-2"></i>
-                            Filters {{ hasActiveFilters ? `(${activeFilterCount})` : '' }}
                         </button>
-                        </div>
-
-                    <!-- Which screenings are in the draw — visible even with the panel closed -->
-                    <div v-if="hasLocationFilter" class="text-center mb-3">
-                        <span class="badge bg-orange-500 text-white" style="font-size: 0.85rem; padding: 0.5rem 0.75rem;">
-                            <i class="fa-solid fa-location-dot me-1"></i>
-                            Drawing from {{ selectedLocationIds.length }} selected
-                            {{ selectedLocationIds.length === 1 ? 'location' : 'locations' }} only
-                        </span>
+                        <p v-if="!locationOptions.length" class="py-4 text-center text-[12.5px] text-[#74797a]">
+                            No screenings with sign-ups yet.
+                        </p>
                     </div>
 
-                    <!-- Dynamic Filters Panel -->
-                    <div v-if="showFilters" class="mb-4 p-4 bg-gray-800 border border-gray-600 rounded" style="max-width: 1200px; margin: 0 auto;">
-                        <!-- Location picker — restrict the draw to chosen screenings -->
-                        <div class="mb-4 p-3 bg-gray-700 rounded">
-                            <div class="mb-2 d-flex justify-content-between align-items-center flex-wrap gap-2">
-                                <h5 class="text-white mb-0">
-                                    Locations in this draw
-                                    <span class="text-gray-300 text-sm font-normal">
-                                        — tick the screenings to pick from (none ticked = whole tour)
-                                    </span>
-                                </h5>
-                                <div class="d-flex gap-2">
-                                    <button @click="selectAllLocations" class="btn btn-sm btn-outline-light">
-                                        Select all
-                                    </button>
-                                    <button
-                                        @click="clearLocationSelection"
-                                        class="btn btn-sm btn-outline-warning"
-                                        :disabled="!hasLocationFilter"
-                                    >
-                                        Clear
-                                    </button>
-                                </div>
-                            </div>
+                    <template v-if="availableQuestions.length">
+                        <p class="mt-4 border-t border-[#2e2e2e] pt-4 text-[13.5px] font-bold text-white">Answers</p>
+                        <p class="mt-1 text-[12.5px] text-[#74797a]">
+                            For a prize that cannot go to everyone — alcohol, say.
+                        </p>
 
-                            <div v-if="locationOptions.length === 0" class="text-gray-400 py-2">
-                                No locations with attendees yet.
-                            </div>
+                        <div v-for="(filter, i) in filters" :key="i" class="mt-3 rounded-xl border border-[#2e2e2e] bg-[#1f1f1f] p-3">
+                            <div class="grid gap-2">
+                                <select v-model="filter.questionColumn" @change="updateQuestionText(i)" class="paw-select min-h-[46px] w-full px-3 text-[14px]">
+                                    <option value="">Choose a question…</option>
+                                    <option v-for="q in availableQuestions" :key="q.column_name" :value="q.column_name">{{ q.text }}</option>
+                                </select>
 
-                            <div v-else class="row g-2 paw-location-list">
-                                <div
-                                    v-for="location in locationOptions"
-                                    :key="location.id"
-                                    class="col-12 col-md-6 col-lg-4"
-                                >
-                                    <label
-                                        class="d-flex align-items-center gap-2 p-2 rounded paw-location-option"
-                                        :class="isLocationSelected(location.id) ? 'paw-location-on' : ''"
-                                    >
-                                        <input
-                                            type="checkbox"
-                                            class="form-check-input mt-0"
-                                            :checked="isLocationSelected(location.id)"
-                                            @change="toggleLocation(location.id)"
-                                        />
-                                        <span class="text-white text-sm flex-grow-1">{{ location.name }}</span>
-                                        <span class="badge bg-cyan-700 text-white">{{ location.count }}</span>
-                                    </label>
-                                </div>
-                            </div>
-
-                            <p class="text-gray-300 text-sm mt-2 mb-0">
-                                <i class="fa fa-info-circle me-1"></i>
-                                {{ locationExplanation }}
-                            </p>
-                        </div>
-
-                        <div class="mb-3 d-flex justify-content-between align-items-center">
-                            <h5 class="text-white mb-0">Filter Attendees by Question</h5>
-                            <button @click="addFilter" class="btn btn-sm btn-primary">
-                                <i class="fa fa-plus me-1"></i> Add Filter
-                            </button>
-                        </div>
-
-                        <!-- Filter Condition Selector (shown when multiple filters exist) -->
-                        <div v-if="filters.length > 1" class="mb-3 p-3 bg-cyan-900 rounded">
-                            <div class="d-flex align-items-center gap-3">
-                                <label class="form-label text-white mb-0 font-weight-bold">Filter Logic:</label>
                                 <select
-                                    v-model="filterCondition"
-                                    class="form-select"
-                                    style="background-color: #1f2937; color: white; border-color: #374151; max-width: 300px;"
+                                    v-if="filter.questionColumn && (questionHasOptions(filter.questionColumn) || isDateOfBirthQuestion(filter.questionColumn))"
+                                    v-model="filter.filterValue" class="paw-select min-h-[46px] w-full px-3 text-[14px]"
                                 >
-                                    <option value="AND">AND - All filters must match</option>
-                                    <option value="OR">OR - Any filter can match</option>
-                            </select>
-                                <span class="text-gray-300 text-sm">
-                                    <i class="fa fa-info-circle me-1"></i>
-                                    {{ filterCondition === 'AND' ? 'Attendee must match ALL selected filters' : 'Attendee can match ANY selected filter' }}
-                                </span>
+                                    <option value="">Any answer</option>
+                                    <option v-for="opt in getQuestionOptions(filter.questionColumn)" :key="opt" :value="opt">{{ opt }}</option>
+                                </select>
+                                <select
+                                    v-else-if="filter.questionColumn" v-model="filter.filterValue"
+                                    class="paw-select min-h-[46px] w-full px-3 text-[14px]"
+                                >
+                                    <option value="">Any answer</option>
+                                    <option v-for="val in getUniqueValuesForQuestion(filter.questionColumn)" :key="val" :value="val">{{ val }}</option>
+                                </select>
                             </div>
+                            <button type="button" @click="removeFilter(i)" class="mt-2 min-h-[40px] w-full rounded-lg text-[13px] font-semibold text-[#f77d7d] hover:bg-[#2c1414]">
+                                Remove this filter
+                            </button>
                         </div>
 
-                        <div v-if="filters.length === 0" class="text-gray-400 text-center py-3">
-                            No filters added. Click "Add Filter" to start filtering.
-                        </div>
-
-                        <div v-for="(filter, index) in filters" :key="index" class="mb-3 p-3 bg-gray-700 rounded">
-                            <div class="row g-3">
-                                <!-- Question Selection -->
-                                <div class="col-md-4">
-                                    <label class="form-label text-sm text-white">Question</label>
-                                    <select
-                                        v-model="filter.questionColumn"
-                                        @change="updateQuestionText(index)"
-                                        class="form-control bg-gray-600 text-white border-gray-500"
-                                    >
-                                        <option value="">Select a question...</option>
-                                        <option
-                                            v-for="question in availableQuestions"
-                                            :key="question.column_name"
-                                            :value="question.column_name"
-                                        >
-                                            {{ question.text }}
-                                        </option>
-                                    </select>
-                                </div>
-
-                                <!-- Filter Value - Show dropdown if question has options or is Date of Birth, otherwise text input -->
-                                <div class="col-md-6">
-                                    <label class="form-label text-sm text-white">
-                                        Filter Value
-                                        <span v-if="filter.questionColumn && isDateOfBirthQuestion(filter.questionColumn)" class="text-xs text-cyan-300">
-                                            (Age calculated from date)
-                                        </span>
-                                    </label>
-                                    <!-- Dropdown for Date of Birth (age ranges) -->
-                                    <select
-                                        v-if="filter.questionColumn && isDateOfBirthQuestion(filter.questionColumn)"
-                                        v-model="filter.filterValue"
-                                        class="form-control bg-gray-600 text-white border-gray-500"
-                                    >
-                                        <option value="">Select an age range...</option>
-                                        <option
-                                            v-for="option in getQuestionOptions(filter.questionColumn)"
-                                            :key="option"
-                                            :value="option"
-                                        >
-                                            {{ option }}
-                                        </option>
-                                    </select>
-                                    <!-- Dropdown for questions with options -->
-                                    <select
-                                        v-else-if="filter.questionColumn && questionHasOptions(filter.questionColumn)"
-                                        v-model="filter.filterValue"
-                                        class="form-control bg-gray-600 text-white border-gray-500"
-                                    >
-                                        <option value="">Select an option...</option>
-                                        <option
-                                            v-for="option in getQuestionOptions(filter.questionColumn)"
-                                            :key="option"
-                                            :value="option"
-                                        >
-                                            {{ option }}
-                                        </option>
-                                    </select>
-                                    <!-- Text input for questions without options -->
-                                    <input
-                                        v-else-if="filter.questionColumn"
-                                        v-model="filter.filterValue"
-                                        type="text"
-                                        :placeholder="`Enter value to filter ${filter.questionText || 'by'}...`"
-                                        class="form-control bg-gray-600 text-white border-gray-500"
-                                        list="values-list"
-                                    />
-                                    <input
-                                        v-else
-                                        type="text"
-                                        placeholder="Select a question first..."
-                                        class="form-control bg-gray-600 text-white border-gray-500"
-                                        disabled
-                                    />
-                                    <!-- Kept after the v-if/v-else chain above: an element in
-                                         the middle of it breaks the final v-else. -->
-                                    <datalist id="values-list" v-if="filter.questionColumn && !questionHasOptions(filter.questionColumn) && !isDateOfBirthQuestion(filter.questionColumn)">
-                                        <option
-                                            v-for="value in getUniqueValuesForQuestion(filter.questionColumn)"
-                                            :key="value"
-                                            :value="value"
-                                        />
-                                    </datalist>
-                                </div>
-
-                                <!-- Remove Button -->
-                                <div class="col-md-2 d-flex align-items-end">
-                                    <button
-                                        @click="removeFilter(index)"
-                                        class="btn btn-sm btn-danger w-100"
-                                    >
-                                        <i class="fa fa-trash"></i> Remove
-                                    </button>
-                                </div>
-                            </div>
-                        </div>
-
-                        <!-- Filter Explanation -->
-                        <div v-if="hasActiveFilters" class="mt-4 p-3 bg-blue-900 rounded border border-blue-700">
-                            <h6 class="text-white font-weight-bold mb-2">
-                                <i class="fa fa-info-circle me-2"></i>Filter Explanation:
-                            </h6>
-                            <p class="text-white mb-0">{{ getFilterExplanation }}</p>
-                            <p class="text-gray-300 text-sm mt-2 mb-0">
-                                Eligible attendees: <strong class="text-white">{{ eligibleAttendees.length }}</strong> out of <strong class="text-white">{{ filteredAttendees.length }}</strong> total attendees
-                            </p>
-                        </div>
-
-                        <!-- Reset Filters Button -->
-                        <div v-if="hasActiveFilters" class="text-center mt-3">
+                        <div v-if="filters.length > 1" class="mt-3 flex gap-2">
                             <button
-                                @click="resetFilters"
-                                class="btn btn-outline-warning"
-                            >
-                                <i class="fas fa-undo mr-2"></i>
-                                Reset All Filters
-                            </button>
+                                v-for="mode in ['AND', 'OR']" :key="mode" type="button" @click="filterCondition = mode"
+                                class="min-h-[44px] flex-1 rounded-xl border text-[13px] font-bold"
+                                :class="filterCondition === mode ? 'border-[#16c3d9] bg-[#0b2a30] text-[#16c3d9]' : 'border-[#2e2e2e] bg-[#1f1f1f] text-[#abb0b2]'"
+                            >{{ mode === 'AND' ? 'Match all' : 'Match any' }}</button>
                         </div>
+
+                        <div class="mt-3 flex gap-2">
+                            <button type="button" @click="addFilter" class="min-h-[46px] flex-1 rounded-xl border border-[#2e2e2e] bg-[#1f1f1f] text-[13.5px] font-bold text-white hover:bg-[#2b2b2b]">+ Add a filter</button>
+                            <button v-if="filters.length" type="button" @click="resetFilters" class="min-h-[46px] rounded-xl px-4 text-[13.5px] font-semibold text-[#abb0b2] hover:bg-[#1f1f1f]">Clear</button>
+                        </div>
+                    </template>
+
+                    <p class="mt-3 font-mono text-[12.5px] text-[#74797a]">
+                        {{ eligibleAttendees.length }} in the draw with these settings
+                    </p>
+                </div>
+
+                <!-- ============================ prizes/winners -- -->
+                <div class="mt-5">
+                    <div class="flex items-baseline justify-between gap-3">
+                        <h2 class="text-[11.5px] font-bold uppercase tracking-[0.1em] text-[#74797a]">Winners</h2>
+                        <span v-if="unnamedCount" class="text-[11.5px] font-bold text-[#16c3d9]">
+                            {{ unnamedCount }} need{{ unnamedCount === 1 ? 's' : '' }} a prize name
+                        </span>
                     </div>
 
-                    <!-- Offline / weak-signal sync banner — sticky + loud so unsynced winners can't be missed -->
-                    <div v-if="pendingSyncCount > 0" class="paw-sync-banner sticky-top text-center py-2 px-3 fw-bold"
-                        :class="{
-                            'bg-danger text-white': connection === 'offline',
-                            'paw-sync-weak text-white': connection === 'weak',
-                            'bg-warning text-dark': connection === 'online',
-                        }">
-                        <span v-if="connection === 'offline'">
-                            📴 Offline — keep drawing, picking still works.
-                            {{ pendingSyncCount }} winner(s) are saved on this device only and will send
-                            automatically when internet is back. Just keep this page open.
-                        </span>
-                        <span v-else-if="connection === 'weak'">
-                            📶 Weak signal — keep drawing, picking still works.
-                            {{ pendingSyncCount }} winner(s) are saved on this device only{{ syncDetail }}
-                            and will keep sending automatically. Just keep this page open.
-                        </span>
-                        <span v-else>
-                            ⏳ Syncing {{ pendingSyncCount }} winner(s) to the server — please keep this page open until it finishes.
-                        </span>
-
-                        <!-- While the winners exist only in this browser, a closed tab or a
-                             flat battery loses them. A photo of the table survives both. -->
-                        <div v-if="connection !== 'online'" class="paw-sync-keep-record mt-2 py-2 px-3">
-                            📸 Please screenshot or write down the winners below before you close this page.
-                            Until the connection returns they are stored on this device only.
-                        </div>
-                    </div>
-
-                    <!-- Centered Pick a Winner Button, with the guide underneath -->
-                    <div class="d-flex flex-column align-items-center gap-3 my-5">
-                        <button class="btn btn-primary btn-lg" @click="openPickWinnerModal">
-                            🎉 Pick a Winner 🎉
-                        </button>
-                        <!-- The guide is one tap away mid-draw, in a modal —
-                             no password, and the draw page stays open. -->
-                        <button
-                            type="button"
-                            @click="openInstructions"
-                            class="text-sm font-bold underline underline-offset-2"
-                            style="color: #16C3D9;"
+                    <div v-if="mergedPrizes.length" class="mt-2 overflow-hidden rounded-2xl border border-[#2e2e2e] bg-[#151515]">
+                        <div
+                            v-for="(prize, i) in mergedPrizes" :key="prize.client_uuid || prize.id || i"
+                            class="border-b border-[#2e2e2e] px-4 py-3 last:border-b-0"
                         >
-                            <i class="fa-solid fa-circle-question me-1"></i>
-                            How to Pick a Winner
-                        </button>
-                    </div>
-
-                    <div v-if="mergedPrizes.length > 0" class="overflow-hidden border-gray-700 shadow-sm" style="background-color: #151515;">
-                        <div class="text-white">
-                            <div class="mt-3 overflow-x-auto winners-table">
-                                <table class="min-w-full border-collapse border border-gray-700">
-                                    <thead>
-                                        <tr class="bg-cyan-500">
-                                            <th class="border border-gray-700 p-2 text-white">Name</th>
-                                            <th class="border border-gray-700 p-2 text-white">Location</th>
-                                            <th class="border border-gray-700 p-2 text-white">Prize</th>
-                                            <th class="border border-gray-700 p-2 text-white">Actions</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        <tr v-for="(prize, index) in mergedPrizes" :key="prize.client_uuid || prize.id || index" class="text-left"
-                                        :class="{'bg-cyan-700': prize.winner_email}">
-                                            <td class="border border-gray-700 p-2">
-                                                {{ prize.winner }}
-                                                <span v-if="prize.__pending" class="badge bg-warning text-dark ms-2" title="Saved on this device — waiting for internet to sync">⏳ syncing</span>
-                                            </td>
-                                            <td class="border border-gray-700 p-2">
-                                                {{ winnerLocation(prize) }}
-                                            </td>
-                                            <td class="border border-gray-700 p-2">{{ (prize.prize_name && prize.prize_name !== 'null') ? prize.prize_name : '' }}</td>
-                                            <td class="border border-gray-700 p-2 text-center">
-                                                <a class="btn btn-success me-2" @click="openPrizeDetailsModal(prize)">
-                                                    <i class="fa-solid fa-trophy"></i> Prize
-                                                </a>
-                                                <a class="btn btn-danger" @click="destroy(prize)"><i class="fa-solid fa-trash"></i></a>
-                                            </td>
-                                        </tr>
-                                    </tbody>
-                                </table>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <!-- Pick Winner Modal -->
-            <div class="modal fade" id="pickWinnerModal" tabindex="-1" aria-labelledby="pickWinnerModalLabel"
-                data-bs-backdrop="static" data-bs-keyboard="false">
-                <div class="modal-dialog modal-dialog-centered">
-                    <div class="modal-content bg-gray-800 text-white">
-                        <div class="modal-header border-gray-700">
-                            <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
-                        </div>
-                        <div class="modal-body text-center">
-                            <p class="text-sm text-gray-300 mb-2">
-                                National Tour Wide — drawing from
-                                {{ eligibleAttendees.length }} eligible attendees
-                                <template v-if="hasActiveFilters">(filtered)</template>
-                            </p>
-                            <p v-if="hasLocationFilter" class="text-xs text-cyan-300 mb-2">
-                                <i class="fa-solid fa-location-dot me-1"></i>
-                                {{ selectedLocationNames.join(', ') }}
-                            </p>
-                            <h3 class="text-xl font-bold text-green-500">
-                                <template v-if="isPicking">
-                                    🔄 Searching...
-                                </template>
-                                <template v-else>
-                                    🎉 Winner Selected! 🎉
-                                </template>
-                            </h3>
-
-                            <div class="text-2xl font-bold text-blue-400 mt-3">
-                                <span v-if="isPicking" class="animate-pulse">{{ winnerDisplay }}</span>
-                                <span v-else class="text-green-400">{{ winnerDisplay }}</span>
+                            <div class="flex items-start gap-3">
+                                <span class="mt-0.5 grid h-7 w-7 shrink-0 place-items-center rounded-full bg-[#0d2419] font-mono text-[12px] text-[#3dd68c]">✓</span>
+                                <div class="min-w-0 flex-1">
+                                    <b class="block truncate text-[15px] font-bold text-white">{{ prize.winner }}</b>
+                                    <span class="block truncate text-[12.5px]">
+                                        <span v-if="needsPrizeName(prize)" class="font-semibold text-[#16c3d9]">Tap to say what they won</span>
+                                        <span v-else class="text-[#abb0b2]">{{ prizeLabel(prize) }}</span>
+                                    </span>
+                                    <span
+                                        v-if="prize.__pending"
+                                        class="mt-1 inline-flex items-center gap-1.5 rounded-full bg-[#2a1410] px-2 py-0.5 text-[10.5px] font-bold text-[#e85c41]"
+                                    >
+                                        <span class="h-1.5 w-1.5 rounded-full bg-current"></span>Saved on this phone
+                                    </span>
+                                </div>
                             </div>
 
-                            <template v-if="selectedWinner && !isPicking">
-                                <p class="mt-3"><strong>Name:</strong> {{ selectedWinner.first_name }} {{ selectedWinner.last_name }}</p>
-                                <p><strong>Email:</strong> {{ selectedWinner.email_address }}</p>
-                                <p><strong>Location:</strong> {{ selectedWinner.location_name || '—' }}</p>
-                                <p><strong>Gender:</strong> {{ selectedWinner.gender }}</p>
-                                <p><strong>Phone:</strong> {{ selectedWinner.mobile_number }}</p>
-                                <p><strong>Age:</strong> {{ selectedWinner.age }}</p>
-                            </template>
-                        </div>
-                        <div class="modal-footer border-gray-700 justify-content-center">
-                            <div class="d-block w-100 text-center">
+                            <div class="mt-2.5 flex gap-2">
                                 <button
-                                    type="button"
-                                    class="btn btn-success btn-lg d-block mb-3"
-                                    style="font-size: 17px; height: 50px; width: 150px; margin: 0 auto;"
-                                    v-if="!isPicking"
-                                    @click="confirmWinner()"
-                                    :disabled="isSubmitting"
+                                    type="button" @click="openPrizeDetailsModal(prize)"
+                                    class="min-h-[42px] flex-1 rounded-xl text-[13.5px] font-bold"
+                                    :class="needsPrizeName(prize)
+                                        ? 'bg-[#16c3d9] text-[#00171c]'
+                                        : 'border border-[#2e2e2e] bg-[#1f1f1f] text-white hover:bg-[#2b2b2b]'"
                                 >
-                                    <span v-if="isSubmitting" class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>
-                                    {{ isSubmitting ? 'Saving...' : 'Save Winner' }}
+                                    {{ needsPrizeName(prize) ? 'Name the prize' : 'Change the prize' }}
                                 </button>
-                                <button type="button" style="width: 140px; margin: 0 auto; font-size: 12px;" class="btn btn-secondary d-block" v-if="!isPicking" @click="pickAgain()">Nope! Pick Again...</button>
+                                <button
+                                    type="button" @click="destroy(prize)"
+                                    class="min-h-[42px] rounded-xl border border-[#2e2e2e] px-4 text-[13.5px] font-semibold text-[#f77d7d] hover:border-[#f77d7d] hover:bg-[#2c1414]"
+                                >Delete</button>
                             </div>
                         </div>
                     </div>
+
+                    <p v-else class="mt-2 rounded-2xl border border-dashed border-[#2e2e2e] px-4 py-8 text-center text-[13px] text-[#74797a]">
+                        No winners drawn yet.
+                    </p>
                 </div>
-            </div>
-
-            <!-- How to Pick a Winner — the shared guide, minus the password card
-                 and the "Open Pick a Winner" button (the host is already here). -->
-            <div class="modal fade" id="howToPickModal" tabindex="-1" aria-labelledby="howToPickModalLabel" aria-hidden="true">
-                <div class="modal-dialog modal-lg modal-dialog-centered modal-dialog-scrollable">
-                    <div class="modal-content text-white" style="background-color: #151515;">
-                        <div class="modal-header border-gray-700">
-                            <h5 class="modal-title" id="howToPickModalLabel">
-                                <i class="fa-solid fa-circle-question me-2" style="color: #16C3D9;"></i>
-                                How to Pick a Winner
-                            </h5>
-                            <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
-                        </div>
-                        <div class="modal-body">
-                            <HowToPickAWinner :event="event" in-draw tour-wide />
-                        </div>
-                        <div class="modal-footer border-gray-700">
-                            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <!-- Prize Details Modal -->
-            <div class="modal fade" id="prizeDetailsModal" tabindex="-1" aria-labelledby="prizeDetailsModalLabel"
-                data-bs-backdrop="static" data-bs-keyboard="false" role="dialog" aria-modal="true">
-                <div class="modal-dialog" role="document">
-                    <div class="modal-content bg-gray-900 text-white">
-                        <div class="modal-header border-gray-700">
-                            <h5 class="modal-title" id="prizeDetailsModalLabel">🏆 Winner Details & Prize 🏆</h5>
-                            <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close" @click="handleModalClose"></button>
-                        </div>
-                        <div class="modal-body">
-                            <div v-if="selectedPrize" class="winner-details mb-4">
-                                <h5 class="text-xl font-bold mb-3">Winner Information</h5>
-                                <p><strong>Name:</strong> {{ selectedPrize.winner }}</p>
-                                <p><strong>Email:</strong> {{ selectedPrize.winner_email }}</p>
-                                <p><strong>Location:</strong> {{ selectedPrize.winner_location || '—' }}</p>
-                                <p><strong>Phone:</strong> {{ selectedPrize.winner_mobile_number }}</p>
-                                <p><strong>Gender:</strong> {{ selectedPrize.winner_gender || selectedPrize.gender }}</p>
-                                <p><strong>Age:</strong> {{ selectedPrize.winner_age || selectedPrize.age }}</p>
-                            </div>
-
-                            <div class="form-group mt-4">
-                                <label for="prizeDetailInput" class="form-label">Prize Description</label>
-                                <input
-                                    type="text"
-                                    class="form-control bg-gray-800 text-white"
-                                    id="prizeDetailInput"
-                                    v-model="prizeForWinner"
-                                    placeholder="Enter the prize name for this winner"
-                                    ref="prizeInput"
-                                >
-                                <small class="text-muted">Enter the prize details for this winner</small>
-                            </div>
-                        </div>
-                        <div class="modal-footer border-gray-700">
-                            <button type="button" class="btn btn-secondary" @click="handleModalClose">Cancel</button>
-                            <button type="button" class="btn btn-success" @click="updatePrizeForWinner">
-                                Update Prize
-                            </button>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
+            </main>
         </div>
+
+        <!-- --------------------------------------- the draw -- -->
+        <Teleport to="body">
+            <div v-if="showPick" class="fixed inset-0 z-[70] flex flex-col overflow-y-auto bg-black px-[max(18px,env(safe-area-inset-left))] pb-[calc(24px+env(safe-area-inset-bottom))] pt-[calc(18px+env(safe-area-inset-top))]">
+                <div class="mx-auto flex w-full max-w-[560px] flex-1 flex-col">
+                    <div v-if="isPicking" class="flex flex-1 flex-col items-center justify-center gap-3 text-center">
+                        <span class="paw-pulse grid h-14 w-14 place-items-center rounded-full bg-[#0b2a30] text-[#16c3d9]">
+                            <svg class="h-6 w-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M8 4h8v4a4 4 0 0 1-8 0V4zM8 5H5a3 3 0 0 0 3 3M16 5h3a3 3 0 0 1-3 3M10 12v3h4v-3M8 20h8" /></svg>
+                        </span>
+                        <p class="text-[11.5px] font-bold uppercase tracking-[0.12em] text-[#74797a]">Drawing</p>
+                        <p class="min-h-[1.1em] text-[clamp(27px,8.5vw,38px)] font-extrabold tracking-[-0.03em] text-[#abb0b2]">
+                            {{ winnerDisplay }}
+                        </p>
+                        <p class="text-[12.5px] text-[#74797a]">{{ eligibleAttendees.length }} in the draw</p>
+                    </div>
+
+                    <template v-else>
+                        <div class="paw-rise flex flex-1 flex-col items-center justify-center gap-3 py-5 text-center">
+                            <span class="grid h-14 w-14 place-items-center rounded-full bg-[#0b2a30] text-[#16c3d9]">
+                                <svg class="h-6 w-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M8 4h8v4a4 4 0 0 1-8 0V4zM8 5H5a3 3 0 0 0 3 3M16 5h3a3 3 0 0 1-3 3M10 12v3h4v-3M8 20h8" /></svg>
+                            </span>
+                            <p class="text-[11.5px] font-bold uppercase tracking-[0.12em] text-[#74797a]">Tour-wide winner</p>
+                            <h2 class="text-[clamp(34px,11vw,52px)] font-black leading-[1.02] tracking-[-0.035em] text-[#16c3d9]">
+                                {{ winnerDisplay }}
+                            </h2>
+                            <!-- Who was drawn, so the host can check they have the
+                                 right person before saving. Empty rows are left out. -->
+                            <dl v-if="winnerDetails.length" class="mt-2 w-full max-w-[420px] divide-y divide-[#242424] rounded-2xl border border-[#2e2e2e] bg-[#151515] px-4 text-left">
+                                <div v-for="row in winnerDetails" :key="row.label" class="flex items-baseline justify-between gap-4 py-2.5">
+                                    <dt class="shrink-0 text-[11.5px] font-bold uppercase tracking-[0.1em] text-[#74797a]">{{ row.label }}</dt>
+                                    <dd class="min-w-0 text-right text-[15px] font-semibold text-white [overflow-wrap:anywhere]">{{ row.value }}</dd>
+                                </div>
+                            </dl>
+                        </div>
+
+                        <div class="grid gap-2.5">
+                            <button
+                                type="button" @click="confirmWinner" :disabled="isSubmitting || !selectedWinner"
+                                class="min-h-[68px] w-full rounded-2xl bg-[#16c3d9] text-lg font-extrabold text-[#00171c] disabled:opacity-40"
+                            >
+                                {{ isSubmitting ? 'Saving…' : 'Save this winner' }}
+                            </button>
+                            <button
+                                type="button" @click="pickAgain"
+                                class="min-h-[54px] w-full rounded-2xl border border-[#2e2e2e] text-[15.5px] font-bold text-[#f77d7d] hover:border-[#f77d7d] hover:bg-[#2c1414]"
+                            >
+                                Draw again
+                            </button>
+                            <button
+                                type="button" @click="showPick = false"
+                                class="min-h-[46px] w-full rounded-xl text-[14px] font-semibold text-[#74797a] hover:bg-[#1f1f1f] hover:text-white"
+                            >Cancel</button>
+                            <p class="text-center text-[12.5px] text-[#74797a]">
+                                Nothing is saved until you tap save, so drawing again costs nothing.
+                            </p>
+                        </div>
+                    </template>
+                </div>
+            </div>
+        </Teleport>
+
+        <!-- ------------------------------- name the prize -- -->
+        <Teleport to="body">
+            <div v-if="showPrizeDetails" class="fixed inset-0 z-[72] bg-black/75"></div>
+            <div
+                v-if="showPrizeDetails"
+                class="fixed inset-x-0 bottom-0 z-[73] mx-auto grid max-h-[86vh] w-full max-w-[560px] gap-3 overflow-y-auto rounded-t-2xl border-t border-[#2e2e2e] bg-[#151515] px-[max(18px,env(safe-area-inset-left))] pb-[calc(20px+env(safe-area-inset-bottom))] pt-3.5"
+            >
+                <div class="relative pr-12">
+                    <button type="button" @click="handleModalClose" aria-label="Close" class="absolute right-0 top-0 grid h-9 w-9 place-items-center rounded-lg border border-[#2e2e2e] bg-[#1f1f1f] text-[#abb0b2] hover:text-white"><svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18" /></svg></button>
+                    <p class="text-[11.5px] font-bold uppercase tracking-[0.1em] text-[#74797a]">Winner</p>
+                    <h3 class="text-xl font-extrabold tracking-[-0.02em] text-white">{{ selectedPrize?.winner }}</h3>
+                </div>
+
+                <dl v-if="prizeWinnerDetails.length" class="divide-y divide-[#242424] rounded-xl border border-[#2e2e2e] bg-[#1b1b1b] px-3.5">
+                    <div v-for="row in prizeWinnerDetails" :key="row.label" class="flex items-baseline justify-between gap-4 py-2">
+                        <dt class="shrink-0 text-[11px] font-bold uppercase tracking-[0.1em] text-[#74797a]">{{ row.label }}</dt>
+                        <dd class="min-w-0 text-right text-[14px] font-semibold text-white [overflow-wrap:anywhere]">{{ row.value }}</dd>
+                    </div>
+                </dl>
+
+                <label class="grid gap-2">
+                    <span class="text-[12.5px] font-bold text-[#abb0b2]">What did they win?</span>
+                    <input
+                        ref="prizeInput" v-model="prizeForWinner" type="text" placeholder="Type the prize"
+                        class="paw-field min-h-[60px] w-full px-4 text-[16.5px] font-semibold"
+                        @keydown.enter.prevent="updatePrizeForWinner"
+                    />
+                </label>
+
+                <button
+                    type="button" @click="updatePrizeForWinner" :disabled="!prizeForWinner.trim()"
+                    class="min-h-[60px] w-full rounded-2xl bg-[#16c3d9] text-base font-extrabold text-[#00171c] disabled:opacity-40"
+                >Save the prize</button>
+                <button
+                    type="button" @click="handleModalClose"
+                    class="min-h-[46px] w-full rounded-xl text-[14px] font-semibold text-[#abb0b2] hover:bg-[#1f1f1f] hover:text-white"
+                >Cancel</button>
+            </div>
+        </Teleport>
+
+        <!-- ------------------------------------------ menu -- -->
+        <Teleport to="body">
+            <div v-if="showMenu" class="fixed inset-0 z-[72] bg-black/75" @click="showMenu = false"></div>
+            <div
+                v-if="showMenu"
+                class="fixed inset-x-0 bottom-0 z-[73] mx-auto grid max-h-[86vh] w-full max-w-[560px] gap-2.5 overflow-y-auto rounded-t-2xl border-t border-[#2e2e2e] bg-[#151515] px-[max(18px,env(safe-area-inset-left))] pb-[calc(20px+env(safe-area-inset-bottom))] pt-3.5"
+            >
+                <span class="mx-auto h-1 w-9 rounded-full bg-[#2e2e2e]"></span>
+                <div>
+                    <h3 class="text-lg font-extrabold tracking-[-0.02em] text-white">{{ event.event_name }}</h3>
+                    <p class="text-[12.5px] text-[#74797a]">
+                        Tour-wide draw · {{ eventAttendees.length }} signed up across {{ locationOptions.length }} screenings
+                    </p>
+                </div>
+
+                <button
+                    type="button" @click="showMenu = false; openInstructions()"
+                    class="min-h-[52px] w-full rounded-xl border border-[#2e2e2e] bg-[#1f1f1f] px-4 text-left text-[14.5px] font-bold text-white hover:bg-[#2b2b2b]"
+                >How to pick a winner</button>
+
+                <p v-if="pendingSyncCount" class="rounded-xl bg-[#2a1410] px-4 py-3 text-[12.5px] text-[#e85c41]">
+                    {{ pendingSyncCount }} winner{{ pendingSyncCount === 1 ? '' : 's' }} still sending{{ syncDetail }}.
+                    Leave this page open until it clears.
+                </p>
+            </div>
+        </Teleport>
+
+        <!-- ------------------------- how to pick a winner -- -->
+        <Teleport to="body">
+            <div v-if="showHowTo" class="fixed inset-0 z-[74] overflow-y-auto bg-black px-[max(18px,env(safe-area-inset-left))] pb-[calc(24px+env(safe-area-inset-bottom))] pt-[calc(18px+env(safe-area-inset-top))]">
+                <div class="mx-auto w-full max-w-[560px]">
+                    <button
+                        type="button" @click="showHowTo = false"
+                        class="mb-3 inline-flex min-h-[44px] items-center gap-2 rounded-xl border border-[#2e2e2e] bg-[#1f1f1f] px-4 text-[13.5px] font-bold text-white"
+                    >
+                        <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="m15 6-6 6 6 6" /></svg>
+                        Back to the draw
+                    </button>
+                    <HowToPickAWinner :event="event" :in-draw="true" :tour-wide="true" />
+                </div>
+            </div>
+        </Teleport>
     </PickaWinnerLayout>
 </template>

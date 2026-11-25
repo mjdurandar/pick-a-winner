@@ -1,10 +1,11 @@
 <script setup>
 import Swal from 'sweetalert2';
-import { ref, computed, watch } from 'vue';
-import { Link, useForm, router, usePage } from '@inertiajs/vue3';
+import { ref, computed, watch, onUnmounted } from 'vue';
+import { useForm, router, usePage, Head } from '@inertiajs/vue3';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout.vue';
 import ScrollDatePicker from '@/Components/ScrollDatePicker.vue';
-import { Head } from '@inertiajs/vue3';
+import Modal from '@/Components/Modal.vue';
+import Dropdown from '@/Components/Dropdown.vue';
 import axios from 'axios';
 
 // Props from Laravel
@@ -19,19 +20,43 @@ const page = usePage();
 const user = computed(() => page.props.auth.user || null);
 const userRole = computed(() => user.value?.role);
 
-// Film filter
+// Filters
 const selectedFilmFilter = ref(null);
+const search = ref('');
+const onlyLive = ref(false);
 
-// Computed property to filter events by selected film
+// film_id arrives as a string from some rows and a number from others (see the
+// parseInt in openEditModal), so it is compared as text.
+const sameFilm = (a, b) => String(a ?? '') === String(b ?? '');
+
 const filteredEvents = computed(() => {
-    if (!selectedFilmFilter.value) {
-        return props.events;
-    }
-    return props.events.filter(event => event.film_id === selectedFilmFilter.value);
+    const q = search.value.trim().toLowerCase();
+
+    return props.events.filter((event) => {
+        if (selectedFilmFilter.value && !sameFilm(event.film_id, selectedFilmFilter.value)) return false;
+        if (onlyLive.value && !event.is_enabled) return false;
+        if (q && !`${event.event_name ?? ''} ${event.event_country ?? ''} ${event.event_coordinator ?? ''}`
+            .toLowerCase().includes(q)) return false;
+
+        return true;
+    });
 });
 
-// Pagination — show 6 events per page
-const perPage = 6;
+const totalScreenings = computed(() =>
+    props.events.reduce((n, e) => n + (e.locations_count ?? 0), 0));
+
+// Twelve fills a row evenly at two, three and four columns.
+const perPage = 12;
+
+// Shown when a film has no banner of its own, and swapped in if the one it has
+// fails to load — a broken-image icon tells nobody anything.
+const DEFAULT_BANNER = '/images/default-film-banner.svg';
+
+const useDefaultBanner = (event) => {
+    if (! event.target.src.endsWith(DEFAULT_BANNER)) {
+        event.target.src = DEFAULT_BANNER;
+    }
+};
 const currentPage = ref(1);
 
 const totalPages = computed(() => Math.max(1, Math.ceil(filteredEvents.value.length / perPage)));
@@ -41,8 +66,8 @@ const paginatedEvents = computed(() => {
     return filteredEvents.value.slice(start, start + perPage);
 });
 
-// Jump back to the first page when the film filter changes
-watch(selectedFilmFilter, () => {
+// Jump back to the first page whenever the filters change
+watch([selectedFilmFilter, search, onlyLive], () => {
     currentPage.value = 1;
 });
 
@@ -57,6 +82,9 @@ const goToPage = (page) => {
     if (page < 1 || page > totalPages.value) return;
     currentPage.value = page;
 };
+
+// Panels, held in state rather than driven through bootstrap.Modal.
+const showEventModal = ref(false);
 
 // Sheets modal state
 const showSheetsModal = ref(false);
@@ -168,11 +196,18 @@ const openCreateModal = () => {
     fileErrors.value = { logo: null, banner: null };
     setPreview(bannerPreview, null);
     setPreview(logoPreview, null);
-    document.getElementById('event_banner').value = '';
-    document.getElementById('event_logo').value = '';
-    let modalElement = new bootstrap.Modal(document.getElementById('createEventModal'));
-    modalElement.show();
+    clearFileInputs();
+    showEventModal.value = true;
 };
+
+// The file controls only exist while the panel is open, so clearing them is
+// guarded — reopening mounts empty ones anyway.
+function clearFileInputs() {
+    const banner = document.getElementById('event_banner');
+    const logo = document.getElementById('event_logo');
+    if (banner) banner.value = '';
+    if (logo) logo.value = '';
+}
 
 // Track existing files when editing
 const existingBanner = ref(null);
@@ -207,15 +242,14 @@ const openEditModal = (event) => {
     form.event_logo = null; // Reset file input - new file will override
     // Also clear the inputs themselves, otherwise a file picked for a previously
     // edited event lingers in the control while form.event_banner is null.
-    document.getElementById('event_banner').value = '';
-    document.getElementById('event_logo').value = '';
+    clearFileInputs();
     setPreview(bannerPreview, null);
     setPreview(logoPreview, null);
     existingBanner.value = event.event_banner_url; // Resolved URL, or null when absent
     existingLogo.value = event.event_logo_url;
+    fileErrors.value = { logo: null, banner: null };
 
-    let modalElement = new bootstrap.Modal(document.getElementById('createEventModal'));
-    modalElement.show();
+    showEventModal.value = true;
 };
 
 
@@ -258,8 +292,7 @@ const saveEvent = () => {
         data.append('_method', 'PATCH'); // Use PATCH for updating
         router.post(route('events.update', form.id), data, {
         onSuccess: () => {
-            let modalElement = bootstrap.Modal.getInstance(document.getElementById('createEventModal'));
-            modalElement.hide();
+            showEventModal.value = false;
             Swal.fire('Updated!', 'Event has been updated.', 'success');
             form.reset();
             setPreview(bannerPreview, null);
@@ -273,8 +306,7 @@ const saveEvent = () => {
     } else {
         router.post(route('events.store'), data, {
             onSuccess: () => {
-                let modalElement = bootstrap.Modal.getInstance(document.getElementById('createEventModal'));
-                modalElement.hide();
+                showEventModal.value = false;
                 Swal.fire('Success!', 'Event has been created.', 'success');
                 form.reset();
                 setPreview(bannerPreview, null);
@@ -360,33 +392,9 @@ const formatEventDate = (dateString) => {
     }
 };
 
-// Delete Event
-const deleteEvent = (id) => {
-    Swal.fire({
-        title: 'Are you sure?',
-        text: 'This action cannot be undone! All Data related to this Event will be deleted. Please download the backup first! To confirm, type DELETE below.',
-        icon: 'warning',
-        input: 'text', // ✅ Require user input
-        inputPlaceholder: 'Type DELETE to confirm',
-        showCancelButton: true,
-        confirmButtonText: 'Delete Event',
-        cancelButtonText: 'Cancel',
-        inputValidator: (value) => {
-            if (value !== 'DELETE') {
-                return 'You must type DELETE to confirm!';
-            }
-        }
-    }).then((result) => {
-        if (result.isConfirmed) {
-            router.delete(route('events.destroy', id), {
-                onSuccess: () => {
-                    Swal.fire('Deleted!', 'Event has been deleted.', 'success');
-                }
-            });
-        }
-    });
-};
-
+// Deleting a film was disabled here long ago — the button was commented out, so
+// the handler had nothing to call. Removed with it. The events.destroy route is
+// still there if it should come back.
 
 const goToSignUpForm = (eventId) => {
     router.get(route('signup.index', { eventId }));
@@ -476,34 +484,39 @@ const openSheetsModal = async (event) => {
     
     // Save initial state to history
     saveToHistory();
-    
-    // Use nextTick to ensure modal is rendered before showing
-    setTimeout(() => {
-        let modalElement = new bootstrap.Modal(document.getElementById('sheetsModal'));
-        modalElement.show();
-        
-        // Add keyboard shortcuts for undo/redo
-        const handleKeyDown = (e) => {
-            if ((e.ctrlKey || e.metaKey) && e.key === 'z' && !e.shiftKey) {
-                e.preventDefault();
-                undoSheets();
-            } else if ((e.ctrlKey || e.metaKey) && (e.key === 'y' || (e.key === 'z' && e.shiftKey))) {
-                e.preventDefault();
-                redoSheets();
-            }
-        };
-        
-        document.addEventListener('keydown', handleKeyDown);
-        
-        // Remove listener when modal is closed
-        const modalElementEl = document.getElementById('sheetsModal');
-        if (modalElementEl) {
-            modalElementEl.addEventListener('hidden.bs.modal', () => {
-                document.removeEventListener('keydown', handleKeyDown);
-            }, { once: true });
-        }
-    }, 100);
+
+    // Undo / redo while the sheet is open. Dropped again on close, and on
+    // unmount, so it cannot outlive the panel.
+    bindSheetKeys();
 };
+
+// Keyboard shortcuts for undo/redo, held so they can be unbound.
+let sheetKeyHandler = null;
+
+function bindSheetKeys() {
+    unbindSheetKeys();
+
+    sheetKeyHandler = (e) => {
+        if ((e.ctrlKey || e.metaKey) && e.key === 'z' && !e.shiftKey) {
+            e.preventDefault();
+            undoSheets();
+        } else if ((e.ctrlKey || e.metaKey) && (e.key === 'y' || (e.key === 'z' && e.shiftKey))) {
+            e.preventDefault();
+            redoSheets();
+        }
+    };
+
+    document.addEventListener('keydown', sheetKeyHandler);
+}
+
+function unbindSheetKeys() {
+    if (sheetKeyHandler) {
+        document.removeEventListener('keydown', sheetKeyHandler);
+        sheetKeyHandler = null;
+    }
+}
+
+onUnmounted(() => unbindSheetKeys());
 
 // Add a new row to sheets (internal, without history)
 const addSheetsRowInternal = () => {
@@ -772,407 +785,389 @@ const closeSheetsModal = () => {
     sheetsHistory.value = [];
     historyIndex.value = -1;
     originalLocationIds.value = [];
-    let modalElement = bootstrap.Modal.getInstance(document.getElementById('sheetsModal'));
-    if (modalElement) {
-        modalElement.hide();
-    }
+    unbindSheetKeys();
 };
 
 </script>
 
 <template>
-    <Head title="Events" />
+    <Head title="Films" />
+
     <AuthenticatedLayout>
         <template #header>
-            <div class="d-flex justify-content-between align-items-center">
-                <h2 class="text-xl font-semibold leading-tight text-gray-800">Films</h2>
-                <div class="d-flex align-items-center gap-2">
-                    <select 
-                        v-model="selectedFilmFilter" 
-                        class="form-select" 
-                        style="width: auto; min-width: 200px;"
-                    >
-                        <option :value="null">All Films</option>
-                        <option 
-                            v-for="film in props.films" 
-                            :key="film.id" 
-                            :value="film.id"
-                        >
-                            {{ film.name }}
-                        </option>
-                    </select>
-                    <button @click="openCreateModal" class="btn" style="background-color: #16C3D9; color: white;" v-if="userRole === 'admin'">
-                        <i class="fa-solid fa-plus"></i> Create Event
-                    </button>
+            <div class="flex flex-wrap items-end gap-4">
+                <div class="min-w-0 flex-1">
+                    <p class="text-xs font-semibold text-gray-500">
+                        {{ events.length }} {{ events.length === 1 ? 'film' : 'films' }} ·
+                        {{ totalScreenings.toLocaleString() }} screenings
+                    </p>
+                    <h2 class="truncate text-2xl font-extrabold tracking-tight text-gray-900">Films</h2>
                 </div>
+                <button
+                    v-if="userRole === 'admin'"
+                    type="button" @click="openCreateModal"
+                    class="h-10 rounded-lg bg-[#16C3D9] px-4 text-sm font-bold text-[#06242A] hover:brightness-105"
+                >
+                    New film
+                </button>
             </div>
         </template>
 
-        <div class="p-4">
-            <div class="mx-auto max-w-7xl sm:px-6 lg:px-8">
-                <div class="row">
-                    <div v-for="event in paginatedEvents" :key="event.id" class="col-md-4 mb-4">
-                        <div class="card">
-                            <img style="height: 200px;" :src="event.event_banner_url || ('/storage/' + event.event_banner)" class="card-img-top" alt="Event Banner" />
-                            <div class="card-body">
-                                <h5 class="card-title">{{ event.event_name }}</h5>
-                                <p class="card-text mb-1" style="font-size: 14px; font-weight: 500;">{{ event.event_country }}</p>
-                                <p class="text-muted">📅 First show at {{ formatEventDate(event.event_date) }}</p>
-                                <p class="text-muted mb-1" v-if="event.event_end_date">
-                                    🏁 Sign-ups close after {{ formatEventDate(event.event_end_date) }}
-                                    <span v-if="event.is_signup_closed" class="badge bg-secondary ms-1">Closed</span>
-                                </p>
-                                <p class="text-muted">👤 Event Coordinator: {{ event.event_coordinator }}</p>
-                                <div class="d-flex justify-content-between align-items-center mt-3" v-if="userRole === 'admin' || userRole === 'host'">
-                                    <div class="d-flex align-items-center gap-2">
-                                        <button @click="openSheetsModal(event)" class="btn btn-sm" style="background-color: #16C3D9; color: white;">
-                                            Master Sheet
-                                        </button>
-                                        <button @click="goToSignUpForm(event.id)" class="btn btn-sm" style="background-color: #16C3D9; color: white;">
-                                            <i class="fa-solid fa-file-lines"></i>
-                                        </button>
-                                    </div>
-                                    <div class="d-flex align-items-center gap-2">
-                                        <button @click="goToLocationPage(event)" class="btn btn-sm" style="background-color: #16C3D9; color: white;" title="Go to Location Page">
-                                            Locations
-                                        </button>
-                                        <button @click="shareHostGuide(event)" class="btn btn-sm" style="background-color: #16C3D9; color: white;" title="Share host instruction guide">
-                                            <i class="fa-solid fa-share-nodes"></i>
-                                        </button>
-                                        <button @click="router.get(route('events.show', event.id))" class="btn btn-sm" style="background-color: #16C3D9; color: white;" v-if="userRole === 'admin'" title="Event settings">
-                                            <i class="fa-solid fa-pen-to-square"></i>
-                                        </button>
-                                        <!-- <button @click="deleteEvent(event.id)" class="btn btn-sm" style="background-color: #16C3D9; color: white;" v-if="userRole === 'admin'">
-                                            <i class="fa-solid fa-trash"></i>
-                                        </button> -->
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
+        <div class="mx-auto max-w-full px-4 py-6 sm:px-6 lg:px-8">
+            <!-- Filters -->
+            <div class="flex flex-wrap items-center gap-3 rounded-xl bg-white p-4 shadow-card">
+                <label class="flex h-10 min-w-[220px] flex-1 items-center gap-2 rounded-lg border border-gray-200 bg-gray-50 px-3 sm:max-w-xs">
+                    <svg class="h-4 w-4 shrink-0 text-gray-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="11" cy="11" r="7" /><path d="m20 20-3.5-3.5" /></svg>
+                    <span class="sr-only">Search films</span>
+                    <input v-model="search" type="search" placeholder="Film, country or coordinator" class="w-full border-0 bg-transparent p-0 text-sm focus:ring-0" />
+                </label>
 
-                <!-- Pagination -->
-                <nav v-if="totalPages > 1" aria-label="Events pagination" class="mt-3">
-                    <ul class="pagination justify-content-center mb-0">
-                        <li class="page-item" :class="{ disabled: currentPage === 1 }">
-                            <button class="page-link" @click="goToPage(currentPage - 1)">Previous</button>
-                        </li>
-                        <li
-                            v-for="page in totalPages"
-                            :key="page"
-                            class="page-item"
-                            :class="{ active: page === currentPage }"
+                <select
+                    v-model="selectedFilmFilter"
+                    class="h-10 rounded-lg border-gray-200 text-sm focus:border-[#16C3D9] focus:ring-[#16C3D9]"
+                    aria-label="Filter by website"
+                >
+                    <option :value="null">All websites</option>
+                    <option v-for="film in films" :key="film.id" :value="film.id">{{ film.name }}</option>
+                </select>
+
+                <button
+                    type="button" @click="onlyLive = !onlyLive"
+                    class="h-10 rounded-full border px-4 text-sm font-semibold"
+                    :class="onlyLive
+                        ? 'border-[#16C3D9] bg-[#ECFAFD] text-[#0B7A8A]'
+                        : 'border-gray-200 bg-white text-gray-600 hover:bg-gray-50'"
+                >
+                    Running only
+                </button>
+
+                <span class="flex-1"></span>
+                <p class="text-xs text-gray-500">
+                    Showing {{ paginatedEvents.length }} of {{ filteredEvents.length }}
+                </p>
+            </div>
+
+
+            <!-- The films, one card each -->
+            <div class="mt-5 grid gap-5 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
+                <!-- Not overflow-hidden: the card's own menu has to be able to
+                     drop below it. The banner carries the rounded top instead. -->
+                <article
+                    v-for="event in paginatedEvents" :key="event.id"
+                    class="flex flex-col rounded-xl bg-white shadow-card"
+                >
+                    <div class="relative">
+                        <img
+                            :src="event.event_banner_url || DEFAULT_BANNER"
+                            @error="useDefaultBanner"
+                            :alt="`${event.event_name} banner`"
+                            class="h-40 w-full rounded-t-xl object-cover"
+                        />
+                        <span
+                            class="absolute left-3 top-3 inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11.5px] font-bold shadow"
+                            :class="event.is_enabled ? 'bg-emerald-600 text-white' : 'bg-gray-800 text-gray-200'"
                         >
-                            <button class="page-link" @click="goToPage(page)">{{ page }}</button>
-                        </li>
-                        <li class="page-item" :class="{ disabled: currentPage === totalPages }">
-                            <button class="page-link" @click="goToPage(currentPage + 1)">Next</button>
-                        </li>
-                    </ul>
-                </nav>
+                            <span class="h-1.5 w-1.5 rounded-full bg-current"></span>
+                            {{ event.is_enabled ? 'Running' : 'Not running' }}
+                        </span>
+                    </div>
+
+                    <div class="flex flex-1 flex-col gap-3 p-4">
+                        <div class="min-w-0">
+                            <h3 class="truncate text-base font-extrabold tracking-tight text-gray-900">{{ event.event_name }}</h3>
+                            <p class="truncate text-xs text-gray-500">
+                                {{ event.event_country }}<span v-if="event.event_year"> · {{ event.event_year }}</span>
+                            </p>
+                        </div>
+
+                        <div class="flex flex-wrap gap-1.5">
+                            <span class="rounded-full bg-gray-100 px-2.5 py-0.5 text-xs font-semibold text-gray-700">
+                                {{ event.locations_count }} location{{ event.locations_count === 1 ? '' : 's' }}
+                            </span>
+                            <span class="rounded-full bg-gray-100 px-2.5 py-0.5 text-xs font-semibold text-gray-700">
+                                {{ event.prizes_count }} prize{{ event.prizes_count === 1 ? '' : 's' }}
+                            </span>
+                            <span v-if="!event.locations_count" class="rounded-full bg-amber-50 px-2.5 py-0.5 text-xs font-bold text-amber-800">
+                                no locations yet
+                            </span>
+                        </div>
+
+                        <p class="text-xs text-gray-500">
+                            First show {{ formatEventDate(event.event_date) }}
+                            <span v-if="event.event_end_date" class="block">
+                                Sign-ups close after {{ formatEventDate(event.event_end_date) }}
+                            </span>
+                        </p>
+
+                        <div class="mt-auto flex items-center gap-2 pt-1">
+                            <button
+                                type="button" @click="openSheetsModal(event)"
+                                class="h-10 flex-1 rounded-lg bg-[#16C3D9] px-3 text-sm font-bold text-[#06242A] hover:brightness-105"
+                            >Master Sheet</button>
+                            <button
+                                type="button" @click="openEditModal(event)"
+                                class="h-10 rounded-lg border border-gray-200 px-3 text-sm font-semibold text-gray-700 hover:bg-gray-50"
+                            >Edit</button>
+
+                            <Dropdown align="right" width="56">
+                                <template #trigger>
+                                    <button
+                                        type="button"
+                                        class="grid h-10 w-10 place-items-center rounded-lg border border-gray-200 text-gray-500 hover:bg-gray-50 hover:text-gray-900"
+                                        :aria-label="`More for ${event.event_name}`"
+                                    >
+                                        <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round"><circle cx="5" cy="12" r="1.5" /><circle cx="12" cy="12" r="1.5" /><circle cx="19" cy="12" r="1.5" /></svg>
+                                    </button>
+                                </template>
+                                <template #content>
+                                    <button type="button" @click="goToLocationPage(event)" class="block w-full px-4 py-2 text-start text-sm text-gray-700 hover:bg-gray-100">Locations</button>
+                                    <button type="button" @click="goToSignUpForm(event.id)" class="block w-full px-4 py-2 text-start text-sm text-gray-700 hover:bg-gray-100">Sign-up form</button>
+                                    <button type="button" @click="shareHostGuide(event)" class="block w-full px-4 py-2 text-start text-sm text-gray-700 hover:bg-gray-100">Share host guide</button>
+                                </template>
+                            </Dropdown>
+                        </div>
+                    </div>
+                </article>
+            </div>
+
+            <p v-if="!paginatedEvents.length" class="mt-5 rounded-xl bg-white px-4 py-14 text-center text-sm text-gray-400 shadow-card">
+                No films match these filters.
+            </p>
+
+            <!-- Pagination, only when there is more than one page -->
+            <div v-if="totalPages > 1" class="mt-6 flex flex-wrap items-center justify-center gap-1.5">
+                <button
+                    type="button" @click="goToPage(currentPage - 1)" :disabled="currentPage === 1"
+                    class="rounded-lg border border-gray-200 px-3 py-1.5 text-xs font-semibold text-gray-700 disabled:opacity-40 hover:enabled:bg-gray-50"
+                >Previous</button>
+                <button
+                    v-for="p in totalPages" :key="p" type="button" @click="goToPage(p)"
+                    class="min-w-[34px] rounded-lg border px-2.5 py-1.5 text-xs font-semibold"
+                    :class="p === currentPage
+                        ? 'border-[#16C3D9] bg-[#ECFAFD] text-[#0B7A8A]'
+                        : 'border-gray-200 text-gray-700 hover:bg-gray-50'"
+                >{{ p }}</button>
+                <button
+                    type="button" @click="goToPage(currentPage + 1)" :disabled="currentPage === totalPages"
+                    class="rounded-lg border border-gray-200 px-3 py-1.5 text-xs font-semibold text-gray-700 disabled:opacity-40 hover:enabled:bg-gray-50"
+                >Next</button>
             </div>
         </div>
 
-        <!-- Bootstrap Modal for Create/Edit -->
-        <div class="modal fade" id="createEventModal" tabindex="-1" aria-labelledby="createEventModalLabel">
-            <div class="modal-dialog modal-xl modal-dialog-centered modal-fullscreen-lg-down">
-                <div class="modal-content">
-                    <div class="modal-header">
-                        <h5 class="modal-title" id="createEventModalLabel">Create Event</h5>
-                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+        <!-- ============================================================
+             Create / edit a film
+             ============================================================ -->
+        <Modal :show="showEventModal" max-width="4xl" :title="isEditing ? 'Edit film' : 'New film'" @close="showEventModal = false">
+            <!-- The buttons live in the footer, outside this form, and reach it
+                 by id — so required fields are still checked on submit. -->
+            <form id="film-form" @submit.prevent="saveEvent" class="p-6">
+                <!-- Details -->
+                <p class="border-b border-gray-200 pb-1 text-[10.5px] font-bold uppercase tracking-[0.09em] text-gray-500">Details</p>
+                <div class="mt-3 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                    <label class="block sm:col-span-2 lg:col-span-1">
+                        <span class="text-xs font-bold text-gray-600">Event name</span>
+                        <input v-model="form.event_name" type="text" required class="mt-1 w-full rounded-lg border-gray-300 text-sm focus:border-[#16C3D9] focus:ring-[#16C3D9]" />
+                    </label>
+
+                    <label class="block">
+                        <span class="text-xs font-bold text-gray-600">Website <span class="text-red-600">*</span></span>
+                        <select
+                            v-model="form.film_id" required
+                            class="mt-1 w-full rounded-lg text-sm focus:ring-[#16C3D9]"
+                            :class="form.errors.film_id ? 'border-red-400' : 'border-gray-300 focus:border-[#16C3D9]'"
+                        >
+                            <option :value="null" disabled>Choose a website</option>
+                            <option v-for="film in films" :key="film.id" :value="film.id">{{ film.name }}</option>
+                        </select>
+                        <span v-if="form.errors.film_id" class="mt-1 block text-xs font-semibold text-red-700">{{ form.errors.film_id }}</span>
+                    </label>
+
+                    <label class="block">
+                        <span class="text-xs font-bold text-gray-600">Event year</span>
+                        <input v-model="form.event_year" type="text" maxlength="4" pattern="\d{4}" required class="mt-1 w-full rounded-lg border-gray-300 text-sm focus:border-[#16C3D9] focus:ring-[#16C3D9]" />
+                    </label>
+
+                    <div>
+                        <span class="text-xs font-bold text-gray-600">Start date</span>
+                        <ScrollDatePicker v-model="form.event_date" :min-year="2015" :max-year="new Date().getFullYear() + 5" />
                     </div>
-                    <div class="modal-body">
-                        <form @submit.prevent="saveEvent">
-                            <div class="row g-3">
-                                <div class="col-12">
-                                    <h6 class="text-uppercase text-muted small fw-semibold mb-0 mt-2">Event details</h6>
-                                    <small class="text-muted">What the event is and when it runs.</small>
-                                    <hr class="mt-1 mb-0" />
-                                </div>
 
-                                <div class="col-12 col-md-4">
-                                    <label class="form-label">Event Name</label>
-                                    <input v-model="form.event_name" type="text" class="form-control" required maxlength="26" />
-                                </div>
-                                <div class="col-12 col-md-4">
-                                    <label class="form-label">Film <span class="text-danger">*</span></label>
-                                    <select v-model="form.film_id" class="form-select" required :class="{ 'is-invalid': form.errors.film_id }">
-                                        <option :value="null">Select a film</option>
-                                        <option
-                                            v-for="film in props.films"
-                                            :key="film.id"
-                                            :value="film.id"
-                                        >
-                                            {{ film.name }}
-                                        </option>
-                                    </select>
-                                    <div v-if="form.errors.film_id" class="invalid-feedback">
-                                        {{ form.errors.film_id }}
-                                    </div>
-                                </div>
-                                <div class="col-12 col-md-4">
-                                    <label class="form-label">Event Year</label>
-                                    <input v-model="form.event_year" type="text" class="form-control" maxlength="4" pattern="\d{4}" required />
-                                </div>
+                    <div>
+                        <span class="text-xs font-bold text-gray-600">End date</span>
+                        <ScrollDatePicker v-model="form.event_end_date" :min-year="2015" :max-year="new Date().getFullYear() + 5" />
+                        <span class="mt-1 block text-xs text-gray-500">Last day people can sign up. After this date the sign-up form closes. Leave blank to keep it open.</span>
+                    </div>
 
-                                <div class="col-12 col-md-4">
-                                    <label class="form-label">Start Date</label>
-                                    <ScrollDatePicker v-model="form.event_date" :min-year="2015" :max-year="new Date().getFullYear() + 5" />
-                                </div>
-                                <div class="col-12 col-md-4">
-                                    <label class="form-label">End Date</label>
-                                    <ScrollDatePicker v-model="form.event_end_date" :min-year="2015" :max-year="new Date().getFullYear() + 5" />
-                                    <small class="d-block text-muted">Last day people can sign up. After this date the sign-up form closes. Leave blank to keep it open.</small>
-                                </div>
-                                <div class="col-12 col-md-4">
-                                    <label class="form-label">Country</label>
-                                    <select v-model="form.event_country" class="form-select" required>
-                                        <option value="AUSTRALIA & NEW ZEALAND">AUSTRALIA & NEW ZEALAND</option>
-                                        <option value="USA & CANADA">USA & CANADA</option>
-                                        <option value="USA">USA</option>
-                                        <option value="Canada">Canada</option>
-                                        <option value="UK">UK</option>
-                                        <option value="Australia">Australia</option>
-                                        <option value="New Zealand">New Zealand</option>
-                                        <option value="Germany">Germany</option>
-                                    </select>
-                                </div>
-                                <div class="col-12">
-                                    <h6 class="text-uppercase text-muted small fw-semibold mb-0 mt-2">Host and coordinator</h6>
-                                    <small class="text-muted">Shown on the shared host guide.</small>
-                                    <hr class="mt-1 mb-0" />
-                                </div>
+                    <label class="block">
+                        <span class="text-xs font-bold text-gray-600">Country</span>
+                        <select v-model="form.event_country" required class="mt-1 w-full rounded-lg border-gray-300 text-sm focus:border-[#16C3D9] focus:ring-[#16C3D9]">
+                            <option value="AUSTRALIA &amp; NEW ZEALAND">AUSTRALIA &amp; NEW ZEALAND</option>
+                            <option value="USA &amp; CANADA">USA &amp; CANADA</option>
+                            <option value="USA">USA</option>
+                            <option value="Canada">Canada</option>
+                            <option value="UK">UK</option>
+                            <option value="Australia">Australia</option>
+                            <option value="New Zealand">New Zealand</option>
+                            <option value="Germany">Germany</option>
+                        </select>
+                    </label>
+                </div>
 
-                                <div class="col-12 col-md-4">
-                                    <label class="form-label">Host Guide Password</label>
-                                    <input v-model="form.instructions_password" type="text" class="form-control" maxlength="255" placeholder="Auto-generated if left blank" />
-                                    <small class="text-muted">Password hosts enter to open the shared instruction guide.</small>
-                                </div>
+                <!-- Host and coordinator -->
+                <p class="mt-7 border-b border-gray-200 pb-1 text-[10.5px] font-bold uppercase tracking-[0.09em] text-gray-500">
+                    Host and coordinator <span class="font-medium normal-case tracking-normal text-gray-400">— shown on the shared host guide</span>
+                </p>
+                <div class="mt-3 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+                    <label class="block">
+                        <span class="text-xs font-bold text-gray-600">Host guide password</span>
+                        <input v-model="form.instructions_password" type="text" maxlength="255" placeholder="Auto-generated if left blank" class="mt-1 w-full rounded-lg border-gray-300 text-sm focus:border-[#16C3D9] focus:ring-[#16C3D9]" />
+                        <span class="mt-1 block text-xs text-gray-500">Password hosts enter to open the shared instruction guide.</span>
+                    </label>
+                    <label class="block">
+                        <span class="text-xs font-bold text-gray-600">Coordinator name</span>
+                        <input v-model="form.event_coordinator" type="text" class="mt-1 w-full rounded-lg border-gray-300 text-sm focus:border-[#16C3D9] focus:ring-[#16C3D9]" />
+                    </label>
+                    <label class="block">
+                        <span class="text-xs font-bold text-gray-600">Coordinator email</span>
+                        <input v-model="form.event_coordinator_email" type="email" class="mt-1 w-full rounded-lg border-gray-300 text-sm focus:border-[#16C3D9] focus:ring-[#16C3D9]" />
+                    </label>
+                    <label class="block">
+                        <span class="text-xs font-bold text-gray-600">Coordinator phone</span>
+                        <input v-model="form.event_coordinator_phone" type="tel" class="mt-1 w-full rounded-lg border-gray-300 text-sm focus:border-[#16C3D9] focus:ring-[#16C3D9]" />
+                    </label>
+                </div>
 
-                                <div class="col-12 col-md-4">
-                                    <label class="form-label">Coordinator Name</label>
-                                    <input v-model="form.event_coordinator" type="text" class="form-control" required />
-                                </div>
-                                <div class="col-12 col-md-4">
-                                    <label class="form-label">Coordinator Email</label>
-                                    <input v-model="form.event_coordinator_email" type="email" class="form-control" required />
-                                </div>
-                                <div class="col-12 col-md-4">
-                                    <label class="form-label">Coordinator Phone</label>
-                                    <input v-model="form.event_coordinator_phone" type="tel" class="form-control" placeholder="0485 952 778" />
-                                    <small class="text-muted">Shown on the host guide. Leave blank to use the default number.</small>
-                                </div>
-
-                                <div class="col-12">
-                                    <h6 class="text-uppercase text-muted small fw-semibold mb-0 mt-2">Branding</h6>
-                                    <small class="text-muted">Leave a field empty to keep the current image.</small>
-                                    <hr class="mt-1 mb-0" />
-                                </div>
-
-                                <div class="col-12 col-md-4">
-                                    <label class="form-label">Event Logo</label>
-                                    <input type="file" accept="image/*" @change="handleLogoChange" id="event_logo" class="form-control" />
-                                    <small v-if="fileErrors.logo" class="d-block text-danger mt-1">{{ fileErrors.logo }}</small>
-                                    <small v-else-if="form.errors.event_logo" class="d-block text-danger mt-1">{{ form.errors.event_logo }}</small>
-                                    <small v-else class="d-block text-muted mt-1">JPG, PNG or GIF, up to {{ maxImageMb }} MB.</small>
-                                    <div v-if="logoPreviewSrc" class="mt-2">
-                                        <img :src="logoPreviewSrc" alt="Event logo preview" class="border rounded p-1 w-100" style="height: 120px; object-fit: contain; background: #fff;" />
-                                        <small class="d-block text-muted mt-1">
-                                            <span v-if="logoPreview">New logo — not saved until you click {{ isEditing ? 'Update' : 'Create' }}.</span>
-                                            <span v-else>Current logo. Leave empty to keep it.</span>
-                                        </small>
-                                    </div>
-                                </div>
-                                <div class="col-12 col-md-4">
-                                    <label class="form-label">Event Banner</label>
-                                    <input type="file" accept="image/*" @change="handleFileChange" id="event_banner" class="form-control" />
-                                    <small v-if="fileErrors.banner" class="d-block text-danger mt-1">{{ fileErrors.banner }}</small>
-                                    <small v-else-if="form.errors.event_banner" class="d-block text-danger mt-1">{{ form.errors.event_banner }}</small>
-                                    <small v-else class="d-block text-muted mt-1">JPG, PNG or GIF, up to {{ maxImageMb }} MB.</small>
-                                    <div v-if="bannerPreviewSrc" class="mt-2">
-                                        <img :src="bannerPreviewSrc" alt="Event banner preview" class="border rounded p-1 w-100" style="height: 120px; object-fit: contain; background: #fff;" />
-                                        <small class="d-block text-muted mt-1">
-                                            <span v-if="bannerPreview">New banner — not saved until you click {{ isEditing ? 'Update' : 'Create' }}.</span>
-                                            <span v-else>Current banner. Leave empty to keep it.</span>
-                                        </small>
-                                    </div>
-                                </div>
-
-                                <div class="col-12">
-                                    <h6 class="text-uppercase text-muted small fw-semibold mb-0 mt-2">Visibility</h6>
-                                    <small class="text-muted">Where this event and its locations appear.</small>
-                                    <hr class="mt-1 mb-0" />
-                                </div>
-
-                                <div class="col-12 col-md-4">
-                                    <div class="form-check">
-                                        <input
-                                            class="form-check-input"
-                                            type="checkbox"
-                                            v-model="form.is_enabled"
-                                            id="is_enabled"
-                                        />
-                                        <label class="form-check-label" for="is_enabled">
-                                            Show this in the pick a winner dropdown
-                                        </label>
-                                        <small class="d-block text-muted">Controls the event list, not the locations. When off, this event is hidden from the Pick a Winner login and no one can open its draw. Does not affect the sign-up form.</small>
-                                    </div>
-                                </div>
-                                <div class="col-12 col-md-4">
-                                    <div class="form-check">
-                                        <input
-                                            class="form-check-input"
-                                            type="checkbox"
-                                            v-model="form.show_all_locations"
-                                            id="show_all_locations"
-                                        />
-                                        <label class="form-check-label" for="show_all_locations">
-                                            Show all locations on the sign-up form
-                                        </label>
-                                        <small class="d-block text-muted">Includes finished locations. When off, the sign-up form only lists locations from 2 days ago to 3 weeks ahead.</small>
-                                    </div>
-                                </div>
-                                <div class="col-12 col-md-4">
-                                    <div class="form-check">
-                                        <input
-                                            class="form-check-input"
-                                            type="checkbox"
-                                            v-model="form.show_all_locations_draw"
-                                            id="show_all_locations_draw"
-                                        />
-                                        <label class="form-check-label" for="show_all_locations_draw">
-                                            Show all locations on the Pick a Winner login
-                                        </label>
-                                        <small class="d-block text-muted">Includes finished locations. When off, the draw only lists locations from 7 days ago onwards.</small>
-                                    </div>
-                                </div>
-
-                            </div>
-                            <div class="modal-footer px-0 pb-0 mt-3">
-                                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
-                                <button type="submit" class="btn" style="background-color: black; color: white;">
-                                    {{ isEditing ? 'Update Event' : 'Save Event' }}
-                                </button>
-                            </div>
-                        </form>
+                <!-- Branding -->
+                <p class="mt-7 border-b border-gray-200 pb-1 text-[10.5px] font-bold uppercase tracking-[0.09em] text-gray-500">Branding</p>
+                <div class="mt-3 grid gap-4 sm:grid-cols-2">
+                    <div>
+                        <label class="block">
+                            <span class="text-xs font-bold text-gray-600">Event logo</span>
+                            <input id="event_logo" type="file" accept="image/*" @change="handleLogoChange" class="mt-1 w-full text-sm text-gray-600 file:mr-3 file:rounded-md file:border-0 file:bg-gray-100 file:px-3 file:py-1.5 file:text-xs file:font-semibold file:text-gray-700" />
+                        </label>
+                        <span v-if="fileErrors.logo" class="mt-1 block text-xs font-semibold text-red-700">{{ fileErrors.logo }}</span>
+                        <span v-else class="mt-1 block text-xs text-gray-500">Up to {{ maxImageMb }} MB.</span>
+                        <img v-if="logoPreviewSrc" :src="logoPreviewSrc" alt="" class="mt-2 h-16 w-auto max-w-[180px] rounded-md object-contain" />
+                    </div>
+                    <div>
+                        <label class="block">
+                            <span class="text-xs font-bold text-gray-600">Event banner</span>
+                            <input id="event_banner" type="file" accept="image/*" @change="handleFileChange" class="mt-1 w-full text-sm text-gray-600 file:mr-3 file:rounded-md file:border-0 file:bg-gray-100 file:px-3 file:py-1.5 file:text-xs file:font-semibold file:text-gray-700" />
+                        </label>
+                        <span v-if="fileErrors.banner" class="mt-1 block text-xs font-semibold text-red-700">{{ fileErrors.banner }}</span>
+                        <span v-else class="mt-1 block text-xs text-gray-500">Up to {{ maxImageMb }} MB.</span>
+                        <img v-if="bannerPreviewSrc" :src="bannerPreviewSrc" alt="" class="mt-2 h-16 w-auto max-w-[260px] rounded-md object-cover" />
                     </div>
                 </div>
-            </div>
-        </div>
 
-        <!-- Sheets Modal -->
-        <div class="modal fade" id="sheetsModal" tabindex="-1" aria-labelledby="sheetsModalLabel" @hidden="closeSheetsModal">
-            <div class="modal-dialog modal-fullscreen-lg-down modal-xl">
-                <div class="modal-content">
-                    <div class="modal-header">
-                        <h5 class="modal-title" id="sheetsModalLabel">
-                            <i class="fa-solid fa-file-lines me-2"></i>
-                            Master Sheet - {{ selectedEventForSheets?.event_name }}
-                        </h5>
-                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
-                    </div>
-                    <div class="modal-body" style="max-height: 70vh; overflow-y: auto; overflow-x: hidden;">
-                        <div class="mb-3">
-                            <small class="text-muted">
-                                <i class="fa-solid fa-info-circle me-1"></i>
-                                You can paste data from Excel/Google Sheets. Use Tab or Comma to separate columns. 
-                                When pasting dates into the Date column, they will be placed in that column only. 
-                                Use Undo/Redo (Ctrl+Z/Ctrl+Y) to revert changes.
-                            </small>
-                        </div>
-                        <div style="max-height: 60vh; overflow-y: auto; overflow-x: hidden;">
-                            <table id="sheetsTable" class="table table-bordered table-sm" style="font-size: 12px; margin-bottom: 0; width: 100%; table-layout: auto;">
-                                <thead class="table-light sticky-top" style="position: sticky; top: 0; z-index: 10; background-color: #f8f9fa;">
-                                    <tr>
-                                        <th style="width: 50px; text-align: center;">#</th>
-                                        <th v-for="column in sheetsColumns" :key="column" style="white-space: nowrap;">
-                                            {{ column }}
-                                        </th>
-                                        <th style="width: 80px; text-align: center;">Actions</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    <tr v-for="(row, rowIndex) in sheetsData" :key="rowIndex">
-                                        <td style="text-align: center; background-color: #f8f9fa; font-weight: bold;">
-                                            {{ rowIndex + 1 }}
-                                        </td>
-                                        <td v-for="(column, colIndex) in sheetsColumns" :key="column" style="padding: 2px;">
-                                            <input
-                                                type="text"
-                                                class="form-control form-control-sm"
-                                                :value="row[column] || ''"
-                                                @input="handleCellChange(rowIndex, column, $event.target.value)"
-                                                @paste="handlePaste($event, rowIndex, colIndex)"
-                                                style="border: 1px solid #dee2e6; padding: 4px 8px; width: 100%; font-size: 12px;"
-                                                placeholder=""
-                                            />
-                                        </td>
-                                        <td style="text-align: center; vertical-align: middle;">
-                                            <button
-                                                @click="removeSheetsRow(rowIndex)"
-                                                class="btn btn-sm btn-danger"
-                                                style="padding: 2px 8px; font-size: 10px;"
-                                                :disabled="sheetsData.length === 1"
-                                                title="Delete Row"
-                                            >
-                                                <i class="fa-solid fa-trash"></i>
-                                            </button>
-                                        </td>
-                                    </tr>
-                                </tbody>
-                            </table>
-                        </div>
-                        <div class="mt-3 d-flex align-items-center gap-3 flex-wrap">
-                            <div class="d-flex align-items-center gap-2">
-                                <button 
-                                    @click="undoSheets" 
-                                    class="btn btn-sm btn-outline-secondary"
-                                    :disabled="historyIndex <= 0"
-                                    title="Undo (Ctrl+Z)"
-                                >
-                                    <i class="fa-solid fa-undo me-1"></i> Undo
-                                </button>
-                                <button 
-                                    @click="redoSheets" 
-                                    class="btn btn-sm btn-outline-secondary"
-                                    :disabled="historyIndex >= sheetsHistory.length - 1"
-                                    title="Redo (Ctrl+Y)"
-                                >
-                                    <i class="fa-solid fa-redo me-1"></i> Redo
-                                </button>
-                            </div>
-                            <button @click="addSheetsRow" class="btn btn-sm btn-primary">
-                                <i class="fa-solid fa-plus me-1"></i> Add 1 Row
-                            </button>
-                            <div class="d-flex align-items-center gap-2">
-                                <label class="mb-0" style="font-size: 14px;">Add</label>
-                                <input
-                                    type="number"
-                                    v-model.number="rowsToAdd"
-                                    min="1"
-                                    max="1000"
-                                    class="form-control form-control-sm"
-                                    style="width: 80px;"
-                                    @keyup.enter="addMultipleRows"
-                                />
-                                <label class="mb-0" style="font-size: 14px;">rows</label>
-                                <button @click="addMultipleRows" class="btn btn-sm btn-success">
-                                    <i class="fa-solid fa-plus me-1"></i> Add Rows
-                                </button>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="modal-footer">
-                        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
-                        <button type="button" class="btn btn-primary" @click="saveSheetsData">
-                            <i class="fa-solid fa-save me-1"></i> Save Locations
-                        </button>
-                    </div>
+                <!-- Visibility -->
+                <p class="mt-7 border-b border-gray-200 pb-1 text-[10.5px] font-bold uppercase tracking-[0.09em] text-gray-500">
+                    Visibility <span class="font-medium normal-case tracking-normal text-gray-400">— where this event and its locations appear</span>
+                </p>
+                <div class="mt-3 grid gap-3 lg:grid-cols-3">
+                    <label class="flex gap-3 rounded-xl border border-gray-200 p-3">
+                        <input v-model="form.is_enabled" id="is_enabled" type="checkbox" class="mt-0.5 h-4 w-4 shrink-0 rounded border-gray-300 text-[#16C3D9] focus:ring-[#16C3D9]" />
+                        <span class="min-w-0">
+                            <span class="block text-sm font-semibold text-gray-900">Show this in the Pick a Winner dropdown</span>
+                            <span class="mt-0.5 block text-xs text-gray-500">Controls the event list, not the locations. When off, this event is hidden from the Pick a Winner login and no one can open its draw. Does not affect the sign-up form.</span>
+                        </span>
+                    </label>
+                    <label class="flex gap-3 rounded-xl border border-gray-200 p-3">
+                        <input v-model="form.show_all_locations" id="show_all_locations" type="checkbox" class="mt-0.5 h-4 w-4 shrink-0 rounded border-gray-300 text-[#16C3D9] focus:ring-[#16C3D9]" />
+                        <span class="min-w-0">
+                            <span class="block text-sm font-semibold text-gray-900">Show all locations on the sign-up form</span>
+                            <span class="mt-0.5 block text-xs text-gray-500">Includes finished locations. When off, the sign-up form only lists locations from 2 days ago to 3 weeks ahead.</span>
+                        </span>
+                    </label>
+                    <label class="flex gap-3 rounded-xl border border-gray-200 p-3">
+                        <input v-model="form.show_all_locations_draw" id="show_all_locations_draw" type="checkbox" class="mt-0.5 h-4 w-4 shrink-0 rounded border-gray-300 text-[#16C3D9] focus:ring-[#16C3D9]" />
+                        <span class="min-w-0">
+                            <span class="block text-sm font-semibold text-gray-900">Show all locations on the Pick a Winner login</span>
+                            <span class="mt-0.5 block text-xs text-gray-500">Includes finished locations. When off, the draw only lists locations from 7 days ago onwards.</span>
+                        </span>
+                    </label>
                 </div>
-            </div>
-        </div>
+            </form>
+
+            <template #footer>
+                <button type="button" @click="showEventModal = false" class="rounded-lg border border-gray-200 px-4 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-50">Cancel</button>
+                <button type="submit" form="film-form" class="rounded-lg bg-[#16C3D9] px-4 py-2 text-sm font-bold text-[#06242A] hover:brightness-105">
+                    {{ isEditing ? 'Update film' : 'Save film' }}
+                </button>
+            </template>
+        </Modal>
+
+        <!-- ============================================================
+             The master sheet — a grid on a full-width panel, not a
+             spreadsheet squeezed into a dialog box.
+             ============================================================ -->
+        <Modal :show="showSheetsModal" max-width="7xl" @close="closeSheetsModal">
+            <template #header>
+                <div class="flex flex-wrap items-center gap-3">
+                    <div class="min-w-0 flex-1">
+                        <p class="text-xs font-semibold text-gray-500">{{ selectedEventForSheets?.event_name }}</p>
+                        <h2 class="truncate text-lg font-extrabold tracking-tight text-gray-900">Master Sheet</h2>
+                    </div>
+                    <button type="button" @click="undoSheets" :disabled="historyIndex <= 0" class="rounded-lg border border-gray-200 px-3 py-1.5 text-xs font-semibold text-gray-700 disabled:opacity-40 hover:enabled:bg-gray-50">Undo</button>
+                    <button type="button" @click="redoSheets" :disabled="historyIndex >= sheetsHistory.length - 1" class="rounded-lg border border-gray-200 px-3 py-1.5 text-xs font-semibold text-gray-700 disabled:opacity-40 hover:enabled:bg-gray-50">Redo</button>
+                    <span class="text-xs text-gray-400">⌘Z / ⌘⇧Z</span>
+                </div>
+            </template>
+
+            <!-- Straight into the dialog's scrolling body, with no wrapper of its
+                 own, so the column headings stay stuck to the top of it. -->
+            <table class="w-full border-collapse text-sm">
+                        <thead class="sticky top-0 z-10">
+                            <tr class="bg-gray-100">
+                                <th scope="col" class="w-12 border-b border-gray-200 px-2 py-2 text-center text-[10.5px] font-bold uppercase tracking-wider text-gray-500">#</th>
+                                <th v-for="column in sheetsColumns" :key="column" scope="col" class="whitespace-nowrap border-b border-gray-200 px-2 py-2 text-left text-[10.5px] font-bold uppercase tracking-wider text-gray-500">
+                                    {{ column }}
+                                </th>
+                                <th scope="col" class="w-16 border-b border-gray-200 px-2 py-2"><span class="sr-only">Remove</span></th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr v-for="(row, rowIndex) in sheetsData" :key="rowIndex" class="border-b border-gray-100 hover:bg-gray-50">
+                                <td class="px-2 py-1 text-center text-xs tabular-nums text-gray-400">{{ rowIndex + 1 }}</td>
+                                <td v-for="(column, columnIndex) in sheetsColumns" :key="column" class="px-1 py-1">
+                                    <input
+                                        :value="row[column]"
+                                        type="text"
+                                        class="w-full min-w-[110px] rounded-md border-gray-200 px-2 py-1.5 text-sm focus:border-[#16C3D9] focus:ring-[#16C3D9]"
+                                        @input="handleCellChange(rowIndex, column, $event.target.value)"
+                                        @paste="handlePaste($event, rowIndex, columnIndex)"
+                                    />
+                                </td>
+                                <td class="px-2 py-1 text-center">
+                                    <button
+                                        type="button" @click="removeSheetsRow(rowIndex)"
+                                        class="rounded-md px-2 py-1 text-xs font-semibold text-red-700 hover:bg-red-50"
+                                        :aria-label="`Remove row ${rowIndex + 1}`"
+                                    >Remove</button>
+                                </td>
+                            </tr>
+                            <tr v-if="!sheetsData.length">
+                                <td :colspan="sheetsColumns.length + 2" class="px-4 py-10 text-center text-sm text-gray-400">
+                                    No rows yet. Add one below, or paste straight from your spreadsheet.
+                                </td>
+                            </tr>
+                        </tbody>
+            </table>
+
+            <template #footer>
+                    <button type="button" @click="addSheetsRow" class="rounded-lg border border-gray-200 px-3 py-2 text-xs font-semibold text-gray-700 hover:bg-gray-50">+ Add a row</button>
+                    <label class="flex items-center gap-2 text-xs text-gray-600">
+                        Add
+                        <input v-model="rowsToAdd" type="number" min="1" max="1000" class="w-20 rounded-lg border-gray-200 px-2 py-1.5 text-sm focus:border-[#16C3D9] focus:ring-[#16C3D9]" aria-label="How many rows to add" />
+                        rows
+                        <button type="button" @click="addMultipleRows" class="rounded-lg border border-gray-200 px-3 py-1.5 text-xs font-semibold text-gray-700 hover:bg-gray-50">Add</button>
+                    </label>
+
+                    <span class="flex-1"></span>
+                    <p class="text-xs text-gray-500">{{ sheetsData.length }} row{{ sheetsData.length === 1 ? '' : 's' }}</p>
+                    <button type="button" @click="closeSheetsModal" class="rounded-lg border border-gray-200 px-4 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-50">Close</button>
+                    <button type="button" @click="saveSheetsData" class="rounded-lg bg-[#16C3D9] px-4 py-2 text-sm font-bold text-[#06242A] hover:brightness-105">Save master sheet</button>
+            </template>
+        </Modal>
     </AuthenticatedLayout>
 </template>
-
-

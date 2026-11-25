@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 480" preserveAspectRatio="xMidYMid slice" role="img" aria-label="Adventure Entertainment">
+  <defs>
+    <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#050607"/>
+      <stop offset="1" stop-color="#151515"/>
+    </linearGradient>
+    <linearGradient id="glow" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#16C3D9" stop-opacity=".55"/>
+      <stop offset="1" stop-color="#16C3D9" stop-opacity="0"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="1200" height="480" fill="url(#sky)"/>
+
+  <!-- the light behind the range -->
+  <circle cx="820" cy="250" r="150" fill="url(#glow)"/>
+  <circle cx="820" cy="250" r="62" fill="#16C3D9"/>
+
+  <!-- far range -->
+  <path d="M0 360 170 250 300 330 470 190 620 320 760 230 930 340 1060 260 1200 330V480H0Z" fill="#0E5C68"/>
+  <!-- near range -->
+  <path d="M0 420 150 330 290 400 430 290 560 390 720 300 880 410 1010 340 1200 420V480H0Z" fill="#0A0B0C"/>
+  <!-- snow line on the tallest peak -->
+  <path d="M470 190 520 240 492 232 470 262 448 234 422 244Z" fill="#FFFFFF" opacity=".9"/>
+
+</svg>

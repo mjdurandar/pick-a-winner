@@ -4,6 +4,7 @@ import { router } from '@inertiajs/vue3';
 import Swal from 'sweetalert2';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout.vue';
 import { Head } from '@inertiajs/vue3';
+import Icon from '@/Components/Icon.vue';
 
 // ✅ Receive `events` as a prop
 const props = defineProps({ 
@@ -312,7 +313,7 @@ onMounted(() => {
         </template>
 
         <div class="py-6 mx-auto w-full px-4 md:w-1/2">
-            <div class="bg-white p-6 shadow rounded-lg">
+            <div class="bg-white p-6 shadow-card rounded-lg">
                 <!-- ✅ Draggable Questions Section -->
                 <h2 class="text-lg font-bold mb-3">Edit Header Text</h2>
                 <div>
@@ -332,7 +333,7 @@ onMounted(() => {
         </div>
 
         <div class="pb-5 mx-auto w-full px-4 md:w-1/2">
-            <div class="bg-white p-6 shadow rounded-lg">
+            <div class="bg-white p-6 shadow-card rounded-lg">
                 
                 <!-- ✅ Draggable Questions Section -->
                 <h2 class="text-lg font-bold mb-3">Create Questions (Drag to Reorder)</h2>
@@ -345,7 +346,7 @@ onMounted(() => {
                 <div class="mb-4 p-3 border rounded shadow-sm bg-gray-100">
                     <button 
                         @click="showModal = true" 
-                        class="bg-blue-500 text-white px-4 py-2 rounded"
+                        class="bg-[#16C3D9] text-[#06242A] font-bold px-4 py-2 rounded"
                     >
                         View Locations
                     </button>
@@ -445,14 +446,14 @@ onMounted(() => {
                                  class="flex gap-2 mb-2">
                                 <input v-model="question.options[optIndex]" type="text" class="flex-1 border p-2 rounded" />
                                 <button @click="question.options.push('')" class="bg-green-500 text-white px-3 py-2 rounded">
-                                    <i class="fa-solid fa-add"></i>
+                                    <Icon name="add" />
                                 </button>
                                 <button 
                                     @click="removeDropdownOption(question, optIndex)" 
                                     class="bg-red-500 text-white px-3 py-2 rounded"
                                     v-if="question.options.length > 2"
                                 >
-                                    <i class="fa-solid fa-trash"></i>
+                                    <Icon name="trash" />
                                 </button>
                             </div>
                             
@@ -478,8 +479,8 @@ onMounted(() => {
                     </div>
                 </div>
 
-                <div class="d-flex justify-content-between mt-4">
-                    <button @click="addQuestion" class="bg-blue-500 text-white px-3 py-2 rounded">Add Question</button>
+                <div class="flex justify-between mt-4">
+                    <button @click="addQuestion" class="bg-[#16C3D9] text-[#06242A] font-bold px-3 py-2 rounded">Add Question</button>
                     <button @click="saveForm" class="bg-green-500 text-white px-4 py-2 rounded">Save Form</button>
                 </div>
                 
@@ -489,7 +490,6 @@ onMounted(() => {
             <div
                 v-if="showModal"
                 class="fixed inset-0 z-50 flex items-center justify-center bg-gray-900/60 p-4"
-                @click.self="showModal = false"
             >
                 <!-- Capped at 85vh with the list as the only scrolling part, so a long
                      location list never pushes the header or Close button off screen. -->

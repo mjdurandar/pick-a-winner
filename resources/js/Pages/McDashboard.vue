@@ -117,9 +117,10 @@ function copyTable() {
     <AuthenticatedLayout>
         <template #header>
             <div class="flex items-center justify-between">
-                <h2 class="text-xl font-semibold leading-tight text-gray-800">
-                    MC Dashboard
-                </h2>
+                <div class="min-w-0">
+                    <p class="text-xs font-semibold text-gray-500">Audience snapshots from Mailchimp</p>
+                    <h2 class="truncate text-2xl font-extrabold tracking-tight text-gray-900">MC Dashboard</h2>
+                </div>
                 <div class="flex items-center space-x-2">
                     <button
                         @click="copyTable"
@@ -155,7 +156,7 @@ function copyTable() {
                 </div>
 
                 <!-- Spreadsheet Table -->
-                <div class="overflow-hidden rounded-lg bg-white shadow">
+                <div class="overflow-hidden rounded-lg bg-white shadow-card">
                     <div class="overflow-x-auto">
                         <table class="min-w-full border-collapse border border-gray-300 text-sm">
                             <thead>
